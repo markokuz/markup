@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Markup — PDF Scale Measure",
+  title: "Markup - PDF Scale Measure",
   description: "Calibrate scale on PDF drawings and measure with real-world units",
 };
 

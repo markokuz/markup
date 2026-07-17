@@ -163,7 +163,7 @@ export function PdfViewer() {
         <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-12">
           <p className="text-lg font-medium text-slate-200">No file loaded</p>
           <p className="mt-2 max-w-sm text-sm text-slate-500">
-            Upload a PDF, TIFF, or photo (PNG, JPG, etc.) to calibrate scale and
+            Upload a PDF, TIF, or photo (PNG, JPG, etc.) to calibrate scale and
             add measurements.
           </p>
         </div>

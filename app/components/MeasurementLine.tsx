@@ -3,9 +3,9 @@
 import type { Measurement, Scale, Unit } from "@/app/types";
 import { midpoint, toScreenPoint } from "@/app/utils/coordinates";
 import { convertUnits, formatDistance } from "@/app/utils/units";
+import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
-// Re-export pdfDistance from coordinates - fix import in MeasurementLine
 function getDisplayDistance(
   measurement: Measurement,
   scale: Scale,
@@ -30,6 +30,7 @@ interface MeasurementLineProps {
   displayUnit: Unit;
   isSelected: boolean;
   showHandles: boolean;
+  isEditingLength: boolean;
   onSelect: (id: string) => void;
   onEndpointPointerDown: (
     id: string,
@@ -37,7 +38,10 @@ interface MeasurementLineProps {
     event: React.PointerEvent,
   ) => void;
   onBodyPointerDown: (id: string, event: React.PointerEvent) => void;
-  onLabelPointerDown: (id: string, event: React.PointerEvent) => void;
+  onLabelDragStart: (id: string, event: React.PointerEvent) => void;
+  onStartEditLength: (id: string) => void;
+  onCommitLength: (id: string, value: number) => void;
+  onCancelEdit: () => void;
 }
 
 export function MeasurementLine({
@@ -47,10 +51,14 @@ export function MeasurementLine({
   displayUnit,
   isSelected,
   showHandles,
+  isEditingLength,
   onSelect,
   onEndpointPointerDown,
   onBodyPointerDown,
-  onLabelPointerDown,
+  onLabelDragStart,
+  onStartEditLength,
+  onCommitLength,
+  onCancelEdit,
 }: MeasurementLineProps) {
   const start = toScreenPoint(viewport, measurement.start.x, measurement.start.y);
   const end = toScreenPoint(viewport, measurement.end.x, measurement.end.y);
@@ -100,34 +108,49 @@ export function MeasurementLine({
           onBodyPointerDown(measurement.id, e);
         }}
       />
-      <rect
-        x={labelPos.x - 4}
-        y={labelPos.y - 14}
-        width={label.length * 7 + 12}
-        height={20}
-        rx={4}
-        fill="rgba(15, 23, 42, 0.85)"
-        stroke={color}
-        strokeWidth={1}
-        style={{ pointerEvents: showHandles ? "all" : "none", cursor: showHandles ? "move" : "default" }}
-        onPointerDown={(e) => {
-          if (!showHandles) return;
-          e.stopPropagation();
-          onSelect(measurement.id);
-          onLabelPointerDown(measurement.id, e);
-        }}
-      />
-      <text
-        x={labelPos.x + 2}
-        y={labelPos.y}
-        fill={color}
-        fontSize={12}
-        fontWeight={600}
-        fontFamily="var(--font-geist-mono), monospace"
-        style={{ pointerEvents: "none", userSelect: "none" }}
-      >
-        {label}
-      </text>
+      {!measurement.isCalibration && (
+        <DimensionLabel
+          x={labelPos.x}
+          y={labelPos.y}
+          label={label}
+          color={color}
+          displayUnit={displayUnit}
+          isSelected={isSelected}
+          showHandles={showHandles && !!scale}
+          isEditing={isEditingLength}
+          onSelect={() => onSelect(measurement.id)}
+          onStartEdit={() => onStartEditLength(measurement.id)}
+          onCommit={(value) => onCommitLength(measurement.id, value)}
+          onCancel={onCancelEdit}
+          onDragStart={(event) => onLabelDragStart(measurement.id, event)}
+        />
+      )}
+      {measurement.isCalibration && (
+        <>
+          <rect
+            x={labelPos.x - 4}
+            y={labelPos.y - 14}
+            width={label.length * 7 + 12}
+            height={20}
+            rx={4}
+            fill="rgba(15, 23, 42, 0.85)"
+            stroke={color}
+            strokeWidth={1}
+            style={{ pointerEvents: "none" }}
+          />
+          <text
+            x={labelPos.x + 2}
+            y={labelPos.y}
+            fill={color}
+            fontSize={12}
+            fontWeight={600}
+            fontFamily="var(--font-geist-mono), monospace"
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {label}
+          </text>
+        </>
+      )}
       {showHandles && isSelected && !measurement.isCalibration && (
         <>
           <circle

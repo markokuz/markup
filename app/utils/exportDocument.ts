@@ -1,7 +1,17 @@
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import type { DocumentType, Measurement, Scale, Unit } from "@/app/types";
+import type {
+  DocumentType,
+  Measurement,
+  RectMeasurement,
+  Scale,
+  Unit,
+} from "@/app/types";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance, midpoint } from "@/app/utils/coordinates";
+import {
+  getRectDocHeight,
+  getRectDocWidth,
+} from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
 
 function getMeasurementLabel(
@@ -12,6 +22,19 @@ function getMeasurementLabel(
   const dist = docDistance(measurement.start, measurement.end);
   const value = convertUnits(
     dist * scale.unitsPerPdfPoint,
+    scale.calibrationUnit,
+    displayUnit,
+  );
+  return formatDistance(value, displayUnit);
+}
+
+function getRectDimensionLabel(
+  docLength: number,
+  scale: Scale,
+  displayUnit: Unit,
+): string {
+  const value = convertUnits(
+    docLength * scale.unitsPerPdfPoint,
     scale.calibrationUnit,
     displayUnit,
   );
@@ -52,9 +75,52 @@ function drawMeasurementOnCanvas(
   context.fillText(label, labelX, labelY);
 }
 
+function drawRectangleOnCanvas(
+  context: CanvasRenderingContext2D,
+  rectangle: RectMeasurement,
+  scale: Scale | null,
+  displayUnit: Unit,
+  yOrigin: "top" | "bottom",
+  docHeight = 0,
+) {
+  const color = "#06b6d4";
+  const mapY = (y: number) => (yOrigin === "top" ? y : docHeight - y);
+
+  const x = rectangle.topLeft.x;
+  const y = mapY(rectangle.topLeft.y);
+  const width = rectangle.bottomRight.x - rectangle.topLeft.x;
+  const height = rectangle.bottomRight.y - rectangle.topLeft.y;
+  const screenHeight = yOrigin === "top" ? height : -height;
+
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.strokeRect(x, y, width, screenHeight);
+
+  if (!scale) return;
+
+  const docWidth = getRectDocWidth(rectangle);
+  const docHeightValue = getRectDocHeight(rectangle);
+  const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
+  const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
+
+  const widthLabelX =
+    x + width / 2 + rectangle.widthLabelOffset.x;
+  const widthLabelY = mapY(rectangle.topLeft.y + rectangle.widthLabelOffset.y);
+  const heightLabelX =
+    x + rectangle.heightLabelOffset.x;
+  const heightLabelY =
+    mapY(rectangle.topLeft.y + docHeightValue / 2 + rectangle.heightLabelOffset.y);
+
+  context.font = "600 12px Helvetica, Arial, sans-serif";
+  context.fillStyle = color;
+  context.fillText(widthLabel, widthLabelX, widthLabelY);
+  context.fillText(heightLabel, heightLabelX, heightLabelY);
+}
+
 async function exportMarkedUpPdf(
   fileBytes: Uint8Array,
   measurements: Measurement[],
+  rectangles: RectMeasurement[],
   scale: Scale | null,
   displayUnit: Unit,
   fileName: string,
@@ -65,6 +131,7 @@ async function exportMarkedUpPdf(
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const lineColor = rgb(0.05, 0.75, 0.95);
   const calibrateColor = rgb(0.95, 0.55, 0.1);
+  const rectColor = rgb(0.05, 0.75, 0.95);
 
   for (const measurement of measurements) {
     const color = measurement.isCalibration ? calibrateColor : lineColor;
@@ -95,6 +162,54 @@ async function exportMarkedUpPdf(
     }
   }
 
+  for (const rectangle of rectangles) {
+    const x = rectangle.topLeft.x;
+    const y = height - rectangle.bottomRight.y;
+    const rectWidth = rectangle.bottomRight.x - rectangle.topLeft.x;
+    const rectHeight = rectangle.bottomRight.y - rectangle.topLeft.y;
+
+    page.drawRectangle({
+      x,
+      y,
+      width: rectWidth,
+      height: rectHeight,
+      borderColor: rectColor,
+      borderWidth: 2,
+    });
+
+    if (scale) {
+      const docWidth = getRectDocWidth(rectangle);
+      const docHeightValue = getRectDocHeight(rectangle);
+      const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
+      const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
+
+      const widthLabelX =
+        x + rectWidth / 2 + rectangle.widthLabelOffset.x;
+      const widthLabelY =
+        height - (rectangle.topLeft.y + rectangle.widthLabelOffset.y) - 4;
+      const heightLabelX = x + rectangle.heightLabelOffset.x;
+      const heightLabelY =
+        height -
+        (rectangle.topLeft.y + docHeightValue / 2 + rectangle.heightLabelOffset.y) -
+        4;
+
+      page.drawText(widthLabel, {
+        x: widthLabelX,
+        y: widthLabelY,
+        size: 10,
+        font,
+        color: rectColor,
+      });
+      page.drawText(heightLabel, {
+        x: heightLabelX,
+        y: heightLabelY,
+        size: 10,
+        font,
+        color: rectColor,
+      });
+    }
+  }
+
   const output = await pdfDoc.save();
   downloadBlob(
     new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" }),
@@ -107,6 +222,7 @@ async function exportMarkedUpImage(
   fileName: string,
   mimeType: string,
   measurements: Measurement[],
+  rectangles: RectMeasurement[],
   scale: Scale | null,
   displayUnit: Unit,
 ): Promise<void> {
@@ -124,6 +240,17 @@ async function exportMarkedUpImage(
     drawMeasurementOnCanvas(
       context,
       measurement,
+      scale,
+      displayUnit,
+      "top",
+      source.height,
+    );
+  }
+
+  for (const rectangle of rectangles) {
+    drawRectangleOnCanvas(
+      context,
+      rectangle,
       scale,
       displayUnit,
       "top",
@@ -159,11 +286,19 @@ export async function exportMarkedUpDocument(
   fileName: string,
   mimeType: string,
   measurements: Measurement[],
+  rectangles: RectMeasurement[],
   scale: Scale | null,
   displayUnit: Unit,
 ): Promise<void> {
   if (fileType === "pdf") {
-    await exportMarkedUpPdf(fileBytes, measurements, scale, displayUnit, fileName);
+    await exportMarkedUpPdf(
+      fileBytes,
+      measurements,
+      rectangles,
+      scale,
+      displayUnit,
+      fileName,
+    );
     return;
   }
 
@@ -172,6 +307,7 @@ export async function exportMarkedUpDocument(
     fileName,
     mimeType,
     measurements,
+    rectangles,
     scale,
     displayUnit,
   );

@@ -7,12 +7,13 @@ import { exportMarkedUpDocument } from "@/app/utils/exportDocument";
 import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
+import {
+  getRectDocHeight,
+  getRectDocWidth,
+} from "@/app/utils/dimensions";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
-  { id: "measure", label: "Measure", hint: "Draw dimension lines" },
-  { id: "select", label: "Select", hint: "Move and edit measurements" },
-  { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
 
 export function Toolbar() {
@@ -46,6 +47,7 @@ export function Toolbar() {
       state.fileName,
       state.fileMimeType ?? "",
       state.measurements,
+      state.rectangles,
       state.scale,
       state.displayUnit,
     );
@@ -53,6 +55,10 @@ export function Toolbar() {
 
   const saveLabel =
     state.fileType === "image" ? "Save PNG" : "Save PDF";
+
+  const annotationCount =
+    state.measurements.filter((m) => !m.isCalibration).length +
+    state.rectangles.length;
 
   const zoomIn = () =>
     dispatch({ type: "SET_ZOOM", zoom: Math.min(4, state.zoom + 0.25) });
@@ -145,7 +151,7 @@ export function Toolbar() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={!state.fileBytes || state.measurements.length === 0}
+            disabled={!state.fileBytes || annotationCount === 0}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-40"
           >
             {saveLabel}
@@ -162,12 +168,15 @@ export function StatusBar() {
 
   if (!state.fileBytes) return null;
 
-  const selected = state.measurements.find((m) => m.id === state.selectedId);
-  const selectedLabel =
-    selected && state.scale && !selected.isCalibration
+  const selectedLine = state.measurements.find((m) => m.id === state.selectedId);
+  const selectedRect = state.rectangles.find((r) => r.id === state.selectedId);
+
+  const selectedLineLabel =
+    selectedLine && state.scale && !selectedLine.isCalibration
       ? formatDistance(
           convertUnits(
-            docDistance(selected.start, selected.end) * state.scale.unitsPerPdfPoint,
+            docDistance(selectedLine.start, selectedLine.end) *
+              state.scale.unitsPerPdfPoint,
             state.scale.calibrationUnit,
             state.displayUnit,
           ),
@@ -175,24 +184,50 @@ export function StatusBar() {
         )
       : null;
 
+  const selectedRectLabel =
+    selectedRect && state.scale
+      ? `${formatDistance(
+          convertUnits(
+            getRectDocWidth(selectedRect) * state.scale.unitsPerPdfPoint,
+            state.scale.calibrationUnit,
+            state.displayUnit,
+          ),
+          state.displayUnit,
+        )} × ${formatDistance(
+          convertUnits(
+            getRectDocHeight(selectedRect) * state.scale.unitsPerPdfPoint,
+            state.scale.calibrationUnit,
+            state.displayUnit,
+          ),
+          state.displayUnit,
+        )}`
+      : null;
+
+  const lineCount = state.measurements.filter((m) => !m.isCalibration).length;
+  const rectCount = state.rectangles.length;
+  const totalCount = lineCount + rectCount;
+
   return (
     <footer className="flex flex-wrap items-center gap-4 border-t border-slate-800 bg-slate-950/90 px-4 py-2 text-sm backdrop-blur">
       <div className="text-slate-400">
         {state.fileName}
-        {state.measurements.filter((m) => !m.isCalibration).length > 0 && (
+        {totalCount > 0 && (
           <span className="ml-2 text-slate-500">
-            · {state.measurements.filter((m) => !m.isCalibration).length}{" "}
-            measurement
-            {state.measurements.filter((m) => !m.isCalibration).length === 1
-              ? ""
-              : "s"}
+            · {totalCount} annotation{totalCount === 1 ? "" : "s"}
           </span>
         )}
       </div>
 
       <div className="ml-auto flex items-center gap-3">
-        {selectedLabel && (
-          <span className="font-mono text-cyan-300">Selected: {selectedLabel}</span>
+        {selectedLineLabel && (
+          <span className="font-mono text-cyan-300">
+            Selected: {selectedLineLabel}
+          </span>
+        )}
+        {selectedRectLabel && (
+          <span className="font-mono text-cyan-300">
+            Selected: {selectedRectLabel}
+          </span>
         )}
         <label className="flex items-center gap-2 text-slate-400">
           Display unit
@@ -214,11 +249,11 @@ export function StatusBar() {
           </select>
         </label>
 
-        {selected && !selected.isCalibration && (
+        {selectedLine && !selectedLine.isCalibration && (
           <button
             type="button"
             onClick={() =>
-              dispatch({ type: "DELETE_MEASUREMENT", id: selected.id })
+              dispatch({ type: "DELETE_MEASUREMENT", id: selectedLine.id })
             }
             className="rounded-md border border-red-500/40 px-2 py-1 text-red-300 transition hover:bg-red-500/10"
           >
@@ -226,12 +261,26 @@ export function StatusBar() {
           </button>
         )}
 
-        {state.tool === "measure" && !state.scale && (
+        {selectedRect && (
+          <button
+            type="button"
+            onClick={() =>
+              dispatch({ type: "DELETE_RECTANGLE", id: selectedRect.id })
+            }
+            className="rounded-md border border-red-500/40 px-2 py-1 text-red-300 transition hover:bg-red-500/10"
+          >
+            Delete
+          </button>
+        )}
+
+        {(state.tool === "measure" || state.tool === "rectangle") && !state.scale && (
           <span className="text-amber-400">Calibrate scale before measuring</span>
         )}
 
-        {state.tool === "select" && !selected && (
-          <span className="text-slate-500">Click a measurement to edit</span>
+        {state.tool === "select" && !selectedLine && !selectedRect && (
+          <span className="text-slate-500">
+            Click an annotation to edit · click a label to type a dimension
+          </span>
         )}
       </div>
     </footer>

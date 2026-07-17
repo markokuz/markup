@@ -40,6 +40,31 @@ export function midpoint(a: Point2D, b: Point2D): Point2D {
   };
 }
 
+export interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Convert doc-space bounds to a screen-space rect with positive width/height. */
+export function toScreenRect(
+  viewport: DocumentViewport,
+  topLeft: Point2D,
+  bottomRight: Point2D,
+): ScreenRect {
+  const p1 = toScreenPoint(viewport, topLeft.x, topLeft.y);
+  const p2 = toScreenPoint(viewport, bottomRight.x, bottomRight.y);
+  const x = Math.min(p1.x, p2.x);
+  const y = Math.min(p1.y, p2.y);
+  return {
+    x,
+    y,
+    width: Math.abs(p2.x - p1.x),
+    height: Math.abs(p2.y - p1.y),
+  };
+}
+
 export function distanceToSegment(
   point: Point2D,
   start: Point2D,

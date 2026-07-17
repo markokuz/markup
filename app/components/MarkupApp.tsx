@@ -5,6 +5,7 @@ import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppConte
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
 import { PdfViewer } from "@/app/components/PdfCanvas";
 import { ScaleBanner } from "@/app/components/ScaleBanner";
+import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 
 function MarkupShell() {
@@ -21,6 +22,8 @@ function MarkupShell() {
 
       if (event.key === "Escape") {
         dispatch({ type: "SET_PENDING_POINT", point: null });
+        dispatch({ type: "SET_PENDING_RECT_DRAG", drag: null });
+        dispatch({ type: "CLEAR_EDITING_DIMENSION" });
         dispatch({ type: "SELECT_MEASUREMENT", id: null });
         dispatch({ type: "CLOSE_CALIBRATE_DIALOG" });
       }
@@ -40,13 +43,18 @@ function MarkupShell() {
         state.selectedId &&
         !isEditing
       ) {
-        dispatch({ type: "DELETE_MEASUREMENT", id: state.selectedId });
+        const isLine = state.measurements.some((m) => m.id === state.selectedId);
+        if (isLine) {
+          dispatch({ type: "DELETE_MEASUREMENT", id: state.selectedId });
+        } else {
+          dispatch({ type: "DELETE_RECTANGLE", id: state.selectedId });
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dispatch, state.selectedId]);
+  }, [dispatch, state.measurements, state.selectedId]);
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
@@ -54,7 +62,10 @@ function MarkupShell() {
       <div className="border-b border-slate-800 px-4 py-2">
         <ScaleBanner />
       </div>
-      <PdfViewer />
+      <div className="flex min-h-0 flex-1">
+        <SideToolbar />
+        <PdfViewer />
+      </div>
       <StatusBar />
       <CalibrateDialog />
     </div>

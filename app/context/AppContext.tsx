@@ -21,6 +21,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         tool: action.tool,
         pendingPoint: null,
+        pendingRectDrag: null,
+        editingDimension: null,
         selectedId: action.tool === "select" ? state.selectedId : null,
       };
     case "SET_DISPLAY_UNIT":
@@ -38,6 +40,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, zoom: action.zoom };
     case "SET_PENDING_POINT":
       return { ...state, pendingPoint: action.point };
+    case "SET_PENDING_RECT_DRAG":
+      return { ...state, pendingRectDrag: action.drag };
     case "ADD_MEASUREMENT":
       return {
         ...state,
@@ -59,10 +63,51 @@ function appReducer(state: AppState, action: AppAction): AppState {
         history: appendHistory(state),
         measurements,
         selectedId: state.selectedId === action.id ? null : state.selectedId,
+        editingDimension:
+          state.editingDimension?.target === "line" &&
+          state.editingDimension.id === action.id
+            ? null
+            : state.editingDimension,
+      };
+    }
+    case "ADD_RECTANGLE":
+      return {
+        ...state,
+        history: appendHistory(state),
+        rectangles: [...state.rectangles, action.rectangle],
+        pendingRectDrag: null,
+      };
+    case "UPDATE_RECTANGLE":
+      return {
+        ...state,
+        rectangles: state.rectangles.map((r) =>
+          r.id === action.id ? { ...r, ...action.updates } : r,
+        ),
+      };
+    case "DELETE_RECTANGLE": {
+      const rectangles = state.rectangles.filter((r) => r.id !== action.id);
+      return {
+        ...state,
+        history: appendHistory(state),
+        rectangles,
+        selectedId: state.selectedId === action.id ? null : state.selectedId,
+        editingDimension:
+          state.editingDimension?.target === "rectangle" &&
+          state.editingDimension.id === action.id
+            ? null
+            : state.editingDimension,
       };
     }
     case "SELECT_MEASUREMENT":
-      return { ...state, selectedId: action.id };
+      return {
+        ...state,
+        selectedId: action.id,
+        editingDimension: null,
+      };
+    case "SET_EDITING_DIMENSION":
+      return { ...state, editingDimension: action.editing };
+    case "CLEAR_EDITING_DIMENSION":
+      return { ...state, editingDimension: null };
     case "SET_SCALE":
       return {
         ...state,
@@ -96,8 +141,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
         history: appendHistory(state),
         scale: null,
         measurements: [],
+        rectangles: [],
         selectedId: null,
         pendingPoint: null,
+        pendingRectDrag: null,
+        editingDimension: null,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
       };
@@ -113,9 +161,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         history: state.history.slice(0, -1),
         measurements: snapshot.measurements,
+        rectangles: snapshot.rectangles,
         scale: snapshot.scale,
         selectedId: snapshot.selectedId,
         pendingPoint: null,
+        pendingRectDrag: null,
+        editingDimension: null,
       };
     }
     default:

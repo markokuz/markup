@@ -2,6 +2,8 @@ export type ToolMode = "calibrate" | "measure" | "select" | "pan";
 
 export type Unit = "ft" | "in" | "m" | "mm";
 
+export type DocumentType = "pdf" | "image";
+
 export interface Point2D {
   x: number;
   y: number;
@@ -38,8 +40,10 @@ export interface AppState {
   measurements: Measurement[];
   selectedId: string | null;
   pendingPoint: Point2D | null;
-  pdfBytes: Uint8Array | null;
-  pdfFileName: string | null;
+  fileBytes: Uint8Array | null;
+  fileName: string | null;
+  fileType: DocumentType | null;
+  fileMimeType: string | null;
   zoom: number;
   calibrateDialogOpen: boolean;
   pendingCalibrationLine: PendingCalibrationLine | null;
@@ -49,7 +53,7 @@ export interface AppState {
 export type AppAction =
   | { type: "SET_TOOL"; tool: ToolMode }
   | { type: "SET_DISPLAY_UNIT"; unit: Unit }
-  | { type: "LOAD_PDF"; bytes: Uint8Array; fileName: string }
+  | { type: "LOAD_FILE"; bytes: Uint8Array; fileName: string; fileType: DocumentType; mimeType: string }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_PENDING_POINT"; point: Point2D | null }
   | { type: "ADD_MEASUREMENT"; measurement: Measurement }
@@ -70,8 +74,10 @@ export const initialState: AppState = {
   measurements: [],
   selectedId: null,
   pendingPoint: null,
-  pdfBytes: null,
-  pdfFileName: null,
+  fileBytes: null,
+  fileName: null,
+  fileType: null,
+  fileMimeType: null,
   zoom: 1,
   calibrateDialogOpen: false,
   pendingCalibrationLine: null,

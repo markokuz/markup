@@ -3,7 +3,7 @@
 import type { Measurement, Scale, Unit } from "@/app/types";
 import { midpoint, toScreenPoint } from "@/app/utils/coordinates";
 import { convertUnits, formatDistance } from "@/app/utils/units";
-import type { PageViewport } from "pdfjs-dist";
+import type { DocumentViewport } from "@/app/utils/documentViewport";
 
 // Re-export pdfDistance from coordinates - fix import in MeasurementLine
 function getDisplayDistance(
@@ -25,7 +25,7 @@ function getDisplayDistance(
 
 interface MeasurementLineProps {
   measurement: Measurement;
-  viewport: PageViewport;
+  viewport: DocumentViewport;
   scale: Scale | null;
   displayUnit: Unit;
   isSelected: boolean;

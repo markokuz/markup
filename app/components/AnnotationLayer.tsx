@@ -5,14 +5,14 @@ import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
   getLocalCoords,
-  toPdfPoint,
+  toDocPoint,
   toScreenPoint,
 } from "@/app/utils/coordinates";
 import { MeasurementLine } from "@/app/components/MeasurementLine";
-import type { PageViewport } from "pdfjs-dist";
+import type { DocumentViewport } from "@/app/utils/documentViewport";
 
 interface AnnotationLayerProps {
-  viewport: PageViewport;
+  viewport: DocumentViewport;
   overlayRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -39,7 +39,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       if (!overlay) return;
 
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
-      const pdfPoint = toPdfPoint(viewport, local.x, local.y);
+      const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       if (state.tool === "select") {
         dispatch({ type: "SELECT_MEASUREMENT", id: null });
@@ -85,7 +85,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       if (!overlay) return;
 
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
-      const pdfPoint = toPdfPoint(viewport, local.x, local.y);
+      const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       if (dragRef.current) {
         const drag = dragRef.current;
@@ -164,7 +164,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     dispatch({ type: "RECORD_UNDO" });
 
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
-    const originPdf = toPdfPoint(viewport, local.x, local.y);
+    const originPdf = toDocPoint(viewport, local.x, local.y);
 
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {

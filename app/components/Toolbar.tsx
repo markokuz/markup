@@ -3,9 +3,10 @@
 import { useRef } from "react";
 import type { ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { exportMarkedUpPdf } from "@/app/utils/exportPdf";
+import { exportMarkedUpDocument } from "@/app/utils/exportDocument";
+import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
-import { pdfDistance } from "@/app/utils/coordinates";
+import { docDistance } from "@/app/utils/coordinates";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
@@ -22,25 +23,36 @@ export function Toolbar() {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    const fileType = detectDocumentType(file);
+    if (!fileType) return;
+
     const buffer = await file.arrayBuffer();
     dispatch({
-      type: "LOAD_PDF",
+      type: "LOAD_FILE",
       bytes: new Uint8Array(buffer),
       fileName: file.name,
+      fileType,
+      mimeType: file.type,
     });
     event.target.value = "";
   };
 
   const handleSave = async () => {
-    if (!state.pdfBytes || !state.pdfFileName) return;
-    await exportMarkedUpPdf(
-      state.pdfBytes,
+    if (!state.fileBytes || !state.fileName || !state.fileType) return;
+    await exportMarkedUpDocument(
+      state.fileBytes,
+      state.fileType,
+      state.fileName,
+      state.fileMimeType ?? "",
       state.measurements,
       state.scale,
       state.displayUnit,
-      state.pdfFileName,
     );
   };
+
+  const saveLabel =
+    state.fileType === "image" ? "Save PNG" : "Save PDF";
 
   const zoomIn = () =>
     dispatch({ type: "SET_ZOOM", zoom: Math.min(4, state.zoom + 0.25) });
@@ -55,7 +67,7 @@ export function Toolbar() {
             Markup
           </h1>
           <span className="hidden text-xs text-slate-500 sm:inline">
-            PDF scale measure
+            PDF & image measure
           </span>
         </div>
 
@@ -64,7 +76,7 @@ export function Toolbar() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf"
+          accept={ACCEPTED_FILE_TYPES}
           className="hidden"
           onChange={handleFileChange}
         />
@@ -73,7 +85,7 @@ export function Toolbar() {
           onClick={() => fileInputRef.current?.click()}
           className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition hover:bg-slate-700"
         >
-          Upload PDF
+          Upload File
         </button>
 
         <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
@@ -82,7 +94,7 @@ export function Toolbar() {
               key={tool.id}
               type="button"
               title={tool.hint}
-              disabled={!state.pdfBytes && tool.id !== "calibrate"}
+              disabled={!state.fileBytes && tool.id !== "calibrate"}
               onClick={() => dispatch({ type: "SET_TOOL", tool: tool.id })}
               className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-40 ${
                 state.tool === tool.id
@@ -98,7 +110,7 @@ export function Toolbar() {
         <button
           type="button"
           title="Undo (Ctrl+Z)"
-          disabled={!state.pdfBytes || state.history.length === 0}
+          disabled={!state.fileBytes || state.history.length === 0}
           onClick={() => dispatch({ type: "UNDO" })}
           className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
         >
@@ -110,7 +122,7 @@ export function Toolbar() {
             <button
               type="button"
               onClick={zoomOut}
-              disabled={!state.pdfBytes}
+              disabled={!state.fileBytes}
               className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
               aria-label="Zoom out"
             >
@@ -122,7 +134,7 @@ export function Toolbar() {
             <button
               type="button"
               onClick={zoomIn}
-              disabled={!state.pdfBytes}
+              disabled={!state.fileBytes}
               className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
               aria-label="Zoom in"
             >
@@ -133,10 +145,10 @@ export function Toolbar() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={!state.pdfBytes || state.measurements.length === 0}
+            disabled={!state.fileBytes || state.measurements.length === 0}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-40"
           >
-            Save PDF
+            {saveLabel}
           </button>
         </div>
       </div>
@@ -148,14 +160,14 @@ export function StatusBar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
-  if (!state.pdfBytes) return null;
+  if (!state.fileBytes) return null;
 
   const selected = state.measurements.find((m) => m.id === state.selectedId);
   const selectedLabel =
     selected && state.scale && !selected.isCalibration
       ? formatDistance(
           convertUnits(
-            pdfDistance(selected.start, selected.end) * state.scale.unitsPerPdfPoint,
+            docDistance(selected.start, selected.end) * state.scale.unitsPerPdfPoint,
             state.scale.calibrationUnit,
             state.displayUnit,
           ),
@@ -166,7 +178,7 @@ export function StatusBar() {
   return (
     <footer className="flex flex-wrap items-center gap-4 border-t border-slate-800 bg-slate-950/90 px-4 py-2 text-sm backdrop-blur">
       <div className="text-slate-400">
-        {state.pdfFileName}
+        {state.fileName}
         {state.measurements.filter((m) => !m.isCalibration).length > 0 && (
           <span className="ml-2 text-slate-500">
             · {state.measurements.filter((m) => !m.isCalibration).length}{" "}

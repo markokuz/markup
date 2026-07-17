@@ -25,11 +25,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     case "SET_DISPLAY_UNIT":
       return { ...state, displayUnit: action.unit };
-    case "LOAD_PDF":
+    case "LOAD_FILE":
       return {
         ...initialState,
-        pdfBytes: action.bytes,
-        pdfFileName: action.fileName,
+        fileBytes: action.bytes,
+        fileName: action.fileName,
+        fileType: action.fileType,
+        fileMimeType: action.mimeType,
         zoom: 1,
       };
     case "SET_ZOOM":

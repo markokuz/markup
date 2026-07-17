@@ -2,28 +2,37 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { usePdfDocument } from "@/app/hooks/usePdfDocument";
+import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
+import { detectDocumentType } from "@/app/utils/fileTypes";
 
-async function readPdfFile(
+async function readDocumentFile(
   file: File,
   dispatch: React.Dispatch<import("@/app/types").AppAction>,
 ) {
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    return;
-  }
+  const fileType = detectDocumentType(file);
+  if (!fileType) return;
+
   const buffer = await file.arrayBuffer();
   dispatch({
-    type: "LOAD_PDF",
+    type: "LOAD_FILE",
     bytes: new Uint8Array(buffer),
     fileName: file.name,
+    fileType,
+    mimeType: file.type,
   });
 }
 
 export function PdfViewer() {
-  const { pdfBytes, zoom, tool } = useAppState();
+  const { fileBytes, fileType, fileName, fileMimeType, zoom, tool } = useAppState();
   const dispatch = useAppDispatch();
-  const { canvasRef, viewport, loading, error } = usePdfDocument(pdfBytes, zoom);
+  const { canvasRef, viewport, loading, error } = useDocument(
+    fileBytes,
+    fileType,
+    fileName,
+    fileMimeType,
+    zoom,
+  );
   const overlayRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(
@@ -49,13 +58,13 @@ export function PdfViewer() {
 
   const handleWheel = useCallback(
     (event: WheelEvent) => {
-      if (!pdfBytes) return;
+      if (!fileBytes) return;
       event.preventDefault();
       const delta = event.deltaY > 0 ? -0.1 : 0.1;
       const next = Math.min(4, Math.max(0.25, zoom + delta));
       dispatch({ type: "SET_ZOOM", zoom: Math.round(next * 100) / 100 });
     },
-    [dispatch, pdfBytes, zoom],
+    [dispatch, fileBytes, zoom],
   );
 
   useEffect(() => {
@@ -67,7 +76,7 @@ export function PdfViewer() {
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !pdfBytes) return;
+    if (!el || !fileBytes) return;
 
     const onMiddlePointerDown = (event: PointerEvent) => {
       if (event.button !== 1) return;
@@ -109,13 +118,13 @@ export function PdfViewer() {
       el.removeEventListener("pointercancel", onPointerEnd);
       el.removeEventListener("auxclick", onAuxClick);
     };
-  }, [pdfBytes, beginPan, endPan]);
+  }, [fileBytes, beginPan, endPan]);
 
   const handleDrop = useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault();
       const file = event.dataTransfer.files[0];
-      if (file) await readPdfFile(file, dispatch);
+      if (file) await readDocumentFile(file, dispatch);
     },
     [dispatch],
   );
@@ -140,7 +149,7 @@ export function PdfViewer() {
 
   const panCursor = isPanning ? "grabbing" : tool === "pan" ? "grab" : undefined;
 
-  if (!pdfBytes) {
+  if (!fileBytes) {
     return (
       <div
         className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"
@@ -148,10 +157,10 @@ export function PdfViewer() {
         onDrop={handleDrop}
       >
         <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-12">
-          <p className="text-lg font-medium text-slate-200">No PDF loaded</p>
+          <p className="text-lg font-medium text-slate-200">No file loaded</p>
           <p className="mt-2 max-w-sm text-sm text-slate-500">
-            Upload a CAD drawing PDF or drag and drop one here to calibrate scale
-            and add measurements.
+            Upload a PDF, TIFF, or photo (PNG, JPG, etc.) to calibrate scale and
+            add measurements.
           </p>
         </div>
       </div>

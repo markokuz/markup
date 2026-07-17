@@ -1,25 +1,23 @@
-import type { PageViewport } from "pdfjs-dist";
+import type { DocumentViewport } from "@/app/utils/documentViewport";
 import type { Point2D } from "@/app/types";
 
-export function toPdfPoint(
-  viewport: PageViewport,
+export function toDocPoint(
+  viewport: DocumentViewport,
   localX: number,
   localY: number,
 ): Point2D {
-  const [x, y] = viewport.convertToPdfPoint(localX, localY);
-  return { x, y };
+  return viewport.convertToDocPoint(localX, localY);
 }
 
 export function toScreenPoint(
-  viewport: PageViewport,
-  pdfX: number,
-  pdfY: number,
+  viewport: DocumentViewport,
+  docX: number,
+  docY: number,
 ): Point2D {
-  const [x, y] = viewport.convertToViewportPoint(pdfX, pdfY);
-  return { x, y };
+  return viewport.convertToViewportPoint(docX, docY);
 }
 
-export function pdfDistance(a: Point2D, b: Point2D): number {
+export function docDistance(a: Point2D, b: Point2D): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
@@ -64,3 +62,7 @@ export function distanceToSegment(
 
   return Math.hypot(point.x - projX, point.y - projY);
 }
+
+// Backwards-compatible aliases used across the app
+export const toPdfPoint = toDocPoint;
+export const pdfDistance = docDistance;

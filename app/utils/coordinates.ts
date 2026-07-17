@@ -65,6 +65,61 @@ export function toScreenRect(
   };
 }
 
+export type ScreenCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
+const OPPOSITE_SCREEN_CORNER: Record<ScreenCorner, ScreenCorner> = {
+  topLeft: "bottomRight",
+  topRight: "bottomLeft",
+  bottomLeft: "topRight",
+  bottomRight: "topLeft",
+};
+
+export function getScreenCornerPoint(
+  corner: ScreenCorner,
+  rect: ScreenRect,
+): Point2D {
+  switch (corner) {
+    case "topLeft":
+      return { x: rect.x, y: rect.y };
+    case "topRight":
+      return { x: rect.x + rect.width, y: rect.y };
+    case "bottomLeft":
+      return { x: rect.x, y: rect.y + rect.height };
+    case "bottomRight":
+      return { x: rect.x + rect.width, y: rect.y + rect.height };
+  }
+}
+
+export function getOppositeScreenCorner(corner: ScreenCorner): ScreenCorner {
+  return OPPOSITE_SCREEN_CORNER[corner];
+}
+
+/** Convert two opposite screen corners back to doc-space min/max bounds. */
+export function docRectFromScreenCorners(
+  viewport: DocumentViewport,
+  cornerA: Point2D,
+  cornerB: Point2D,
+): { topLeft: Point2D; bottomRight: Point2D } {
+  const minX = Math.min(cornerA.x, cornerB.x);
+  const minY = Math.min(cornerA.y, cornerB.y);
+  const maxX = Math.max(cornerA.x, cornerB.x);
+  const maxY = Math.max(cornerA.y, cornerB.y);
+
+  const docP1 = toDocPoint(viewport, minX, minY);
+  const docP2 = toDocPoint(viewport, maxX, maxY);
+
+  return {
+    topLeft: {
+      x: Math.min(docP1.x, docP2.x),
+      y: Math.min(docP1.y, docP2.y),
+    },
+    bottomRight: {
+      x: Math.max(docP1.x, docP2.x),
+      y: Math.max(docP1.y, docP2.y),
+    },
+  };
+}
+
 export function distanceToSegment(
   point: Point2D,
   start: Point2D,

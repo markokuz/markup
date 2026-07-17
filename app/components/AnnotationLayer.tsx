@@ -4,7 +4,10 @@ import { useCallback, useRef, useState } from "react";
 import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
+  docRectFromScreenCorners,
   getLocalCoords,
+  getOppositeScreenCorner,
+  getScreenCornerPoint,
   toDocPoint,
   toScreenPoint,
   toScreenRect,
@@ -33,7 +36,7 @@ type DragMode =
   | { type: "label"; id: string }
   | { type: "drawRect"; start: Point2D; current: Point2D }
   | { type: "rectBody"; id: string; originPdf: Point2D; topLeft: Point2D; bottomRight: Point2D }
-  | { type: "rectCorner"; id: string; corner: RectCorner; topLeft: Point2D; bottomRight: Point2D }
+  | { type: "rectCorner"; id: string; fixedCornerScreen: Point2D }
   | { type: "rectWidthLabel"; id: string }
   | { type: "rectHeightLabel"; id: string };
 
@@ -192,32 +195,10 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
             },
           });
         } else if (drag.type === "rectCorner") {
-          const { topLeft, bottomRight } = drag;
-          let nextTopLeft = { ...topLeft };
-          let nextBottomRight = { ...bottomRight };
-
-          switch (drag.corner) {
-            case "topLeft":
-              nextTopLeft = pdfPoint;
-              break;
-            case "topRight":
-              nextTopLeft = { x: topLeft.x, y: pdfPoint.y };
-              nextBottomRight = { x: pdfPoint.x, y: bottomRight.y };
-              break;
-            case "bottomLeft":
-              nextTopLeft = { x: pdfPoint.x, y: topLeft.y };
-              nextBottomRight = { x: bottomRight.x, y: pdfPoint.y };
-              break;
-            case "bottomRight":
-              nextBottomRight = pdfPoint;
-              break;
-          }
-
-          const normalized = normalizeRect(nextTopLeft, nextBottomRight);
           dispatch({
             type: "UPDATE_RECTANGLE",
             id: drag.id,
-            updates: normalized,
+            updates: docRectFromScreenCorners(viewport, local, drag.fixedCornerScreen),
           });
         } else if (drag.type === "rectWidthLabel") {
           const rectangle = state.rectangles.find((r) => r.id === drag.id);
@@ -367,14 +348,22 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     const rectangle = state.rectangles.find((r) => r.id === id);
     if (!rectangle) return;
 
+    const screenRect = toScreenRect(
+      viewport,
+      rectangle.topLeft,
+      rectangle.bottomRight,
+    );
+    const fixedCornerScreen = getScreenCornerPoint(
+      getOppositeScreenCorner(corner),
+      screenRect,
+    );
+
     dispatch({ type: "RECORD_UNDO" });
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       type: "rectCorner",
       id,
-      corner,
-      topLeft: { ...rectangle.topLeft },
-      bottomRight: { ...rectangle.bottomRight },
+      fixedCornerScreen,
     };
   };
 

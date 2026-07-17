@@ -3,11 +3,11 @@
 import { FormEvent, useState } from "react";
 import type { Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { pdfDistance } from "@/app/utils/coordinates";
+import { defaultScreenLabelOffsetDoc, midpoint, pdfDistance } from "@/app/utils/coordinates";
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
-  const { calibrateDialogOpen, pendingCalibrationLine } = useAppState();
+  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport } = useAppState();
   const dispatch = useAppDispatch();
   const [value, setValue] = useState("");
   const [unit, setUnit] = useState<Unit>("ft");
@@ -32,6 +32,14 @@ export function CalibrateDialog() {
       return;
     }
 
+    const anchorDoc = midpoint(
+      pendingCalibrationLine.start,
+      pendingCalibrationLine.end,
+    );
+    const labelOffset = documentViewport
+      ? defaultScreenLabelOffsetDoc(documentViewport, anchorDoc)
+      : { x: 0, y: -12 };
+
     dispatch({
       type: "SET_SCALE",
       scale: {
@@ -42,7 +50,7 @@ export function CalibrateDialog() {
         id: crypto.randomUUID(),
         start: pendingCalibrationLine.start,
         end: pendingCalibrationLine.end,
-        labelOffset: { x: 0, y: -16 },
+        labelOffset,
         isCalibration: true,
       },
     });

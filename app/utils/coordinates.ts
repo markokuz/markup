@@ -1,5 +1,5 @@
 import type { DocumentViewport } from "@/app/utils/documentViewport";
-import type { Point2D } from "@/app/types";
+import type { DocumentType, Measurement, Point2D, RectMeasurement } from "@/app/types";
 
 export function toDocPoint(
   viewport: DocumentViewport,
@@ -37,6 +37,91 @@ export function midpoint(a: Point2D, b: Point2D): Point2D {
   return {
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2,
+  };
+}
+
+/** Convert a screen-space label position to a document-space offset from an anchor. */
+export function computeDocOffsetFromScreen(
+  viewport: DocumentViewport,
+  anchorDoc: Point2D,
+  labelScreen: Point2D,
+): Point2D {
+  const labelDoc = toDocPoint(viewport, labelScreen.x, labelScreen.y);
+  return {
+    x: labelDoc.x - anchorDoc.x,
+    y: labelDoc.y - anchorDoc.y,
+  };
+}
+
+/** Convert a document-space label offset to screen coordinates. */
+export function docLabelToScreen(
+  viewport: DocumentViewport,
+  anchorDoc: Point2D,
+  offsetDoc: Point2D,
+): Point2D {
+  return toScreenPoint(
+    viewport,
+    anchorDoc.x + offsetDoc.x,
+    anchorDoc.y + offsetDoc.y,
+  );
+}
+
+/** Default label offset (16px above anchor) stored in document space. */
+export function defaultScreenLabelOffsetDoc(
+  viewport: DocumentViewport,
+  anchorDoc: Point2D,
+  screenOffset: Point2D = { x: 0, y: -16 },
+): Point2D {
+  const anchorScreen = toScreenPoint(viewport, anchorDoc.x, anchorDoc.y);
+  return computeDocOffsetFromScreen(viewport, anchorDoc, {
+    x: anchorScreen.x + screenOffset.x,
+    y: anchorScreen.y + screenOffset.y,
+  });
+}
+
+export function getLineLabelAnchorDoc(measurement: Measurement): Point2D {
+  return midpoint(measurement.start, measurement.end);
+}
+
+export function getLineLabelDocPosition(measurement: Measurement): Point2D {
+  const anchor = getLineLabelAnchorDoc(measurement);
+  return {
+    x: anchor.x + measurement.labelOffset.x,
+    y: anchor.y + measurement.labelOffset.y,
+  };
+}
+
+export function getRectWidthLabelAnchorDoc(
+  rectangle: RectMeasurement,
+  fileType: DocumentType,
+): Point2D {
+  const centerX = (rectangle.topLeft.x + rectangle.bottomRight.x) / 2;
+  const visualTopY =
+    fileType === "image" ? rectangle.topLeft.y : rectangle.bottomRight.y;
+  return { x: centerX, y: visualTopY };
+}
+
+export function getRectHeightLabelAnchorDoc(rectangle: RectMeasurement): Point2D {
+  const centerY = (rectangle.topLeft.y + rectangle.bottomRight.y) / 2;
+  return { x: rectangle.topLeft.x, y: centerY };
+}
+
+export function getRectWidthLabelDocPosition(
+  rectangle: RectMeasurement,
+  fileType: DocumentType,
+): Point2D {
+  const anchor = getRectWidthLabelAnchorDoc(rectangle, fileType);
+  return {
+    x: anchor.x + rectangle.widthLabelOffset.x,
+    y: anchor.y + rectangle.widthLabelOffset.y,
+  };
+}
+
+export function getRectHeightLabelDocPosition(rectangle: RectMeasurement): Point2D {
+  const anchor = getRectHeightLabelAnchorDoc(rectangle);
+  return {
+    x: anchor.x + rectangle.heightLabelOffset.x,
+    y: anchor.y + rectangle.heightLabelOffset.y,
   };
 }
 

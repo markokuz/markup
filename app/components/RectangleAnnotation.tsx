@@ -1,7 +1,13 @@
 "use client";
 
-import type { RectMeasurement, Scale, Unit } from "@/app/types";
-import { toScreenRect } from "@/app/utils/coordinates";
+import type { DocumentType, RectMeasurement, Scale, Unit } from "@/app/types";
+import {
+  getRectHeightLabelDocPosition,
+  getRectWidthLabelDocPosition,
+  toScreenPoint,
+  toScreenRect,
+} from "@/app/utils/coordinates";
+import { getAnnotationColor } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
@@ -25,12 +31,14 @@ type RectCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 interface RectangleAnnotationProps {
   rectangle: RectMeasurement;
   viewport: DocumentViewport;
+  fileType: DocumentType;
   scale: Scale | null;
   displayUnit: Unit;
   isSelected: boolean;
+  isSelectMode: boolean;
   showHandles: boolean;
   editingField: "width" | "height" | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey: boolean) => void;
   onBodyPointerDown: (id: string, event: React.PointerEvent) => void;
   onCornerPointerDown: (
     id: string,
@@ -49,9 +57,11 @@ interface RectangleAnnotationProps {
 export function RectangleAnnotation({
   rectangle,
   viewport,
+  fileType,
   scale,
   displayUnit,
   isSelected,
+  isSelectMode,
   showHandles,
   editingField,
   onSelect,
@@ -71,7 +81,7 @@ export function RectangleAnnotation({
     rectangle.bottomRight,
   );
 
-  const color = isSelected ? "#22d3ee" : "#06b6d4";
+  const color = getAnnotationColor(rectangle, isSelected);
   const strokeWidth = isSelected ? 2.5 : 2;
 
   const docWidth = getRectDocWidth(rectangle);
@@ -86,14 +96,10 @@ export function RectangleAnnotation({
       ? getDisplayDistance(docHeight, scale, displayUnit)
       : "—";
 
-  const widthAnchor = {
-    x: x + width / 2 + rectangle.widthLabelOffset.x,
-    y: y + rectangle.widthLabelOffset.y,
-  };
-  const heightAnchor = {
-    x: x + rectangle.heightLabelOffset.x,
-    y: y + height / 2 + rectangle.heightLabelOffset.y,
-  };
+  const widthLabelDoc = getRectWidthLabelDocPosition(rectangle, fileType);
+  const heightLabelDoc = getRectHeightLabelDocPosition(rectangle);
+  const widthAnchor = toScreenPoint(viewport, widthLabelDoc.x, widthLabelDoc.y);
+  const heightAnchor = toScreenPoint(viewport, heightLabelDoc.x, heightLabelDoc.y);
 
   const corners: { id: RectCorner; cx: number; cy: number }[] = [
     { id: "topLeft", cx: x, cy: y },
@@ -106,9 +112,9 @@ export function RectangleAnnotation({
     <g
       className="rectangle-annotation"
       onPointerDown={(event) => {
-        if (showHandles) {
+        if (isSelectMode) {
           event.stopPropagation();
-          onSelect(rectangle.id);
+          onSelect(rectangle.id, event.shiftKey);
         }
       }}
     >
@@ -120,11 +126,14 @@ export function RectangleAnnotation({
         fill="none"
         stroke={color}
         strokeWidth={strokeWidth}
-        style={{ pointerEvents: showHandles ? "all" : "none", cursor: showHandles ? "move" : "default" }}
+        style={{
+          pointerEvents: isSelectMode ? "all" : "none",
+          cursor: showHandles ? "move" : isSelectMode ? "pointer" : "default",
+        }}
         onPointerDown={(event) => {
           if (!showHandles) return;
           event.stopPropagation();
-          onSelect(rectangle.id);
+          onSelect(rectangle.id, event.shiftKey);
           onBodyPointerDown(rectangle.id, event);
         }}
       />
@@ -137,7 +146,7 @@ export function RectangleAnnotation({
         isSelected={isSelected}
         showHandles={showHandles && !!scale}
         isEditing={editingField === "width"}
-        onSelect={() => onSelect(rectangle.id)}
+        onSelect={() => onSelect(rectangle.id, false)}
         onStartEdit={() => onStartEditWidth(rectangle.id)}
         onCommit={(value) => onCommitWidth(rectangle.id, value)}
         onCancel={onCancelEdit}
@@ -152,7 +161,7 @@ export function RectangleAnnotation({
         isSelected={isSelected}
         showHandles={showHandles && !!scale}
         isEditing={editingField === "height"}
-        onSelect={() => onSelect(rectangle.id)}
+        onSelect={() => onSelect(rectangle.id, false)}
         onStartEdit={() => onStartEditHeight(rectangle.id)}
         onCommit={(value) => onCommitHeight(rectangle.id, value)}
         onCancel={onCancelEdit}

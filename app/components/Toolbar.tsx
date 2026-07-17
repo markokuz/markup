@@ -11,6 +11,10 @@ import {
   getRectDocHeight,
   getRectDocWidth,
 } from "@/app/utils/dimensions";
+import {
+  DEFAULT_ANNOTATION_COLOR,
+  MARKUP_PALETTE,
+} from "@/app/utils/colors";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
@@ -168,8 +172,38 @@ export function StatusBar() {
 
   if (!state.fileBytes) return null;
 
-  const selectedLine = state.measurements.find((m) => m.id === state.selectedId);
-  const selectedRect = state.rectangles.find((r) => r.id === state.selectedId);
+  const selectedLine =
+    state.selectedIds.length === 1
+      ? state.measurements.find((m) => m.id === state.selectedIds[0])
+      : undefined;
+  const selectedRect =
+    state.selectedIds.length === 1
+      ? state.rectangles.find((r) => r.id === state.selectedIds[0])
+      : undefined;
+
+  const colorableIds = state.selectedIds.filter((id) => {
+    const measurement = state.measurements.find((m) => m.id === id);
+    return !measurement?.isCalibration;
+  });
+
+  const selectedAnnotations = [
+    ...state.measurements.filter((m) => colorableIds.includes(m.id)),
+    ...state.rectangles.filter((r) => colorableIds.includes(r.id)),
+  ];
+  const sharedColor =
+    selectedAnnotations.length > 0 &&
+    selectedAnnotations.every(
+      (annotation) =>
+        (annotation.color ?? DEFAULT_ANNOTATION_COLOR) ===
+        (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR),
+    )
+      ? (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR)
+      : null;
+
+  const applyColor = (color: string) => {
+    if (colorableIds.length === 0) return;
+    dispatch({ type: "SET_ANNOTATION_COLOR", ids: colorableIds, color });
+  };
 
   const selectedLineLabel =
     selectedLine && state.scale && !selectedLine.isCalibration
@@ -218,7 +252,12 @@ export function StatusBar() {
         )}
       </div>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex flex-wrap items-center gap-3">
+        {state.selectedIds.length > 1 && (
+          <span className="font-mono text-cyan-300">
+            {state.selectedIds.length} selected
+          </span>
+        )}
         {selectedLineLabel && (
           <span className="font-mono text-cyan-300">
             Selected: {selectedLineLabel}
@@ -229,6 +268,36 @@ export function StatusBar() {
             Selected: {selectedRectLabel}
           </span>
         )}
+
+        {colorableIds.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Color</span>
+            <div className="flex items-center gap-1">
+              {MARKUP_PALETTE.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={`Set color ${color}`}
+                  onClick={() => applyColor(color)}
+                  className={`h-5 w-5 rounded-full border-2 transition hover:scale-110 ${
+                    sharedColor === color
+                      ? "border-white"
+                      : "border-slate-600"
+                  }`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+              <input
+                type="color"
+                value={sharedColor ?? DEFAULT_ANNOTATION_COLOR}
+                onChange={(event) => applyColor(event.target.value)}
+                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-900"
+                title="Custom color"
+              />
+            </div>
+          </div>
+        )}
+
         <label className="flex items-center gap-2 text-slate-400">
           Display unit
           <select
@@ -249,27 +318,13 @@ export function StatusBar() {
           </select>
         </label>
 
-        {selectedLine && !selectedLine.isCalibration && (
+        {state.selectedIds.length > 0 && (
           <button
             type="button"
-            onClick={() =>
-              dispatch({ type: "DELETE_MEASUREMENT", id: selectedLine.id })
-            }
+            onClick={() => dispatch({ type: "DELETE_SELECTED" })}
             className="rounded-md border border-red-500/40 px-2 py-1 text-red-300 transition hover:bg-red-500/10"
           >
-            Delete
-          </button>
-        )}
-
-        {selectedRect && (
-          <button
-            type="button"
-            onClick={() =>
-              dispatch({ type: "DELETE_RECTANGLE", id: selectedRect.id })
-            }
-            className="rounded-md border border-red-500/40 px-2 py-1 text-red-300 transition hover:bg-red-500/10"
-          >
-            Delete
+            Delete{state.selectedIds.length > 1 ? ` (${state.selectedIds.length})` : ""}
           </button>
         )}
 
@@ -277,9 +332,9 @@ export function StatusBar() {
           <span className="text-amber-400">Calibrate scale before measuring</span>
         )}
 
-        {state.tool === "select" && !selectedLine && !selectedRect && (
+        {state.tool === "select" && state.selectedIds.length === 0 && (
           <span className="text-slate-500">
-            Click an annotation to edit · click a label to type a dimension
+            Drag to select · Shift+click to toggle · click a label to edit dimensions
           </span>
         )}
       </div>

@@ -33,6 +33,10 @@ export function PdfViewer() {
     fileMimeType,
     zoom,
   );
+
+  useEffect(() => {
+    dispatch({ type: "SET_DOCUMENT_VIEWPORT", viewport });
+  }, [dispatch, viewport]);
   const overlayRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(

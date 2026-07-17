@@ -4,25 +4,36 @@ import { useCallback, useRef, useState } from "react";
 import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
+  computeDocOffsetFromScreen,
+  defaultScreenLabelOffsetDoc,
   docRectFromScreenCorners,
   getLocalCoords,
   getOppositeScreenCorner,
   getScreenCornerPoint,
+  getLineLabelAnchorDoc,
+  getRectHeightLabelAnchorDoc,
+  getRectWidthLabelAnchorDoc,
+  midpoint,
   toDocPoint,
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
+import {
+  findAnnotationsInMarquee,
+  screenRectFromPoints,
+  type MarqueeSelectionMode,
+} from "@/app/utils/selection";
 import {
   applyLineLength,
   applyRectHeight,
   applyRectWidth,
   normalizeRect,
 } from "@/app/utils/dimensions";
-import { MeasurementLine } from "@/app/components/MeasurementLine";
 import {
   RectangleAnnotation,
   type RectCorner,
 } from "@/app/components/RectangleAnnotation";
+import { MeasurementLine } from "@/app/components/MeasurementLine";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
 interface AnnotationLayerProps {
@@ -38,9 +49,18 @@ type DragMode =
   | { type: "rectBody"; id: string; originPdf: Point2D; topLeft: Point2D; bottomRight: Point2D }
   | { type: "rectCorner"; id: string; fixedCornerScreen: Point2D }
   | { type: "rectWidthLabel"; id: string }
+  | { type: "marquee"; startScreen: Point2D; currentScreen: Point2D; additive: boolean }
   | { type: "rectHeightLabel"; id: string };
 
 const MIN_RECT_SIZE = 5;
+const MIN_MARQUEE_SIZE = 4;
+
+function getMarqueeSelectionMode(
+  start: Point2D,
+  current: Point2D,
+): MarqueeSelectionMode {
+  return current.x >= start.x ? "contain" : "intersect";
+}
 
 function createId() {
   return crypto.randomUUID();
@@ -51,6 +71,23 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
   const dispatch = useAppDispatch();
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
   const dragRef = useRef<DragMode | null>(null);
+
+  const handleSelect = useCallback(
+    (id: string, shiftKey: boolean) => {
+      if (shiftKey) {
+        const isSelected = state.selectedIds.includes(id);
+        dispatch({
+          type: "SET_SELECTION",
+          ids: isSelected
+            ? state.selectedIds.filter((selectedId) => selectedId !== id)
+            : [...state.selectedIds, id],
+        });
+      } else {
+        dispatch({ type: "SET_SELECTION", ids: [id] });
+      }
+    },
+    [dispatch, state.selectedIds],
+  );
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
@@ -63,7 +100,20 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       if (state.tool === "select") {
-        dispatch({ type: "SELECT_MEASUREMENT", id: null });
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragRef.current = {
+          type: "marquee",
+          startScreen: local,
+          currentScreen: local,
+          additive: event.shiftKey,
+        };
+        if (!event.shiftKey) {
+          dispatch({ type: "SET_SELECTION", ids: [] });
+        }
+        dispatch({
+          type: "SET_PENDING_MARQUEE",
+          marquee: { start: local, current: local },
+        });
         return;
       }
 
@@ -91,13 +141,14 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
               line: { start, end },
             });
           } else if (state.scale) {
+            const anchorDoc = midpoint(start, end);
             dispatch({
               type: "ADD_MEASUREMENT",
               measurement: {
                 id: createId(),
                 start,
                 end,
-                labelOffset: { x: 0, y: -16 },
+                labelOffset: defaultScreenLabelOffsetDoc(viewport, anchorDoc),
               },
             });
           } else {
@@ -137,6 +188,15 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           return;
         }
 
+        if (drag.type === "marquee") {
+          dragRef.current = { ...drag, currentScreen: local };
+          dispatch({
+            type: "SET_PENDING_MARQUEE",
+            marquee: { start: drag.startScreen, current: local },
+          });
+          return;
+        }
+
         if (drag.type === "endpoint") {
           dispatch({
             type: "UPDATE_MEASUREMENT",
@@ -157,24 +217,12 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         } else if (drag.type === "label") {
           const measurement = state.measurements.find((m) => m.id === drag.id);
           if (!measurement) return;
-          const start = toScreenPoint(
-            viewport,
-            measurement.start.x,
-            measurement.start.y,
-          );
-          const end = toScreenPoint(viewport, measurement.end.x, measurement.end.y);
-          const mid = {
-            x: (start.x + end.x) / 2,
-            y: (start.y + end.y) / 2,
-          };
+          const anchorDoc = getLineLabelAnchorDoc(measurement);
           dispatch({
             type: "UPDATE_MEASUREMENT",
             id: drag.id,
             updates: {
-              labelOffset: {
-                x: local.x - mid.x,
-                y: local.y - mid.y,
-              },
+              labelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
             },
           });
         } else if (drag.type === "rectBody") {
@@ -203,45 +251,26 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         } else if (drag.type === "rectWidthLabel") {
           const rectangle = state.rectangles.find((r) => r.id === drag.id);
           if (!rectangle) return;
-          const screenRect = toScreenRect(
-            viewport,
-            rectangle.topLeft,
-            rectangle.bottomRight,
+          const anchorDoc = getRectWidthLabelAnchorDoc(
+            rectangle,
+            state.fileType ?? "image",
           );
-          const anchor = {
-            x: screenRect.x + screenRect.width / 2,
-            y: screenRect.y,
-          };
           dispatch({
             type: "UPDATE_RECTANGLE",
             id: drag.id,
             updates: {
-              widthLabelOffset: {
-                x: local.x - anchor.x,
-                y: local.y - anchor.y,
-              },
+              widthLabelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
             },
           });
         } else if (drag.type === "rectHeightLabel") {
           const rectangle = state.rectangles.find((r) => r.id === drag.id);
           if (!rectangle) return;
-          const screenRect = toScreenRect(
-            viewport,
-            rectangle.topLeft,
-            rectangle.bottomRight,
-          );
-          const anchor = {
-            x: screenRect.x,
-            y: screenRect.y + screenRect.height / 2,
-          };
+          const anchorDoc = getRectHeightLabelAnchorDoc(rectangle);
           dispatch({
             type: "UPDATE_RECTANGLE",
             id: drag.id,
             updates: {
-              heightLabelOffset: {
-                x: local.x - anchor.x,
-                y: local.y - anchor.y,
-              },
+              heightLabelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
             },
           });
         }
@@ -252,24 +281,71 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, overlayRef, state.measurements, state.pendingPoint, state.rectangles, viewport],
+    [dispatch, overlayRef, state.fileType, state.measurements, state.pendingPoint, state.rectangles, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
     const drag = dragRef.current;
+
+    if (drag?.type === "marquee") {
+      const marquee = { start: drag.startScreen, current: drag.currentScreen };
+      const dragDistance = Math.hypot(
+        marquee.current.x - marquee.start.x,
+        marquee.current.y - marquee.start.y,
+      );
+
+      if (dragDistance < MIN_MARQUEE_SIZE) {
+        if (!drag.additive) {
+          dispatch({ type: "SET_SELECTION", ids: [] });
+        }
+      } else {
+        const found = findAnnotationsInMarquee(
+          state.measurements,
+          state.rectangles,
+          viewport,
+          marquee,
+          getMarqueeSelectionMode(marquee.start, marquee.current),
+        );
+        dispatch({
+          type: "SET_SELECTION",
+          ids: drag.additive
+            ? [...new Set([...state.selectedIds, ...found])]
+            : found,
+        });
+      }
+
+      dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
+    }
+
     if (drag?.type === "drawRect" && state.scale) {
       const normalized = normalizeRect(drag.start, drag.current);
       const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
       const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
 
       if (width >= MIN_RECT_SIZE && height >= MIN_RECT_SIZE) {
+        const rectangle = {
+          id: createId(),
+          ...normalized,
+          widthLabelOffset: { x: 0, y: 0 },
+          heightLabelOffset: { x: 0, y: 0 },
+        };
+        const widthAnchorDoc = getRectWidthLabelAnchorDoc(
+          rectangle,
+          state.fileType ?? "image",
+        );
+        const heightAnchorDoc = getRectHeightLabelAnchorDoc(rectangle);
         dispatch({
           type: "ADD_RECTANGLE",
           rectangle: {
-            id: createId(),
-            ...normalized,
-            widthLabelOffset: { x: 0, y: -16 },
-            heightLabelOffset: { x: -16, y: 0 },
+            ...rectangle,
+            widthLabelOffset: defaultScreenLabelOffsetDoc(viewport, widthAnchorDoc, {
+              x: 0,
+              y: -16,
+            }),
+            heightLabelOffset: defaultScreenLabelOffsetDoc(viewport, heightAnchorDoc, {
+              x: -16,
+              y: 0,
+            }),
           },
         });
       } else {
@@ -278,7 +354,11 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     }
 
     dragRef.current = null;
-  }, [dispatch, state.scale]);
+  }, [dispatch, state.fileType, state.measurements, state.rectangles, state.scale, state.selectedIds, viewport]);
+
+  const singleSelectedId =
+    state.selectedIds.length === 1 ? state.selectedIds[0] : null;
+  const showEditHandles = state.tool === "select" && state.selectedIds.length === 1;
 
   const onEndpointPointerDown = (
     id: string,
@@ -460,6 +540,10 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       )
     : null;
 
+  const marqueePreview = state.pendingMarquee
+    ? screenRectFromPoints(state.pendingMarquee.start, state.pendingMarquee.current)
+    : null;
+
   return (
     <svg
       width={viewport.width}
@@ -478,14 +562,19 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           viewport={viewport}
           scale={state.scale}
           displayUnit={state.displayUnit}
-          isSelected={state.selectedId === measurement.id}
-          showHandles={state.tool === "select"}
+          isSelected={state.selectedIds.includes(measurement.id)}
+          isSelectMode={state.tool === "select"}
+          showHandles={
+            showEditHandles &&
+            singleSelectedId === measurement.id &&
+            !measurement.isCalibration
+          }
           isEditingLength={
             state.editingDimension?.target === "line" &&
             state.editingDimension.id === measurement.id &&
             state.editingDimension.field === "length"
           }
-          onSelect={(id) => dispatch({ type: "SELECT_MEASUREMENT", id })}
+          onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
           onEndpointPointerDown={onEndpointPointerDown}
           onBodyPointerDown={onBodyPointerDown}
           onLabelDragStart={onLabelDragStart}
@@ -499,10 +588,12 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           key={rectangle.id}
           rectangle={rectangle}
           viewport={viewport}
+          fileType={state.fileType ?? "image"}
           scale={state.scale}
           displayUnit={state.displayUnit}
-          isSelected={state.selectedId === rectangle.id}
-          showHandles={state.tool === "select"}
+          isSelected={state.selectedIds.includes(rectangle.id)}
+          isSelectMode={state.tool === "select"}
+          showHandles={showEditHandles && singleSelectedId === rectangle.id}
           editingField={
             state.editingDimension?.target === "rectangle" &&
             state.editingDimension.id === rectangle.id
@@ -513,7 +604,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
                   : null
               : null
           }
-          onSelect={(id) => dispatch({ type: "SELECT_MEASUREMENT", id })}
+          onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
           onBodyPointerDown={onRectBodyPointerDown}
           onCornerPointerDown={onRectCornerPointerDown}
           onWidthLabelDragStart={onWidthLabelDragStart}
@@ -525,6 +616,19 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
         />
       ))}
+      {marqueePreview && (
+        <rect
+          x={marqueePreview.x}
+          y={marqueePreview.y}
+          width={marqueePreview.width}
+          height={marqueePreview.height}
+          fill="rgba(34, 211, 238, 0.08)"
+          stroke="#22d3ee"
+          strokeWidth={1.5}
+          strokeDasharray="6 4"
+          pointerEvents="none"
+        />
+      )}
       {previewStart && previewEndScreen && (
         <line
           x1={previewStart.x}

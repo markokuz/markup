@@ -1,7 +1,8 @@
 "use client";
 
 import type { Measurement, Scale, Unit } from "@/app/types";
-import { midpoint, toScreenPoint } from "@/app/utils/coordinates";
+import { getLineLabelDocPosition, toScreenPoint } from "@/app/utils/coordinates";
+import { CALIBRATION_COLOR, getAnnotationColor } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -29,9 +30,10 @@ interface MeasurementLineProps {
   scale: Scale | null;
   displayUnit: Unit;
   isSelected: boolean;
+  isSelectMode: boolean;
   showHandles: boolean;
   isEditingLength: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey: boolean) => void;
   onEndpointPointerDown: (
     id: string,
     endpoint: "start" | "end",
@@ -50,6 +52,7 @@ export function MeasurementLine({
   scale,
   displayUnit,
   isSelected,
+  isSelectMode,
   showHandles,
   isEditingLength,
   onSelect,
@@ -62,17 +65,12 @@ export function MeasurementLine({
 }: MeasurementLineProps) {
   const start = toScreenPoint(viewport, measurement.start.x, measurement.start.y);
   const end = toScreenPoint(viewport, measurement.end.x, measurement.end.y);
-  const mid = midpoint(start, end);
-  const labelPos = {
-    x: mid.x + measurement.labelOffset.x,
-    y: mid.y + measurement.labelOffset.y,
-  };
+  const labelDoc = getLineLabelDocPosition(measurement);
+  const labelPos = toScreenPoint(viewport, labelDoc.x, labelDoc.y);
 
   const color = measurement.isCalibration
-    ? "#f59e0b"
-    : isSelected
-      ? "#22d3ee"
-      : "#06b6d4";
+    ? CALIBRATION_COLOR
+    : getAnnotationColor(measurement, isSelected);
   const strokeWidth = isSelected ? 2.5 : 2;
   const label =
     scale && !measurement.isCalibration
@@ -80,14 +78,15 @@ export function MeasurementLine({
       : measurement.isCalibration
         ? "Calibration"
         : "—";
+  const interactive = isSelectMode && !measurement.isCalibration;
 
   return (
     <g
       className="measurement-line"
-      onPointerDown={(e) => {
-        if (showHandles) {
-          e.stopPropagation();
-          onSelect(measurement.id);
+      onPointerDown={(event) => {
+        if (interactive) {
+          event.stopPropagation();
+          onSelect(measurement.id, event.shiftKey);
         }
       }}
     >
@@ -100,12 +99,12 @@ export function MeasurementLine({
         strokeWidth={strokeWidth}
         strokeDasharray={measurement.isCalibration ? "8 5" : undefined}
         strokeLinecap="round"
-        style={{ pointerEvents: showHandles ? "stroke" : "none" }}
-        onPointerDown={(e) => {
+        style={{ pointerEvents: interactive ? "stroke" : "none" }}
+        onPointerDown={(event) => {
           if (!showHandles) return;
-          e.stopPropagation();
-          onSelect(measurement.id);
-          onBodyPointerDown(measurement.id, e);
+          event.stopPropagation();
+          onSelect(measurement.id, event.shiftKey);
+          onBodyPointerDown(measurement.id, event);
         }}
       />
       {!measurement.isCalibration && (
@@ -118,7 +117,7 @@ export function MeasurementLine({
           isSelected={isSelected}
           showHandles={showHandles && !!scale}
           isEditing={isEditingLength}
-          onSelect={() => onSelect(measurement.id)}
+          onSelect={() => onSelect(measurement.id, false)}
           onStartEdit={() => onStartEditLength(measurement.id)}
           onCommit={(value) => onCommitLength(measurement.id, value)}
           onCancel={onCancelEdit}
@@ -161,9 +160,9 @@ export function MeasurementLine({
             stroke={color}
             strokeWidth={2}
             style={{ cursor: "crosshair", pointerEvents: "all" }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onEndpointPointerDown(measurement.id, "start", e);
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onEndpointPointerDown(measurement.id, "start", event);
             }}
           />
           <circle
@@ -174,9 +173,9 @@ export function MeasurementLine({
             stroke={color}
             strokeWidth={2}
             style={{ cursor: "crosshair", pointerEvents: "all" }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              onEndpointPointerDown(measurement.id, "end", e);
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onEndpointPointerDown(measurement.id, "end", event);
             }}
           />
         </>

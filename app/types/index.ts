@@ -1,3 +1,5 @@
+import type { DocumentViewport } from "@/app/utils/documentViewport";
+
 export type ToolMode = "calibrate" | "measure" | "rectangle" | "select" | "pan";
 
 export type Unit = "ft" | "in" | "m" | "mm";
@@ -15,6 +17,7 @@ export interface Measurement {
   end: Point2D;
   labelOffset: Point2D;
   isCalibration?: boolean;
+  color?: string;
 }
 
 export interface RectMeasurement {
@@ -23,6 +26,7 @@ export interface RectMeasurement {
   bottomRight: Point2D;
   widthLabelOffset: Point2D;
   heightLabelOffset: Point2D;
+  color?: string;
 }
 
 export interface Scale {
@@ -40,6 +44,11 @@ export interface PendingRectDrag {
   current: Point2D;
 }
 
+export interface PendingMarquee {
+  start: Point2D;
+  current: Point2D;
+}
+
 export interface EditingDimension {
   target: "line" | "rectangle";
   id: string;
@@ -50,7 +59,7 @@ export interface UndoSnapshot {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   scale: Scale | null;
-  selectedId: string | null;
+  selectedIds: string[];
 }
 
 export interface AppState {
@@ -59,9 +68,10 @@ export interface AppState {
   scale: Scale | null;
   measurements: Measurement[];
   rectangles: RectMeasurement[];
-  selectedId: string | null;
+  selectedIds: string[];
   pendingPoint: Point2D | null;
   pendingRectDrag: PendingRectDrag | null;
+  pendingMarquee: PendingMarquee | null;
   editingDimension: EditingDimension | null;
   fileBytes: Uint8Array | null;
   fileName: string | null;
@@ -71,6 +81,7 @@ export interface AppState {
   calibrateDialogOpen: boolean;
   pendingCalibrationLine: PendingCalibrationLine | null;
   history: UndoSnapshot[];
+  documentViewport: DocumentViewport | null;
 }
 
 export type AppAction =
@@ -80,13 +91,16 @@ export type AppAction =
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_PENDING_POINT"; point: Point2D | null }
   | { type: "SET_PENDING_RECT_DRAG"; drag: PendingRectDrag | null }
+  | { type: "SET_PENDING_MARQUEE"; marquee: PendingMarquee | null }
   | { type: "ADD_MEASUREMENT"; measurement: Measurement }
   | { type: "UPDATE_MEASUREMENT"; id: string; updates: Partial<Measurement> }
   | { type: "DELETE_MEASUREMENT"; id: string }
   | { type: "ADD_RECTANGLE"; rectangle: RectMeasurement }
   | { type: "UPDATE_RECTANGLE"; id: string; updates: Partial<RectMeasurement> }
   | { type: "DELETE_RECTANGLE"; id: string }
-  | { type: "SELECT_MEASUREMENT"; id: string | null }
+  | { type: "SET_SELECTION"; ids: string[] }
+  | { type: "DELETE_SELECTED" }
+  | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string }
   | { type: "SET_EDITING_DIMENSION"; editing: EditingDimension | null }
   | { type: "CLEAR_EDITING_DIMENSION" }
   | { type: "SET_SCALE"; scale: Scale; calibrationMeasurement: Measurement }
@@ -94,7 +108,8 @@ export type AppAction =
   | { type: "CLOSE_CALIBRATE_DIALOG" }
   | { type: "CLEAR_ALL" }
   | { type: "RECORD_UNDO" }
-  | { type: "UNDO" };
+  | { type: "UNDO" }
+  | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null };
 
 export const initialState: AppState = {
   tool: "calibrate",
@@ -102,9 +117,10 @@ export const initialState: AppState = {
   scale: null,
   measurements: [],
   rectangles: [],
-  selectedId: null,
+  selectedIds: [],
   pendingPoint: null,
   pendingRectDrag: null,
+  pendingMarquee: null,
   editingDimension: null,
   fileBytes: null,
   fileName: null,
@@ -114,4 +130,5 @@ export const initialState: AppState = {
   calibrateDialogOpen: false,
   pendingCalibrationLine: null,
   history: [],
+  documentViewport: null,
 };

@@ -6,8 +6,21 @@ import type {
   Scale,
   Unit,
 } from "@/app/types";
+import {
+  CALIBRATION_COLOR,
+  DEFAULT_ANNOTATION_COLOR,
+  hexToRgb,
+} from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
-import { docDistance, midpoint } from "@/app/utils/coordinates";
+import {
+  docDistance,
+  getLineLabelAnchorDoc,
+  getLineLabelDocPosition,
+  getRectHeightLabelAnchorDoc,
+  getRectHeightLabelDocPosition,
+  getRectWidthLabelAnchorDoc,
+  getRectWidthLabelDocPosition,
+} from "@/app/utils/coordinates";
 import {
   getRectDocHeight,
   getRectDocWidth,
@@ -41,38 +54,42 @@ function getRectDimensionLabel(
   return formatDistance(value, displayUnit);
 }
 
+function getLineColor(measurement: Measurement): string {
+  return measurement.isCalibration
+    ? CALIBRATION_COLOR
+    : measurement.color ?? DEFAULT_ANNOTATION_COLOR;
+}
+
+function getRectangleColor(rectangle: RectMeasurement): string {
+  return rectangle.color ?? DEFAULT_ANNOTATION_COLOR;
+}
+
 function drawMeasurementOnCanvas(
   context: CanvasRenderingContext2D,
   measurement: Measurement,
   scale: Scale | null,
   displayUnit: Unit,
-  yOrigin: "top" | "bottom",
-  docHeight = 0,
 ) {
-  const color = measurement.isCalibration ? "#f59e0b" : "#06b6d4";
-  const mapY = (y: number) => (yOrigin === "top" ? y : docHeight - y);
-
+  const color = getLineColor(measurement);
   context.strokeStyle = color;
   context.lineWidth = measurement.isCalibration ? 1.5 : 2;
   context.setLineDash(measurement.isCalibration ? [6, 4] : []);
   context.beginPath();
-  context.moveTo(measurement.start.x, mapY(measurement.start.y));
-  context.lineTo(measurement.end.x, mapY(measurement.end.y));
+  context.moveTo(measurement.start.x, measurement.start.y);
+  context.lineTo(measurement.end.x, measurement.end.y);
   context.stroke();
   context.setLineDash([]);
 
   if (!scale) return;
 
-  const mid = midpoint(measurement.start, measurement.end);
+  const labelPos = getLineLabelDocPosition(measurement);
   const label = measurement.isCalibration
     ? "Calibration"
     : getMeasurementLabel(measurement, scale, displayUnit);
-  const labelX = mid.x + measurement.labelOffset.x;
-  const labelY = mapY(mid.y + measurement.labelOffset.y);
 
   context.font = "600 12px Helvetica, Arial, sans-serif";
   context.fillStyle = color;
-  context.fillText(label, labelX, labelY);
+  context.fillText(label, labelPos.x, labelPos.y);
 }
 
 function drawRectangleOnCanvas(
@@ -80,21 +97,16 @@ function drawRectangleOnCanvas(
   rectangle: RectMeasurement,
   scale: Scale | null,
   displayUnit: Unit,
-  yOrigin: "top" | "bottom",
-  docHeight = 0,
 ) {
-  const color = "#06b6d4";
-  const mapY = (y: number) => (yOrigin === "top" ? y : docHeight - y);
-
+  const color = getRectangleColor(rectangle);
   const x = rectangle.topLeft.x;
-  const y = mapY(rectangle.topLeft.y);
+  const y = rectangle.topLeft.y;
   const width = rectangle.bottomRight.x - rectangle.topLeft.x;
   const height = rectangle.bottomRight.y - rectangle.topLeft.y;
-  const screenHeight = yOrigin === "top" ? height : -height;
 
   context.strokeStyle = color;
   context.lineWidth = 2;
-  context.strokeRect(x, y, width, screenHeight);
+  context.strokeRect(x, y, width, height);
 
   if (!scale) return;
 
@@ -102,19 +114,13 @@ function drawRectangleOnCanvas(
   const docHeightValue = getRectDocHeight(rectangle);
   const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
   const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
-
-  const widthLabelX =
-    x + width / 2 + rectangle.widthLabelOffset.x;
-  const widthLabelY = mapY(rectangle.topLeft.y + rectangle.widthLabelOffset.y);
-  const heightLabelX =
-    x + rectangle.heightLabelOffset.x;
-  const heightLabelY =
-    mapY(rectangle.topLeft.y + docHeightValue / 2 + rectangle.heightLabelOffset.y);
+  const widthLabelPos = getRectWidthLabelDocPosition(rectangle, "image");
+  const heightLabelPos = getRectHeightLabelDocPosition(rectangle);
 
   context.font = "600 12px Helvetica, Arial, sans-serif";
   context.fillStyle = color;
-  context.fillText(widthLabel, widthLabelX, widthLabelY);
-  context.fillText(heightLabel, heightLabelX, heightLabelY);
+  context.fillText(widthLabel, widthLabelPos.x, widthLabelPos.y);
+  context.fillText(heightLabel, heightLabelPos.x, heightLabelPos.y);
 }
 
 async function exportMarkedUpPdf(
@@ -127,34 +133,30 @@ async function exportMarkedUpPdf(
 ): Promise<void> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const page = pdfDoc.getPage(0);
-  const { height } = page.getSize();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const lineColor = rgb(0.05, 0.75, 0.95);
-  const calibrateColor = rgb(0.95, 0.55, 0.1);
-  const rectColor = rgb(0.05, 0.75, 0.95);
+  const calibrateColor = hexToRgb(CALIBRATION_COLOR);
 
   for (const measurement of measurements) {
-    const color = measurement.isCalibration ? calibrateColor : lineColor;
-    const start = { x: measurement.start.x, y: height - measurement.start.y };
-    const end = { x: measurement.end.x, y: height - measurement.end.y };
+    const { r, g, b } = hexToRgb(getLineColor(measurement));
+    const color = measurement.isCalibration
+      ? rgb(calibrateColor.r, calibrateColor.g, calibrateColor.b)
+      : rgb(r, g, b);
 
     page.drawLine({
-      start,
-      end,
+      start: measurement.start,
+      end: measurement.end,
       thickness: measurement.isCalibration ? 1.5 : 2,
       color,
       dashArray: measurement.isCalibration ? [6, 4] : undefined,
     });
 
     if (scale) {
-      const mid = midpoint(measurement.start, measurement.end);
+      const labelPos = getLineLabelDocPosition(measurement);
       const label = getMeasurementLabel(measurement, scale, displayUnit);
-      const labelX = mid.x + measurement.labelOffset.x;
-      const labelY = height - (mid.y + measurement.labelOffset.y) - 4;
 
       page.drawText(label, {
-        x: labelX,
-        y: labelY,
+        x: labelPos.x,
+        y: labelPos.y,
         size: 10,
         font,
         color,
@@ -164,16 +166,18 @@ async function exportMarkedUpPdf(
 
   for (const rectangle of rectangles) {
     const x = rectangle.topLeft.x;
-    const y = height - rectangle.bottomRight.y;
+    const y = rectangle.topLeft.y;
     const rectWidth = rectangle.bottomRight.x - rectangle.topLeft.x;
     const rectHeight = rectangle.bottomRight.y - rectangle.topLeft.y;
+    const { r, g, b } = hexToRgb(getRectangleColor(rectangle));
+    const color = rgb(r, g, b);
 
     page.drawRectangle({
       x,
       y,
       width: rectWidth,
       height: rectHeight,
-      borderColor: rectColor,
+      borderColor: color,
       borderWidth: 2,
     });
 
@@ -182,30 +186,22 @@ async function exportMarkedUpPdf(
       const docHeightValue = getRectDocHeight(rectangle);
       const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
       const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
-
-      const widthLabelX =
-        x + rectWidth / 2 + rectangle.widthLabelOffset.x;
-      const widthLabelY =
-        height - (rectangle.topLeft.y + rectangle.widthLabelOffset.y) - 4;
-      const heightLabelX = x + rectangle.heightLabelOffset.x;
-      const heightLabelY =
-        height -
-        (rectangle.topLeft.y + docHeightValue / 2 + rectangle.heightLabelOffset.y) -
-        4;
+      const widthLabelPos = getRectWidthLabelDocPosition(rectangle, "pdf");
+      const heightLabelPos = getRectHeightLabelDocPosition(rectangle);
 
       page.drawText(widthLabel, {
-        x: widthLabelX,
-        y: widthLabelY,
+        x: widthLabelPos.x,
+        y: widthLabelPos.y,
         size: 10,
         font,
-        color: rectColor,
+        color,
       });
       page.drawText(heightLabel, {
-        x: heightLabelX,
-        y: heightLabelY,
+        x: heightLabelPos.x,
+        y: heightLabelPos.y,
         size: 10,
         font,
-        color: rectColor,
+        color,
       });
     }
   }
@@ -237,25 +233,11 @@ async function exportMarkedUpImage(
   source.draw(context, source.width, source.height);
 
   for (const measurement of measurements) {
-    drawMeasurementOnCanvas(
-      context,
-      measurement,
-      scale,
-      displayUnit,
-      "top",
-      source.height,
-    );
+    drawMeasurementOnCanvas(context, measurement, scale, displayUnit);
   }
 
   for (const rectangle of rectangles) {
-    drawRectangleOnCanvas(
-      context,
-      rectangle,
-      scale,
-      displayUnit,
-      "top",
-      source.height,
-    );
+    drawRectangleOnCanvas(context, rectangle, scale, displayUnit);
   }
 
   const blob = await new Promise<Blob | null>((resolve) => {

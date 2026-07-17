@@ -7,12 +7,14 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
-import {
-  initialState,
-  type AppAction,
-  type AppState,
-} from "@/app/types";
+import type { DocumentViewport } from "@/app/utils/documentViewport";
+import { initialState, type AppAction, type AppState } from "@/app/types";
 import { appendHistory } from "@/app/utils/history";
+
+function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): string[] {
+  const removed = new Set(removedIds);
+  return selectedIds.filter((id) => !removed.has(id));
+}
 
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -22,8 +24,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
         tool: action.tool,
         pendingPoint: null,
         pendingRectDrag: null,
+        pendingMarquee: null,
         editingDimension: null,
-        selectedId: action.tool === "select" ? state.selectedId : null,
+        selectedIds: action.tool === "select" ? state.selectedIds : [],
       };
     case "SET_DISPLAY_UNIT":
       return { ...state, displayUnit: action.unit };
@@ -35,6 +38,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         fileType: action.fileType,
         fileMimeType: action.mimeType,
         zoom: 1,
+        documentViewport: null,
       };
     case "SET_ZOOM":
       return { ...state, zoom: action.zoom };
@@ -42,6 +46,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, pendingPoint: action.point };
     case "SET_PENDING_RECT_DRAG":
       return { ...state, pendingRectDrag: action.drag };
+    case "SET_PENDING_MARQUEE":
+      return { ...state, pendingMarquee: action.marquee };
     case "ADD_MEASUREMENT":
       return {
         ...state,
@@ -62,7 +68,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         history: appendHistory(state),
         measurements,
-        selectedId: state.selectedId === action.id ? null : state.selectedId,
+        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
         editingDimension:
           state.editingDimension?.target === "line" &&
           state.editingDimension.id === action.id
@@ -90,7 +96,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         history: appendHistory(state),
         rectangles,
-        selectedId: state.selectedId === action.id ? null : state.selectedId,
+        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
         editingDimension:
           state.editingDimension?.target === "rectangle" &&
           state.editingDimension.id === action.id
@@ -98,12 +104,45 @@ function appReducer(state: AppState, action: AppAction): AppState {
             : state.editingDimension,
       };
     }
-    case "SELECT_MEASUREMENT":
+    case "SET_SELECTION":
       return {
         ...state,
-        selectedId: action.id,
+        selectedIds: action.ids,
         editingDimension: null,
       };
+    case "DELETE_SELECTED": {
+      if (state.selectedIds.length === 0) return state;
+
+      const selected = new Set(state.selectedIds);
+      const measurements = state.measurements.filter(
+        (m) => !selected.has(m.id) || m.isCalibration,
+      );
+      const rectangles = state.rectangles.filter((r) => !selected.has(r.id));
+
+      return {
+        ...state,
+        history: appendHistory(state),
+        measurements,
+        rectangles,
+        selectedIds: [],
+        editingDimension: null,
+      };
+    }
+    case "SET_ANNOTATION_COLOR": {
+      const targetIds = new Set(action.ids);
+      return {
+        ...state,
+        history: appendHistory(state),
+        measurements: state.measurements.map((m) =>
+          targetIds.has(m.id) && !m.isCalibration
+            ? { ...m, color: action.color }
+            : m,
+        ),
+        rectangles: state.rectangles.map((r) =>
+          targetIds.has(r.id) ? { ...r, color: action.color } : r,
+        ),
+      };
+    }
     case "SET_EDITING_DIMENSION":
       return { ...state, editingDimension: action.editing };
     case "CLEAR_EDITING_DIMENSION":
@@ -142,9 +181,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
         scale: null,
         measurements: [],
         rectangles: [],
-        selectedId: null,
+        selectedIds: [],
         pendingPoint: null,
         pendingRectDrag: null,
+        pendingMarquee: null,
         editingDimension: null,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
@@ -163,12 +203,15 @@ function appReducer(state: AppState, action: AppAction): AppState {
         measurements: snapshot.measurements,
         rectangles: snapshot.rectangles,
         scale: snapshot.scale,
-        selectedId: snapshot.selectedId,
+        selectedIds: snapshot.selectedIds,
         pendingPoint: null,
         pendingRectDrag: null,
+        pendingMarquee: null,
         editingDimension: null,
       };
     }
+    case "SET_DOCUMENT_VIEWPORT":
+      return { ...state, documentViewport: action.viewport };
     default:
       return state;
   }

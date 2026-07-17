@@ -23,8 +23,9 @@ function MarkupShell() {
       if (event.key === "Escape") {
         dispatch({ type: "SET_PENDING_POINT", point: null });
         dispatch({ type: "SET_PENDING_RECT_DRAG", drag: null });
+        dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
         dispatch({ type: "CLEAR_EDITING_DIMENSION" });
-        dispatch({ type: "SELECT_MEASUREMENT", id: null });
+        dispatch({ type: "SET_SELECTION", ids: [] });
         dispatch({ type: "CLOSE_CALIBRATE_DIALOG" });
       }
 
@@ -40,21 +41,16 @@ function MarkupShell() {
 
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
-        state.selectedId &&
+        state.selectedIds.length > 0 &&
         !isEditing
       ) {
-        const isLine = state.measurements.some((m) => m.id === state.selectedId);
-        if (isLine) {
-          dispatch({ type: "DELETE_MEASUREMENT", id: state.selectedId });
-        } else {
-          dispatch({ type: "DELETE_RECTANGLE", id: state.selectedId });
-        }
+        dispatch({ type: "DELETE_SELECTED" });
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dispatch, state.measurements, state.selectedId]);
+  }, [dispatch, state.selectedIds.length]);
 
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">

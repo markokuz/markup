@@ -14,11 +14,8 @@ import {
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import {
   docDistance,
-  getLineLabelAnchorDoc,
   getLineLabelDocPosition,
-  getRectHeightLabelAnchorDoc,
   getRectHeightLabelDocPosition,
-  getRectWidthLabelAnchorDoc,
   getRectWidthLabelDocPosition,
 } from "@/app/utils/coordinates";
 import {
@@ -26,6 +23,29 @@ import {
   getRectDocWidth,
 } from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
+
+/** US Letter width in PDF points — baseline for on-screen markup sizing. */
+const REFERENCE_PAGE_MIN_DIMENSION = 612;
+
+export interface ExportStyle {
+  lineWidth: number;
+  calibrationLineWidth: number;
+  borderWidth: number;
+  fontSize: number;
+  calibrationDash: [number, number];
+}
+
+/** Scale line/text styling so markups stay readable on large pages when viewed zoomed out. */
+export function getExportStyle(pageWidth: number, pageHeight: number): ExportStyle {
+  const scale = Math.max(1, Math.min(pageWidth, pageHeight) / REFERENCE_PAGE_MIN_DIMENSION);
+  return {
+    lineWidth: 2 * scale,
+    calibrationLineWidth: 1.5 * scale,
+    borderWidth: 2 * scale,
+    fontSize: 12 * scale,
+    calibrationDash: [6 * scale, 4 * scale],
+  };
+}
 
 function getMeasurementLabel(
   measurement: Measurement,
@@ -69,11 +89,14 @@ function drawMeasurementOnCanvas(
   measurement: Measurement,
   scale: Scale | null,
   displayUnit: Unit,
+  style: ExportStyle,
 ) {
   const color = getLineColor(measurement);
   context.strokeStyle = color;
-  context.lineWidth = measurement.isCalibration ? 1.5 : 2;
-  context.setLineDash(measurement.isCalibration ? [6, 4] : []);
+  context.lineWidth = measurement.isCalibration
+    ? style.calibrationLineWidth
+    : style.lineWidth;
+  context.setLineDash(measurement.isCalibration ? style.calibrationDash : []);
   context.beginPath();
   context.moveTo(measurement.start.x, measurement.start.y);
   context.lineTo(measurement.end.x, measurement.end.y);
@@ -87,7 +110,7 @@ function drawMeasurementOnCanvas(
     ? "Calibration"
     : getMeasurementLabel(measurement, scale, displayUnit);
 
-  context.font = "600 12px Helvetica, Arial, sans-serif";
+  context.font = `600 ${style.fontSize}px Helvetica, Arial, sans-serif`;
   context.fillStyle = color;
   context.fillText(label, labelPos.x, labelPos.y);
 }
@@ -97,6 +120,7 @@ function drawRectangleOnCanvas(
   rectangle: RectMeasurement,
   scale: Scale | null,
   displayUnit: Unit,
+  style: ExportStyle,
 ) {
   const color = getRectangleColor(rectangle);
   const x = rectangle.topLeft.x;
@@ -105,7 +129,7 @@ function drawRectangleOnCanvas(
   const height = rectangle.bottomRight.y - rectangle.topLeft.y;
 
   context.strokeStyle = color;
-  context.lineWidth = 2;
+  context.lineWidth = style.borderWidth;
   context.strokeRect(x, y, width, height);
 
   if (!scale) return;
@@ -117,7 +141,7 @@ function drawRectangleOnCanvas(
   const widthLabelPos = getRectWidthLabelDocPosition(rectangle, "image");
   const heightLabelPos = getRectHeightLabelDocPosition(rectangle);
 
-  context.font = "600 12px Helvetica, Arial, sans-serif";
+  context.font = `600 ${style.fontSize}px Helvetica, Arial, sans-serif`;
   context.fillStyle = color;
   context.fillText(widthLabel, widthLabelPos.x, widthLabelPos.y);
   context.fillText(heightLabel, heightLabelPos.x, heightLabelPos.y);
@@ -133,6 +157,8 @@ async function exportMarkedUpPdf(
 ): Promise<void> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const page = pdfDoc.getPage(0);
+  const { width: pageWidth, height: pageHeight } = page.getSize();
+  const style = getExportStyle(pageWidth, pageHeight);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const calibrateColor = hexToRgb(CALIBRATION_COLOR);
 
@@ -145,9 +171,11 @@ async function exportMarkedUpPdf(
     page.drawLine({
       start: measurement.start,
       end: measurement.end,
-      thickness: measurement.isCalibration ? 1.5 : 2,
+      thickness: measurement.isCalibration
+        ? style.calibrationLineWidth
+        : style.lineWidth,
       color,
-      dashArray: measurement.isCalibration ? [6, 4] : undefined,
+      dashArray: measurement.isCalibration ? style.calibrationDash : undefined,
     });
 
     if (scale) {
@@ -157,7 +185,7 @@ async function exportMarkedUpPdf(
       page.drawText(label, {
         x: labelPos.x,
         y: labelPos.y,
-        size: 10,
+        size: style.fontSize,
         font,
         color,
       });
@@ -178,7 +206,7 @@ async function exportMarkedUpPdf(
       width: rectWidth,
       height: rectHeight,
       borderColor: color,
-      borderWidth: 2,
+      borderWidth: style.borderWidth,
     });
 
     if (scale) {
@@ -192,14 +220,14 @@ async function exportMarkedUpPdf(
       page.drawText(widthLabel, {
         x: widthLabelPos.x,
         y: widthLabelPos.y,
-        size: 10,
+        size: style.fontSize,
         font,
         color,
       });
       page.drawText(heightLabel, {
         x: heightLabelPos.x,
         y: heightLabelPos.y,
-        size: 10,
+        size: style.fontSize,
         font,
         color,
       });
@@ -232,12 +260,14 @@ async function exportMarkedUpImage(
 
   source.draw(context, source.width, source.height);
 
+  const style = getExportStyle(source.width, source.height);
+
   for (const measurement of measurements) {
-    drawMeasurementOnCanvas(context, measurement, scale, displayUnit);
+    drawMeasurementOnCanvas(context, measurement, scale, displayUnit, style);
   }
 
   for (const rectangle of rectangles) {
-    drawRectangleOnCanvas(context, rectangle, scale, displayUnit);
+    drawRectangleOnCanvas(context, rectangle, scale, displayUnit, style);
   }
 
   const blob = await new Promise<Blob | null>((resolve) => {

@@ -13,17 +13,27 @@ import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
+function getDimensionValueInDisplayUnit(
+  docLength: number,
+  scale: Scale,
+  displayUnit: Unit,
+): number {
+  return convertUnits(
+    docLength * scale.unitsPerPdfPoint,
+    scale.calibrationUnit,
+    displayUnit,
+  );
+}
+
 function getDisplayDistance(
   docLength: number,
   scale: Scale,
   displayUnit: Unit,
 ): string {
-  const value = convertUnits(
-    docLength * scale.unitsPerPdfPoint,
-    scale.calibrationUnit,
+  return formatDistance(
+    getDimensionValueInDisplayUnit(docLength, scale, displayUnit),
     displayUnit,
   );
-  return formatDistance(value, displayUnit);
 }
 
 type RectCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
@@ -87,6 +97,15 @@ export function RectangleAnnotation({
   const docWidth = getRectDocWidth(rectangle);
   const docHeight = getRectDocHeight(rectangle);
 
+  const widthValueInDisplayUnit =
+    scale && docWidth > 0
+      ? getDimensionValueInDisplayUnit(docWidth, scale, displayUnit)
+      : 0;
+  const heightValueInDisplayUnit =
+    scale && docHeight > 0
+      ? getDimensionValueInDisplayUnit(docHeight, scale, displayUnit)
+      : 0;
+
   const widthLabel =
     scale && docWidth > 0
       ? getDisplayDistance(docWidth, scale, displayUnit)
@@ -141,6 +160,7 @@ export function RectangleAnnotation({
         x={widthAnchor.x}
         y={widthAnchor.y}
         label={widthLabel}
+        valueInDisplayUnit={widthValueInDisplayUnit}
         color={color}
         displayUnit={displayUnit}
         isSelected={isSelected}
@@ -156,6 +176,7 @@ export function RectangleAnnotation({
         x={heightAnchor.x}
         y={heightAnchor.y}
         label={heightLabel}
+        valueInDisplayUnit={heightValueInDisplayUnit}
         color={color}
         displayUnit={displayUnit}
         isSelected={isSelected}

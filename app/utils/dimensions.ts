@@ -1,9 +1,46 @@
 import type { Measurement, Point2D, RectMeasurement, Scale, Unit } from "@/app/types";
 import { convertUnits } from "@/app/utils/units";
 
+function parseFeetInchesInput(text: string): number | null {
+  const feetInches = text.match(
+    /^(-?\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(-?\d+(?:\.\d+)?)\s*(?:in|inches|")?$/i,
+  );
+  if (feetInches) {
+    const feet = Number.parseFloat(feetInches[1]);
+    const inches = Number.parseFloat(feetInches[2]);
+    if (
+      Number.isFinite(feet) &&
+      Number.isFinite(inches) &&
+      feet >= 0 &&
+      inches >= 0 &&
+      (feet > 0 || inches > 0)
+    ) {
+      const total = feet + inches / 12;
+      return total > 0 ? total : null;
+    }
+  }
+
+  const inchesOnly = text.match(/^(-?\d+(?:\.\d+)?)\s*(?:in|inches|")$/i);
+  if (inchesOnly) {
+    const inches = Number.parseFloat(inchesOnly[1]);
+    if (Number.isFinite(inches) && inches > 0) {
+      return inches / 12;
+    }
+  }
+
+  return null;
+}
+
 export function parseDimensionInput(text: string, displayUnit: Unit): number | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
+
+  if (displayUnit === "ft") {
+    const fromFeetInches = parseFeetInchesInput(trimmed);
+    if (fromFeetInches !== null) {
+      return fromFeetInches;
+    }
+  }
 
   const unitPattern = new RegExp(`\\s*${displayUnit}\\s*$`, "i");
   const numeric = trimmed.replace(unitPattern, "").trim();

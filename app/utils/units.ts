@@ -20,7 +20,35 @@ export function convertUnits(value: number, from: Unit, to: Unit): number {
   return fromMeters(toMeters(value, from), to);
 }
 
+function formatFeetAndInches(feetDecimal: number): string {
+  const totalInches = Math.round(Math.max(0, feetDecimal) * 12);
+  const feet = Math.floor(totalInches / 12);
+  const inches = totalInches % 12;
+
+  if (feet === 0 && inches === 0) {
+    return "0 ft";
+  }
+  if (feet === 0) {
+    return `${inches} in`;
+  }
+  if (inches === 0) {
+    return `${feet} ft`;
+  }
+  return `${feet} ft ${inches} in`;
+}
+
+/** Value in display units for dimension edit fields (not necessarily equal to `formatDistance`). */
+export function formatDistanceEditValue(value: number, unit: Unit): string {
+  if (unit === "mm") {
+    return value.toFixed(0);
+  }
+  return value.toFixed(2);
+}
+
 export function formatDistance(value: number, unit: Unit): string {
+  if (unit === "ft") {
+    return formatFeetAndInches(value);
+  }
   const decimals = unit === "mm" ? 0 : 2;
   return `${value.toFixed(decimals)} ${unit}`;
 }

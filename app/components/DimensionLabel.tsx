@@ -3,11 +3,13 @@
 import { useEffect, useRef } from "react";
 import type { Unit } from "@/app/types";
 import { parseDimensionInput } from "@/app/utils/dimensions";
+import { formatDistanceEditValue } from "@/app/utils/units";
 
 interface DimensionLabelProps {
   x: number;
   y: number;
   label: string;
+  valueInDisplayUnit: number;
   color: string;
   displayUnit: Unit;
   isSelected: boolean;
@@ -24,6 +26,7 @@ export function DimensionLabel({
   x,
   y,
   label,
+  valueInDisplayUnit,
   color,
   displayUnit,
   isSelected,
@@ -39,7 +42,7 @@ export function DimensionLabel({
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
   const labelWidth = Math.max(label.length * 7 + 12, 48);
-  const numericValue = label.replace(/\s+\S+$/, "");
+  const editValue = formatDistanceEditValue(valueInDisplayUnit, displayUnit);
 
   useEffect(() => {
     if (isEditing) {
@@ -111,7 +114,7 @@ export function DimensionLabel({
           <input
             ref={inputRef}
             type="text"
-            defaultValue={numericValue}
+            defaultValue={editValue}
             className="w-14 rounded border border-cyan-500 bg-slate-900 px-1 py-0.5 font-mono text-xs text-cyan-100 outline-none"
             onKeyDown={(event) => {
               event.stopPropagation();

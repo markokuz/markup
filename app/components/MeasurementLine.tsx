@@ -7,21 +7,31 @@ import { convertUnits, formatDistance } from "@/app/utils/units";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
+function getMeasurementValueInDisplayUnit(
+  measurement: Measurement,
+  scale: Scale,
+  displayUnit: Unit,
+): number {
+  const dist = Math.hypot(
+    measurement.end.x - measurement.start.x,
+    measurement.end.y - measurement.start.y,
+  );
+  return convertUnits(
+    dist * scale.unitsPerPdfPoint,
+    scale.calibrationUnit,
+    displayUnit,
+  );
+}
+
 function getDisplayDistance(
   measurement: Measurement,
   scale: Scale,
   displayUnit: Unit,
 ): string {
-  const dist = Math.hypot(
-    measurement.end.x - measurement.start.x,
-    measurement.end.y - measurement.start.y,
-  );
-  const value = convertUnits(
-    dist * scale.unitsPerPdfPoint,
-    scale.calibrationUnit,
+  return formatDistance(
+    getMeasurementValueInDisplayUnit(measurement, scale, displayUnit),
     displayUnit,
   );
-  return formatDistance(value, displayUnit);
 }
 
 interface MeasurementLineProps {
@@ -78,6 +88,10 @@ export function MeasurementLine({
       : measurement.isCalibration
         ? "Calibration"
         : "—";
+  const labelValueInDisplayUnit =
+    scale && !measurement.isCalibration
+      ? getMeasurementValueInDisplayUnit(measurement, scale, displayUnit)
+      : 0;
   const interactive = isSelectMode && !measurement.isCalibration;
 
   return (
@@ -112,6 +126,7 @@ export function MeasurementLine({
           x={labelPos.x}
           y={labelPos.y}
           label={label}
+          valueInDisplayUnit={labelValueInDisplayUnit}
           color={color}
           displayUnit={displayUnit}
           isSelected={isSelected}

@@ -39,11 +39,6 @@ export interface PendingCalibrationLine {
   end: Point2D;
 }
 
-export interface PendingRectDrag {
-  start: Point2D;
-  current: Point2D;
-}
-
 export interface PendingMarquee {
   start: Point2D;
   current: Point2D;
@@ -70,7 +65,6 @@ export interface AppState {
   rectangles: RectMeasurement[];
   selectedIds: string[];
   pendingPoint: Point2D | null;
-  pendingRectDrag: PendingRectDrag | null;
   pendingMarquee: PendingMarquee | null;
   editingDimension: EditingDimension | null;
   fileBytes: Uint8Array | null;
@@ -90,7 +84,6 @@ export type AppAction =
   | { type: "LOAD_FILE"; bytes: Uint8Array; fileName: string; fileType: DocumentType; mimeType: string }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_PENDING_POINT"; point: Point2D | null }
-  | { type: "SET_PENDING_RECT_DRAG"; drag: PendingRectDrag | null }
   | { type: "SET_PENDING_MARQUEE"; marquee: PendingMarquee | null }
   | { type: "ADD_MEASUREMENT"; measurement: Measurement }
   | { type: "UPDATE_MEASUREMENT"; id: string; updates: Partial<Measurement> }
@@ -119,7 +112,6 @@ export const initialState: AppState = {
   rectangles: [],
   selectedIds: [],
   pendingPoint: null,
-  pendingRectDrag: null,
   pendingMarquee: null,
   editingDimension: null,
   fileBytes: null,

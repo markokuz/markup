@@ -22,7 +22,6 @@ function MarkupShell() {
 
       if (event.key === "Escape") {
         dispatch({ type: "SET_PENDING_POINT", point: null });
-        dispatch({ type: "SET_PENDING_RECT_DRAG", drag: null });
         dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
         dispatch({ type: "CLEAR_EDITING_DIMENSION" });
         dispatch({ type: "SET_SELECTION", ids: [] });

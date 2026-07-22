@@ -146,7 +146,7 @@ export function RectangleAnnotation({
         stroke={color}
         strokeWidth={strokeWidth}
         style={{
-          pointerEvents: isSelectMode ? "all" : "none",
+          pointerEvents: isSelectMode ? "stroke" : "none",
           cursor: showHandles ? "move" : isSelectMode ? "pointer" : "default",
         }}
         onPointerDown={(event) => {

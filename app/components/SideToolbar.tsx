@@ -5,7 +5,7 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "measure", label: "Line", hint: "Draw dimension lines" },
-  { id: "rectangle", label: "Rect", hint: "Click and drag to draw a rectangle" },
+  { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle" },
   { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];

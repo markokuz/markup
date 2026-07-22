@@ -23,7 +23,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         tool: action.tool,
         pendingPoint: null,
-        pendingRectDrag: null,
         pendingMarquee: null,
         editingDimension: null,
         selectedIds: action.tool === "select" ? state.selectedIds : [],
@@ -44,8 +43,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, zoom: action.zoom };
     case "SET_PENDING_POINT":
       return { ...state, pendingPoint: action.point };
-    case "SET_PENDING_RECT_DRAG":
-      return { ...state, pendingRectDrag: action.drag };
     case "SET_PENDING_MARQUEE":
       return { ...state, pendingMarquee: action.marquee };
     case "ADD_MEASUREMENT":
@@ -81,7 +78,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         history: appendHistory(state),
         rectangles: [...state.rectangles, action.rectangle],
-        pendingRectDrag: null,
+        pendingPoint: null,
       };
     case "UPDATE_RECTANGLE":
       return {
@@ -183,7 +180,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         rectangles: [],
         selectedIds: [],
         pendingPoint: null,
-        pendingRectDrag: null,
         pendingMarquee: null,
         editingDimension: null,
         calibrateDialogOpen: false,
@@ -205,7 +201,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         scale: snapshot.scale,
         selectedIds: snapshot.selectedIds,
         pendingPoint: null,
-        pendingRectDrag: null,
         pendingMarquee: null,
         editingDimension: null,
       };

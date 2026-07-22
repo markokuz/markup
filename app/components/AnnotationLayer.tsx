@@ -45,7 +45,6 @@ type DragMode =
   | { type: "endpoint"; id: string; endpoint: "start" | "end" }
   | { type: "body"; id: string; originPdf: Point2D; startPdf: Point2D; endPdf: Point2D }
   | { type: "label"; id: string }
-  | { type: "drawRect"; start: Point2D; current: Point2D }
   | { type: "rectBody"; id: string; originPdf: Point2D; topLeft: Point2D; bottomRight: Point2D }
   | { type: "rectCorner"; id: string; fixedCornerScreen: Point2D }
   | { type: "rectWidthLabel"; id: string }
@@ -118,12 +117,47 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       }
 
       if (state.tool === "rectangle" && state.scale) {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = { type: "drawRect", start: pdfPoint, current: pdfPoint };
-        dispatch({
-          type: "SET_PENDING_RECT_DRAG",
-          drag: { start: pdfPoint, current: pdfPoint },
-        });
+        if (!state.pendingPoint) {
+          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
+          setPreviewEnd(pdfPoint);
+        } else {
+          const start = state.pendingPoint;
+          const end = pdfPoint;
+          const normalized = normalizeRect(start, end);
+          const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
+          const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
+
+          if (width >= MIN_RECT_SIZE && height >= MIN_RECT_SIZE) {
+            const rectangle = {
+              id: createId(),
+              ...normalized,
+              widthLabelOffset: { x: 0, y: 0 },
+              heightLabelOffset: { x: 0, y: 0 },
+            };
+            const widthAnchorDoc = getRectWidthLabelAnchorDoc(
+              rectangle,
+              state.fileType ?? "image",
+            );
+            const heightAnchorDoc = getRectHeightLabelAnchorDoc(rectangle);
+            dispatch({
+              type: "ADD_RECTANGLE",
+              rectangle: {
+                ...rectangle,
+                widthLabelOffset: defaultScreenLabelOffsetDoc(viewport, widthAnchorDoc, {
+                  x: 0,
+                  y: -16,
+                }),
+                heightLabelOffset: defaultScreenLabelOffsetDoc(viewport, heightAnchorDoc, {
+                  x: -16,
+                  y: 0,
+                }),
+              },
+            });
+          } else {
+            dispatch({ type: "SET_PENDING_POINT", point: null });
+            setPreviewEnd(null);
+          }
+        }
         return;
       }
 
@@ -161,6 +195,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     [
       dispatch,
       overlayRef,
+      state.fileType,
       state.pendingPoint,
       state.scale,
       state.tool,
@@ -178,15 +213,6 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
 
       if (dragRef.current) {
         const drag = dragRef.current;
-
-        if (drag.type === "drawRect") {
-          dragRef.current = { ...drag, current: pdfPoint };
-          dispatch({
-            type: "SET_PENDING_RECT_DRAG",
-            drag: { start: drag.start, current: pdfPoint },
-          });
-          return;
-        }
 
         if (drag.type === "marquee") {
           dragRef.current = { ...drag, currentScreen: local };
@@ -317,44 +343,8 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
     }
 
-    if (drag?.type === "drawRect" && state.scale) {
-      const normalized = normalizeRect(drag.start, drag.current);
-      const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
-      const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
-
-      if (width >= MIN_RECT_SIZE && height >= MIN_RECT_SIZE) {
-        const rectangle = {
-          id: createId(),
-          ...normalized,
-          widthLabelOffset: { x: 0, y: 0 },
-          heightLabelOffset: { x: 0, y: 0 },
-        };
-        const widthAnchorDoc = getRectWidthLabelAnchorDoc(
-          rectangle,
-          state.fileType ?? "image",
-        );
-        const heightAnchorDoc = getRectHeightLabelAnchorDoc(rectangle);
-        dispatch({
-          type: "ADD_RECTANGLE",
-          rectangle: {
-            ...rectangle,
-            widthLabelOffset: defaultScreenLabelOffsetDoc(viewport, widthAnchorDoc, {
-              x: 0,
-              y: -16,
-            }),
-            heightLabelOffset: defaultScreenLabelOffsetDoc(viewport, heightAnchorDoc, {
-              x: -16,
-              y: 0,
-            }),
-          },
-        });
-      } else {
-        dispatch({ type: "SET_PENDING_RECT_DRAG", drag: null });
-      }
-    }
-
     dragRef.current = null;
-  }, [dispatch, state.fileType, state.measurements, state.rectangles, state.scale, state.selectedIds, viewport]);
+  }, [dispatch, state.measurements, state.rectangles, state.selectedIds, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -526,19 +516,10 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     ? toScreenPoint(viewport, previewEnd.x, previewEnd.y)
     : null;
 
-  const rectPreview = state.pendingRectDrag
-    ? toScreenRect(
-        viewport,
-        {
-          x: Math.min(state.pendingRectDrag.start.x, state.pendingRectDrag.current.x),
-          y: Math.min(state.pendingRectDrag.start.y, state.pendingRectDrag.current.y),
-        },
-        {
-          x: Math.max(state.pendingRectDrag.start.x, state.pendingRectDrag.current.x),
-          y: Math.max(state.pendingRectDrag.start.y, state.pendingRectDrag.current.y),
-        },
-      )
-    : null;
+  const rectPreview =
+    state.tool === "rectangle" && state.pendingPoint && previewEnd
+      ? toScreenRect(viewport, state.pendingPoint, previewEnd)
+      : null;
 
   const marqueePreview = state.pendingMarquee
     ? screenRectFromPoints(state.pendingMarquee.start, state.pendingMarquee.current)
@@ -629,18 +610,20 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           pointerEvents="none"
         />
       )}
-      {previewStart && previewEndScreen && (
-        <line
-          x1={previewStart.x}
-          y1={previewStart.y}
-          x2={previewEndScreen.x}
-          y2={previewEndScreen.y}
-          stroke="#94a3b8"
-          strokeWidth={1.5}
-          strokeDasharray="6 4"
-          pointerEvents="none"
-        />
-      )}
+      {previewStart &&
+        previewEndScreen &&
+        (state.tool === "measure" || state.tool === "calibrate") && (
+          <line
+            x1={previewStart.x}
+            y1={previewStart.y}
+            x2={previewEndScreen.x}
+            y2={previewEndScreen.y}
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        )}
       {rectPreview && (
         <rect
           x={rectPreview.x}

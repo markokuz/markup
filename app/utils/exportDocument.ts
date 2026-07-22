@@ -27,6 +27,8 @@ import { loadImageSource } from "@/app/utils/loadImage";
 /** US Letter width in PDF points — baseline for on-screen markup sizing. */
 const REFERENCE_PAGE_MIN_DIMENSION = 612;
 
+export type ExportSaveMode = "download" | "choose-location";
+
 export interface ExportStyle {
   lineWidth: number;
   calibrationLineWidth: number;
@@ -154,7 +156,26 @@ async function exportMarkedUpPdf(
   scale: Scale | null,
   displayUnit: Unit,
   fileName: string,
+  saveMode: ExportSaveMode,
 ): Promise<void> {
+  const blob = await buildMarkedUpPdfBlob(
+    fileBytes,
+    measurements,
+    rectangles,
+    scale,
+    displayUnit,
+  );
+  const outputFileName = getMarkedUpExportFileName("pdf", fileName);
+  await persistExportedBlob(blob, outputFileName, saveMode);
+}
+
+async function buildMarkedUpPdfBlob(
+  fileBytes: Uint8Array,
+  measurements: Measurement[],
+  rectangles: RectMeasurement[],
+  scale: Scale | null,
+  displayUnit: Unit,
+): Promise<Blob> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const page = pdfDoc.getPage(0);
   const { width: pageWidth, height: pageHeight } = page.getSize();
@@ -235,10 +256,7 @@ async function exportMarkedUpPdf(
   }
 
   const output = await pdfDoc.save();
-  downloadBlob(
-    new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" }),
-    `marked-up-${stripExtension(fileName)}.pdf`,
-  );
+  return new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" });
 }
 
 async function exportMarkedUpImage(
@@ -249,14 +267,38 @@ async function exportMarkedUpImage(
   rectangles: RectMeasurement[],
   scale: Scale | null,
   displayUnit: Unit,
+  saveMode: ExportSaveMode,
 ): Promise<void> {
+  const blob = await buildMarkedUpImageBlob(
+    fileBytes,
+    fileName,
+    mimeType,
+    measurements,
+    rectangles,
+    scale,
+    displayUnit,
+  );
+  if (!blob) return;
+  const outputFileName = getMarkedUpExportFileName("image", fileName);
+  await persistExportedBlob(blob, outputFileName, saveMode);
+}
+
+async function buildMarkedUpImageBlob(
+  fileBytes: Uint8Array,
+  fileName: string,
+  mimeType: string,
+  measurements: Measurement[],
+  rectangles: RectMeasurement[],
+  scale: Scale | null,
+  displayUnit: Unit,
+): Promise<Blob | null> {
   const source = await loadImageSource(fileBytes, fileName, mimeType);
   const canvas = document.createElement("canvas");
   canvas.width = source.width;
   canvas.height = source.height;
 
   const context = canvas.getContext("2d");
-  if (!context) return;
+  if (!context) return null;
 
   source.draw(context, source.width, source.height);
 
@@ -274,13 +316,19 @@ async function exportMarkedUpImage(
     canvas.toBlob(resolve, "image/png");
   });
 
-  if (!blob) return;
-
-  downloadBlob(blob, `marked-up-${stripExtension(fileName)}.png`);
+  return blob;
 }
 
 function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "");
+}
+
+export function getMarkedUpExportFileName(
+  fileType: DocumentType,
+  originalFileName: string,
+): string {
+  const base = stripExtension(originalFileName);
+  return fileType === "pdf" ? `marked-up-${base}.pdf` : `marked-up-${base}.png`;
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -292,6 +340,40 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+async function persistExportedBlob(
+  blob: Blob,
+  fileName: string,
+  saveMode: ExportSaveMode,
+): Promise<void> {
+  if (saveMode === "choose-location" && typeof window.showSaveFilePicker === "function") {
+    try {
+      const isPdf = blob.type === "application/pdf";
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [
+          {
+            description: isPdf ? "PDF document" : "PNG image",
+            accept: isPdf
+              ? { "application/pdf": [".pdf"] }
+              : { "image/png": [".png"] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  downloadBlob(blob, fileName);
+}
+
 export async function exportMarkedUpDocument(
   fileBytes: Uint8Array,
   fileType: DocumentType,
@@ -301,6 +383,7 @@ export async function exportMarkedUpDocument(
   rectangles: RectMeasurement[],
   scale: Scale | null,
   displayUnit: Unit,
+  saveMode: ExportSaveMode = "download",
 ): Promise<void> {
   if (fileType === "pdf") {
     await exportMarkedUpPdf(
@@ -310,6 +393,7 @@ export async function exportMarkedUpDocument(
       scale,
       displayUnit,
       fileName,
+      saveMode,
     );
     return;
   }
@@ -322,5 +406,6 @@ export async function exportMarkedUpDocument(
     rectangles,
     scale,
     displayUnit,
+    saveMode,
   );
 }

@@ -5,6 +5,7 @@ import type { ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
   exportMarkedUpDocument,
+  supportsSaveFilePicker,
   type ExportSaveMode,
 } from "@/app/utils/exportDocument";
 import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
@@ -86,8 +87,7 @@ export function Toolbar() {
 
   const saveDisabled = !state.fileBytes || annotationCount === 0;
 
-  const canChooseSaveLocation =
-    typeof window.showSaveFilePicker === "function";
+  const canChooseSaveLocation = supportsSaveFilePicker();
 
   const zoomIn = () =>
     dispatch({ type: "SET_ZOOM", zoom: Math.min(4, state.zoom + 0.25) });

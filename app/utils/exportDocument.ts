@@ -23,11 +23,13 @@ import {
   getRectDocWidth,
 } from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
+import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 /** US Letter width in PDF points — baseline for on-screen markup sizing. */
 const REFERENCE_PAGE_MIN_DIMENSION = 612;
 
 export type ExportSaveMode = "download" | "choose-location";
+export { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 export interface ExportStyle {
   lineWidth: number;
@@ -345,24 +347,12 @@ async function persistExportedBlob(
   fileName: string,
   saveMode: ExportSaveMode,
 ): Promise<void> {
-  if (saveMode === "choose-location" && typeof window.showSaveFilePicker === "function") {
+  if (saveMode === "choose-location") {
     try {
-      const isPdf = blob.type === "application/pdf";
-      const handle = await window.showSaveFilePicker({
-        suggestedName: fileName,
-        types: [
-          {
-            description: isPdf ? "PDF document" : "PNG image",
-            accept: isPdf
-              ? { "application/pdf": [".pdf"] }
-              : { "image/png": [".png"] },
-          },
-        ],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
+      const saved = await writeBlobWithSaveFilePicker(blob, fileName);
+      if (saved) {
+        return;
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return;

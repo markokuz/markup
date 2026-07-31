@@ -73,9 +73,13 @@ export interface UndoSnapshot {
   selectedIds: string[];
 }
 
-export interface AppState {
-  tool: ToolMode;
-  displayUnit: Unit;
+/** Per-document state stored in a tab. */
+export interface DocumentTab {
+  id: string;
+  fileBytes: Uint8Array | null;
+  fileName: string | null;
+  fileType: DocumentType | null;
+  fileMimeType: string | null;
   scale: Scale | null;
   measurements: Measurement[];
   rectangles: RectMeasurement[];
@@ -85,10 +89,6 @@ export interface AppState {
   pendingMarquee: PendingMarquee | null;
   editingDimension: EditingDimension | null;
   editingNoteId: string | null;
-  fileBytes: Uint8Array | null;
-  fileName: string | null;
-  fileType: DocumentType | null;
-  fileMimeType: string | null;
   zoom: number;
   rotation: DocumentRotation;
   calibrateDialogOpen: boolean;
@@ -96,6 +96,22 @@ export interface AppState {
   history: UndoSnapshot[];
   documentViewport: DocumentViewport | null;
 }
+
+/** Internal reducer state. */
+export interface TabsState {
+  tool: ToolMode;
+  displayUnit: Unit;
+  tabs: DocumentTab[];
+  activeTabId: string | null;
+}
+
+/** Merged view of the active tab plus global settings (returned by useAppState). */
+export type AppState = Omit<DocumentTab, "id"> & {
+  tool: ToolMode;
+  displayUnit: Unit;
+  tabs: DocumentTab[];
+  activeTabId: string | null;
+};
 
 export type AppAction =
   | { type: "SET_TOOL"; tool: ToolMode }
@@ -107,6 +123,8 @@ export type AppAction =
       fileType: DocumentType;
       mimeType: string;
     }
+  | { type: "SWITCH_TAB"; tabId: string }
+  | { type: "CLOSE_TAB"; tabId: string }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_ROTATION"; rotation: DocumentRotation }
   | { type: "SET_PENDING_POINT"; point: Point2D | null }
@@ -134,26 +152,9 @@ export type AppAction =
   | { type: "UNDO" }
   | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null };
 
-export const initialState: AppState = {
+export const initialTabsState: TabsState = {
   tool: "calibrate",
   displayUnit: "ft",
-  scale: null,
-  measurements: [],
-  rectangles: [],
-  notes: [],
-  selectedIds: [],
-  pendingPoint: null,
-  pendingMarquee: null,
-  editingDimension: null,
-  editingNoteId: null,
-  fileBytes: null,
-  fileName: null,
-  fileType: null,
-  fileMimeType: null,
-  zoom: 1,
-  rotation: 0,
-  calibrateDialogOpen: false,
-  pendingCalibrationLine: null,
-  history: [],
-  documentViewport: null,
+  tabs: [],
+  activeTabId: null,
 };

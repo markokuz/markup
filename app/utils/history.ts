@@ -1,17 +1,22 @@
-import type { AppState, UndoSnapshot } from "@/app/types";
+import type { DocumentTab, UndoSnapshot } from "@/app/types";
 
 const MAX_HISTORY = 50;
 
-export function createUndoSnapshot(state: AppState): UndoSnapshot {
+export function createUndoSnapshot(
+  tab: Pick<
+    DocumentTab,
+    "measurements" | "rectangles" | "notes" | "scale" | "selectedIds"
+  >,
+): UndoSnapshot {
   return {
-    measurements: structuredClone(state.measurements),
-    rectangles: structuredClone(state.rectangles),
-    notes: structuredClone(state.notes),
-    scale: state.scale ? { ...state.scale } : null,
-    selectedIds: [...state.selectedIds],
+    measurements: structuredClone(tab.measurements),
+    rectangles: structuredClone(tab.rectangles),
+    notes: structuredClone(tab.notes),
+    scale: tab.scale ? { ...tab.scale } : null,
+    selectedIds: [...tab.selectedIds],
   };
 }
 
-export function appendHistory(state: AppState): UndoSnapshot[] {
-  return [...state.history, createUndoSnapshot(state)].slice(-MAX_HISTORY);
+export function appendHistory(tab: DocumentTab): UndoSnapshot[] {
+  return [...tab.history, createUndoSnapshot(tab)].slice(-MAX_HISTORY);
 }

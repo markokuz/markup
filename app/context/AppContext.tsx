@@ -7,213 +7,254 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
-import type { DocumentViewport } from "@/app/utils/documentViewport";
-import { initialState, type AppAction, type AppState } from "@/app/types";
+import {
+  initialTabsState,
+  type AppAction,
+  type AppState,
+  type TabsState,
+} from "@/app/types";
 import { appendHistory } from "@/app/utils/history";
+import {
+  createDocumentTab,
+  EMPTY_DOCUMENT_VIEW,
+  getActiveTab,
+  updateActiveTab,
+} from "@/app/utils/tabState";
 
 function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): string[] {
   const removed = new Set(removedIds);
   return selectedIds.filter((id) => !removed.has(id));
 }
 
-function appReducer(state: AppState, action: AppAction): AppState {
+function tabsReducer(state: TabsState, action: AppAction): TabsState {
   switch (action.type) {
     case "SET_TOOL":
       return {
-        ...state,
+        ...updateActiveTab(state, (tab) => ({
+          ...tab,
+          pendingPoint: null,
+          pendingMarquee: null,
+          editingDimension: null,
+          editingNoteId: null,
+          selectedIds: action.tool === "select" ? tab.selectedIds : [],
+        })),
         tool: action.tool,
-        pendingPoint: null,
-        pendingMarquee: null,
-        editingDimension: null,
-        editingNoteId: null,
-        selectedIds: action.tool === "select" ? state.selectedIds : [],
       };
     case "SET_DISPLAY_UNIT":
       return { ...state, displayUnit: action.unit };
-    case "LOAD_FILE":
-      return {
-        ...initialState,
-        fileBytes: action.bytes,
+    case "LOAD_FILE": {
+      const tab = createDocumentTab({
+        bytes: action.bytes,
         fileName: action.fileName,
         fileType: action.fileType,
-        fileMimeType: action.mimeType,
-        zoom: 1,
-        rotation: 0,
-        documentViewport: null,
+        mimeType: action.mimeType,
+      });
+      return {
+        ...state,
+        tabs: [...state.tabs, tab],
+        activeTabId: tab.id,
+        tool: "calibrate",
       };
+    }
+    case "SWITCH_TAB":
+      if (!state.tabs.some((tab) => tab.id === action.tabId)) return state;
+      return { ...state, activeTabId: action.tabId };
+    case "CLOSE_TAB": {
+      const index = state.tabs.findIndex((tab) => tab.id === action.tabId);
+      if (index === -1) return state;
+
+      const tabs = state.tabs.filter((tab) => tab.id !== action.tabId);
+      let activeTabId = state.activeTabId;
+
+      if (state.activeTabId === action.tabId) {
+        activeTabId =
+          tabs.length === 0
+            ? null
+            : tabs[Math.min(index, tabs.length - 1)].id;
+      }
+
+      return { ...state, tabs, activeTabId };
+    }
     case "SET_ZOOM":
-      return { ...state, zoom: action.zoom };
+      return updateActiveTab(state, (tab) => ({ ...tab, zoom: action.zoom }));
     case "SET_ROTATION":
-      return { ...state, rotation: action.rotation };
+      return updateActiveTab(state, (tab) => ({ ...tab, rotation: action.rotation }));
     case "SET_PENDING_POINT":
-      return { ...state, pendingPoint: action.point };
+      return updateActiveTab(state, (tab) => ({ ...tab, pendingPoint: action.point }));
     case "SET_PENDING_MARQUEE":
-      return { ...state, pendingMarquee: action.marquee };
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        pendingMarquee: action.marquee,
+      }));
     case "ADD_MEASUREMENT":
-      return {
-        ...state,
-        history: appendHistory(state),
-        measurements: [...state.measurements, action.measurement],
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        measurements: [...tab.measurements, action.measurement],
         pendingPoint: null,
-      };
+      }));
     case "UPDATE_MEASUREMENT":
-      return {
-        ...state,
-        measurements: state.measurements.map((m) =>
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        measurements: tab.measurements.map((m) =>
           m.id === action.id ? { ...m, ...action.updates } : m,
         ),
-      };
-    case "DELETE_MEASUREMENT": {
-      const measurements = state.measurements.filter((m) => m.id !== action.id);
-      return {
-        ...state,
-        history: appendHistory(state),
-        measurements,
-        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
+      }));
+    case "DELETE_MEASUREMENT":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        measurements: tab.measurements.filter((m) => m.id !== action.id),
+        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
         editingDimension:
-          state.editingDimension?.target === "line" &&
-          state.editingDimension.id === action.id
+          tab.editingDimension?.target === "line" &&
+          tab.editingDimension.id === action.id
             ? null
-            : state.editingDimension,
-      };
-    }
+            : tab.editingDimension,
+      }));
     case "ADD_RECTANGLE":
-      return {
-        ...state,
-        history: appendHistory(state),
-        rectangles: [...state.rectangles, action.rectangle],
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        rectangles: [...tab.rectangles, action.rectangle],
         pendingPoint: null,
-      };
+      }));
     case "UPDATE_RECTANGLE":
-      return {
-        ...state,
-        rectangles: state.rectangles.map((r) =>
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        rectangles: tab.rectangles.map((r) =>
           r.id === action.id ? { ...r, ...action.updates } : r,
         ),
-      };
-    case "DELETE_RECTANGLE": {
-      const rectangles = state.rectangles.filter((r) => r.id !== action.id);
-      return {
-        ...state,
-        history: appendHistory(state),
-        rectangles,
-        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
+      }));
+    case "DELETE_RECTANGLE":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        rectangles: tab.rectangles.filter((r) => r.id !== action.id),
+        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
         editingDimension:
-          state.editingDimension?.target === "rectangle" &&
-          state.editingDimension.id === action.id
+          tab.editingDimension?.target === "rectangle" &&
+          tab.editingDimension.id === action.id
             ? null
-            : state.editingDimension,
-      };
-    }
+            : tab.editingDimension,
+      }));
     case "ADD_NOTE":
       return {
-        ...state,
-        history: appendHistory(state),
-        notes: [...state.notes, action.note],
-        selectedIds: [action.note.id],
-        editingNoteId: action.note.id,
+        ...updateActiveTab(state, (tab) => ({
+          ...tab,
+          history: appendHistory(tab),
+          notes: [...tab.notes, action.note],
+          selectedIds: [action.note.id],
+          editingNoteId: action.note.id,
+        })),
         tool: "select",
       };
     case "UPDATE_NOTE":
-      return {
-        ...state,
-        notes: state.notes.map((n) =>
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        notes: tab.notes.map((n) =>
           n.id === action.id ? { ...n, ...action.updates } : n,
         ),
-      };
-    case "DELETE_NOTE": {
-      const notes = state.notes.filter((n) => n.id !== action.id);
-      return {
-        ...state,
-        history: appendHistory(state),
-        notes,
-        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
-        editingNoteId: state.editingNoteId === action.id ? null : state.editingNoteId,
-      };
-    }
+      }));
+    case "DELETE_NOTE":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        notes: tab.notes.filter((n) => n.id !== action.id),
+        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
+        editingNoteId: tab.editingNoteId === action.id ? null : tab.editingNoteId,
+      }));
     case "SET_SELECTION":
-      return {
-        ...state,
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
         selectedIds: action.ids,
         editingDimension: null,
         editingNoteId: null,
-      };
-    case "DELETE_SELECTED": {
-      if (state.selectedIds.length === 0) return state;
+      }));
+    case "DELETE_SELECTED":
+      return updateActiveTab(state, (tab) => {
+        if (tab.selectedIds.length === 0) return tab;
 
-      const selected = new Set(state.selectedIds);
-      const measurements = state.measurements.filter(
-        (m) => !selected.has(m.id) || m.isCalibration,
-      );
-      const rectangles = state.rectangles.filter((r) => !selected.has(r.id));
-      const notes = state.notes.filter((n) => !selected.has(n.id));
-
-      return {
-        ...state,
-        history: appendHistory(state),
-        measurements,
-        rectangles,
-        notes,
-        selectedIds: [],
-        editingDimension: null,
-        editingNoteId: null,
-      };
-    }
-    case "SET_ANNOTATION_COLOR": {
-      const targetIds = new Set(action.ids);
-      return {
-        ...state,
-        history: appendHistory(state),
-        measurements: state.measurements.map((m) =>
-          targetIds.has(m.id) && !m.isCalibration
-            ? { ...m, color: action.color }
-            : m,
-        ),
-        rectangles: state.rectangles.map((r) =>
-          targetIds.has(r.id) ? { ...r, color: action.color } : r,
-        ),
-        notes: state.notes.map((n) =>
-          targetIds.has(n.id) ? { ...n, color: action.color } : n,
-        ),
-      };
-    }
+        const selected = new Set(tab.selectedIds);
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          measurements: tab.measurements.filter(
+            (m) => !selected.has(m.id) || m.isCalibration,
+          ),
+          rectangles: tab.rectangles.filter((r) => !selected.has(r.id)),
+          notes: tab.notes.filter((n) => !selected.has(n.id)),
+          selectedIds: [],
+          editingDimension: null,
+          editingNoteId: null,
+        };
+      });
+    case "SET_ANNOTATION_COLOR":
+      return updateActiveTab(state, (tab) => {
+        const targetIds = new Set(action.ids);
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          measurements: tab.measurements.map((m) =>
+            targetIds.has(m.id) && !m.isCalibration
+              ? { ...m, color: action.color }
+              : m,
+          ),
+          rectangles: tab.rectangles.map((r) =>
+            targetIds.has(r.id) ? { ...r, color: action.color } : r,
+          ),
+          notes: tab.notes.map((n) =>
+            targetIds.has(n.id) ? { ...n, color: action.color } : n,
+          ),
+        };
+      });
     case "SET_EDITING_DIMENSION":
-      return { ...state, editingDimension: action.editing, editingNoteId: null };
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        editingDimension: action.editing,
+        editingNoteId: null,
+      }));
     case "CLEAR_EDITING_DIMENSION":
-      return { ...state, editingDimension: null };
+      return updateActiveTab(state, (tab) => ({ ...tab, editingDimension: null }));
     case "SET_EDITING_NOTE":
-      return { ...state, editingNoteId: action.id, editingDimension: null };
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        editingNoteId: action.id,
+        editingDimension: null,
+      }));
     case "SET_SCALE":
       return {
-        ...state,
-        history: appendHistory(state),
-        scale: action.scale,
-        measurements: [
-          ...state.measurements.filter((m) => !m.isCalibration),
-          action.calibrationMeasurement,
-        ],
-        calibrateDialogOpen: false,
-        pendingCalibrationLine: null,
-        pendingPoint: null,
+        ...updateActiveTab(state, (tab) => ({
+          ...tab,
+          history: appendHistory(tab),
+          scale: action.scale,
+          measurements: [
+            ...tab.measurements.filter((m) => !m.isCalibration),
+            action.calibrationMeasurement,
+          ],
+          calibrateDialogOpen: false,
+          pendingCalibrationLine: null,
+          pendingPoint: null,
+        })),
         tool: "measure",
       };
     case "OPEN_CALIBRATE_DIALOG":
-      return {
-        ...state,
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
         calibrateDialogOpen: true,
         pendingCalibrationLine: action.line,
         pendingPoint: null,
-      };
+      }));
     case "CLOSE_CALIBRATE_DIALOG":
-      return {
-        ...state,
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
-      };
+      }));
     case "CLEAR_ALL":
-      return {
-        ...state,
-        history: appendHistory(state),
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
         scale: null,
         measurements: [],
         rectangles: [],
@@ -225,44 +266,71 @@ function appReducer(state: AppState, action: AppAction): AppState {
         editingNoteId: null,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
-      };
+      }));
     case "RECORD_UNDO":
-      return {
-        ...state,
-        history: appendHistory(state),
-      };
-    case "UNDO": {
-      if (state.history.length === 0) return state;
-      const snapshot = state.history[state.history.length - 1];
-      return {
-        ...state,
-        history: state.history.slice(0, -1),
-        measurements: snapshot.measurements,
-        rectangles: snapshot.rectangles,
-        notes: snapshot.notes,
-        scale: snapshot.scale,
-        selectedIds: snapshot.selectedIds,
-        pendingPoint: null,
-        pendingMarquee: null,
-        editingDimension: null,
-        editingNoteId: null,
-      };
-    }
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+      }));
+    case "UNDO":
+      return updateActiveTab(state, (tab) => {
+        if (tab.history.length === 0) return tab;
+        const snapshot = tab.history[tab.history.length - 1];
+        return {
+          ...tab,
+          history: tab.history.slice(0, -1),
+          measurements: snapshot.measurements,
+          rectangles: snapshot.rectangles,
+          notes: snapshot.notes,
+          scale: snapshot.scale,
+          selectedIds: snapshot.selectedIds,
+          pendingPoint: null,
+          pendingMarquee: null,
+          editingDimension: null,
+          editingNoteId: null,
+        };
+      });
     case "SET_DOCUMENT_VIEWPORT":
-      return { ...state, documentViewport: action.viewport };
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        documentViewport: action.viewport,
+      }));
     default:
       return state;
   }
+}
+
+function mergeActiveTabView(state: TabsState): AppState {
+  const activeTab = getActiveTab(state);
+  if (!activeTab) {
+    return {
+      ...EMPTY_DOCUMENT_VIEW,
+      tool: state.tool,
+      displayUnit: state.displayUnit,
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
+    };
+  }
+
+  const { id: _id, ...documentFields } = activeTab;
+  return {
+    ...documentFields,
+    tool: state.tool,
+    displayUnit: state.displayUnit,
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+  };
 }
 
 const AppStateContext = createContext<AppState | null>(null);
 const AppDispatchContext = createContext<Dispatch<AppAction> | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(appReducer, initialState);
+  const [tabsState, dispatch] = useReducer(tabsReducer, initialTabsState);
+  const appState = mergeActiveTabView(tabsState);
 
   return (
-    <AppStateContext.Provider value={state}>
+    <AppStateContext.Provider value={appState}>
       <AppDispatchContext.Provider value={dispatch}>
         {children}
       </AppDispatchContext.Provider>

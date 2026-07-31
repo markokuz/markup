@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppContext";
+import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
 import { PdfViewer } from "@/app/components/PdfCanvas";
 import { ScaleBanner } from "@/app/components/ScaleBanner";
@@ -55,12 +56,13 @@ function MarkupShell() {
   return (
     <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
       <Toolbar />
+      <DocumentTabs />
       <div className="border-b border-slate-800 px-4 py-2">
         <ScaleBanner />
       </div>
       <div className="flex min-h-0 flex-1">
         <SideToolbar />
-        <PdfViewer />
+        <PdfViewer key={state.activeTabId ?? "empty"} />
       </div>
       <StatusBar />
       <CalibrateDialog />

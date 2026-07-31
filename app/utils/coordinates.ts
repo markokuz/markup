@@ -252,6 +252,36 @@ export function normalizeLabelAngleDeg(angleDeg: number): number {
   return angle;
 }
 
+function angleDiffDeg(a: number, b: number): number {
+  let diff = a - b;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  return Math.abs(diff);
+}
+
+/**
+ * Label rotation for pdf-lib export: pick the PDF rotation aligned with the line
+ * that displays the same upright orientation as the on-screen UI (Y-down viewer).
+ */
+export function computePdfLabelAngleDeg(start: Point2D, end: Point2D): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lineAnglePdf = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const labelAngleScreen = normalizeLabelAngleDeg(
+    (Math.atan2(-dy, dx) * 180) / Math.PI,
+  );
+
+  const aligned = lineAnglePdf;
+  const flipped = lineAnglePdf + 180;
+  if (angleDiffDeg(-aligned, labelAngleScreen) < 0.001) {
+    return aligned;
+  }
+  if (angleDiffDeg(-flipped, labelAngleScreen) < 0.001) {
+    return flipped;
+  }
+  return aligned;
+}
+
 /** Split a line at its midpoint to leave a gap for an inline dimension label. */
 export function computeInlineLineSegments(
   start: Point2D,

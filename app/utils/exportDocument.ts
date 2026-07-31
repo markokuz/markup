@@ -15,6 +15,7 @@ import { convertUnits, formatDistance } from "@/app/utils/units";
 import {
   computeInlineEdgeSegments,
   computeInlineLineSegments,
+  computePdfLabelAngleDeg,
   docDistance,
 } from "@/app/utils/coordinates";
 import {
@@ -145,10 +146,9 @@ function drawInlineLineOnCanvas(
   }
 
   const center = layout.labelCenter;
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
   context.save();
   context.translate(center.x, center.y);
-  context.rotate(angle);
+  context.rotate((layout.angleDeg * Math.PI) / 180);
   context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
   context.fillStyle = color;
   context.textAlign = "center";
@@ -182,9 +182,7 @@ function drawInlineLineOnPdf(
     page.drawLine({ start, end, thickness, color });
   }
 
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const angleDeg = layout.angleDeg;
+  const angleDeg = computePdfLabelAngleDeg(start, end);
   const rad = (angleDeg * Math.PI) / 180;
   const textWidth = font.widthOfTextAtSize(label, fontSize);
   const baselineOffset = fontSize * 0.35;
@@ -479,7 +477,7 @@ export async function buildMarkedUpPdfBlob(
         page,
         topEdge.labelCenter,
         widthLabel,
-        topEdge.angleDeg,
+        computePdfLabelAngleDeg(topLeft, topRight),
         style.fontSize,
         font,
         color,
@@ -514,7 +512,7 @@ export async function buildMarkedUpPdfBlob(
         page,
         leftEdge.labelCenter,
         heightLabel,
-        leftEdge.angleDeg,
+        computePdfLabelAngleDeg(topLeft, bottomLeft),
         style.fontSize,
         font,
         color,

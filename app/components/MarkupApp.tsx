@@ -24,6 +24,7 @@ function MarkupShell() {
         dispatch({ type: "SET_PENDING_POINT", point: null });
         dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
         dispatch({ type: "CLEAR_EDITING_DIMENSION" });
+        dispatch({ type: "SET_EDITING_NOTE", id: null });
         dispatch({ type: "SET_SELECTION", ids: [] });
         dispatch({ type: "CLOSE_CALIBRATE_DIALOG" });
       }

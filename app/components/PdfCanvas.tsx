@@ -1,10 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { detectDocumentType } from "@/app/utils/fileTypes";
+import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
+
+const ZOOM_WHEEL_STEP = 0.1;
+const ZOOM_COMMIT_DELAY_MS = 120;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4;
+
+function clampZoom(value: number) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
+}
 
 async function readDocumentFile(
   file: File,
@@ -24,7 +34,7 @@ async function readDocumentFile(
 }
 
 export function PdfViewer() {
-  const { fileBytes, fileType, fileName, fileMimeType, zoom, tool } = useAppState();
+  const { fileBytes, fileType, fileName, fileMimeType, zoom, rotation, tool } = useAppState();
   const dispatch = useAppDispatch();
   const { canvasRef, viewport, loading, error } = useDocument(
     fileBytes,
@@ -32,6 +42,7 @@ export function PdfViewer() {
     fileName,
     fileMimeType,
     zoom,
+    rotation,
   );
 
   useEffect(() => {
@@ -42,9 +53,145 @@ export function PdfViewer() {
   const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(
     null,
   );
+  const prevZoomRef = useRef(zoom);
+  const previewZoomRef = useRef(zoom);
+  const committedZoomRef = useRef(zoom);
+  const zoomCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastWheelAnchorRef = useRef<{ clientX: number; clientY: number } | null>(
+    null,
+  );
   const [isPanning, setIsPanning] = useState(false);
 
+  const clearPreviewTransform = useCallback(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    el.style.transform = "";
+    el.style.transformOrigin = "";
+  }, []);
+
+  const getPreviewOrigin = useCallback(
+    (clientX: number, clientY: number) => {
+      const overlay = overlayRef.current;
+      if (!overlay || !viewport) {
+        return { x: 0, y: 0 };
+      }
+
+      const rect = overlay.getBoundingClientRect();
+      const ratioX =
+        rect.width > 0 ? (clientX - rect.left) / rect.width : 0.5;
+      const ratioY =
+        rect.height > 0 ? (clientY - rect.top) / rect.height : 0.5;
+
+      return {
+        x: ratioX * viewport.width,
+        y: ratioY * viewport.height,
+      };
+    },
+    [viewport],
+  );
+
+  const applyPreviewTransform = useCallback(
+    (scale: number, clientX: number, clientY: number) => {
+      const el = overlayRef.current;
+      if (!el) return;
+
+      if (Math.abs(scale - 1) < 0.001) {
+        clearPreviewTransform();
+        return;
+      }
+
+      const origin = getPreviewOrigin(clientX, clientY);
+      el.style.transformOrigin = `${origin.x}px ${origin.y}px`;
+      el.style.transform = `scale(${scale})`;
+    },
+    [clearPreviewTransform, getPreviewOrigin],
+  );
+
+  const commitPreviewZoom = useCallback(() => {
+    const nextZoom = clampZoom(previewZoomRef.current);
+    previewZoomRef.current = nextZoom;
+
+    if (nextZoom === committedZoomRef.current) {
+      clearPreviewTransform();
+      return;
+    }
+
+    if (lastWheelAnchorRef.current) {
+      pendingZoomAnchor.current = lastWheelAnchorRef.current;
+    }
+
+    dispatch({ type: "SET_ZOOM", zoom: nextZoom });
+  }, [clearPreviewTransform, dispatch]);
+
+  const scheduleZoomCommit = useCallback(() => {
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+    }
+
+    zoomCommitTimerRef.current = setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      commitPreviewZoom();
+    }, ZOOM_COMMIT_DELAY_MS);
+  }, [commitPreviewZoom]);
+
+  const flushZoomCommit = useCallback(() => {
+    if (!zoomCommitTimerRef.current) return;
+    clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = null;
+    commitPreviewZoom();
+  }, [commitPreviewZoom]);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !viewport) return;
+
+    const oldZoom = prevZoomRef.current;
+    const newZoom = zoom;
+    if (oldZoom === newZoom) return;
+
+    const anchor = pendingZoomAnchor.current ?? "center";
+    pendingZoomAnchor.current = null;
+
+    const rect = scrollEl.getBoundingClientRect();
+    const offsetX =
+      anchor === "center" ? rect.width / 2 : anchor.clientX - rect.left;
+    const offsetY =
+      anchor === "center" ? rect.height / 2 : anchor.clientY - rect.top;
+
+    const scale = newZoom / oldZoom;
+    scrollEl.scrollLeft = (scrollEl.scrollLeft + offsetX) * scale - offsetX;
+    scrollEl.scrollTop = (scrollEl.scrollTop + offsetY) * scale - offsetY;
+
+    prevZoomRef.current = newZoom;
+    committedZoomRef.current = newZoom;
+    previewZoomRef.current = newZoom;
+    clearPreviewTransform();
+  }, [zoom, viewport, clearPreviewTransform]);
+
+  useEffect(() => {
+    previewZoomRef.current = zoom;
+    committedZoomRef.current = zoom;
+    clearPreviewTransform();
+    if (zoomCommitTimerRef.current) {
+      clearTimeout(zoomCommitTimerRef.current);
+      zoomCommitTimerRef.current = null;
+    }
+  }, [zoom, clearPreviewTransform]);
+
+  useEffect(() => {
+    prevZoomRef.current = zoom;
+  }, [fileBytes]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomCommitTimerRef.current) {
+        clearTimeout(zoomCommitTimerRef.current);
+      }
+    };
+  }, []);
+
   const beginPan = useCallback((clientX: number, clientY: number) => {
+    flushZoomCommit();
     if (!scrollRef.current) return;
     panRef.current = {
       x: clientX,
@@ -53,7 +200,7 @@ export function PdfViewer() {
       scrollTop: scrollRef.current.scrollTop,
     };
     setIsPanning(true);
-  }, []);
+  }, [flushZoomCommit]);
 
   const endPan = useCallback(() => {
     panRef.current = null;
@@ -64,11 +211,20 @@ export function PdfViewer() {
     (event: WheelEvent) => {
       if (!fileBytes) return;
       event.preventDefault();
-      const delta = event.deltaY > 0 ? -0.1 : 0.1;
-      const next = Math.min(4, Math.max(0.25, zoom + delta));
-      dispatch({ type: "SET_ZOOM", zoom: Math.round(next * 100) / 100 });
+
+      previewZoomRef.current = clampZoom(
+        previewZoomRef.current + (event.deltaY > 0 ? -ZOOM_WHEEL_STEP : ZOOM_WHEEL_STEP),
+      );
+      lastWheelAnchorRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+
+      const scale = previewZoomRef.current / committedZoomRef.current;
+      applyPreviewTransform(scale, event.clientX, event.clientY);
+      scheduleZoomCommit();
     },
-    [dispatch, fileBytes, zoom],
+    [applyPreviewTransform, fileBytes, scheduleZoomCommit],
   );
 
   useEffect(() => {

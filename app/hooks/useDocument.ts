@@ -38,6 +38,7 @@ export function useDocument(
   fileName: string | null,
   mimeType: string | null,
   zoom: number,
+  rotation: import("@/app/types").DocumentRotation = 0,
 ) {
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(
     null,
@@ -54,6 +55,7 @@ export function useDocument(
   const pageRef = useRef<PDFPageProxy | null>(null);
   const imageRef = useRef<ImageSource | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const hasRenderedRef = useRef(false);
 
   useEffect(() => {
     if (!fileBytes || !fileType) {
@@ -62,6 +64,7 @@ export function useDocument(
       setViewport(null);
       setSourceReady(0);
       setError(null);
+      hasRenderedRef.current = false;
       return;
     }
 
@@ -119,7 +122,10 @@ export function useDocument(
     let cancelled = false;
 
     async function renderDocument() {
-      setLoading(true);
+      const showLoadingOverlay = !hasRenderedRef.current;
+      if (showLoadingOverlay) {
+        setLoading(true);
+      }
       setError(null);
 
       try {
@@ -132,7 +138,7 @@ export function useDocument(
           const page = pageRef.current;
           if (!page) return;
 
-          const pdfViewport = page.getViewport({ scale: zoom });
+          const pdfViewport = page.getViewport({ scale: zoom, rotation });
           nextViewport = createPdfViewport(
             pdfViewport.width,
             pdfViewport.height,
@@ -161,7 +167,7 @@ export function useDocument(
           const image = imageRef.current;
           if (!image) return;
 
-          nextViewport = createImageViewport(image.width, image.height, zoom);
+          nextViewport = createImageViewport(image.width, image.height, zoom, rotation);
 
           activeCanvas.width = Math.floor(nextViewport.width * outputScale);
           activeCanvas.height = Math.floor(nextViewport.height * outputScale);
@@ -173,11 +179,17 @@ export function useDocument(
 
           context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
           context.clearRect(0, 0, nextViewport.width, nextViewport.height);
-          image.draw(context, nextViewport.width, nextViewport.height);
+          context.save();
+          context.translate(nextViewport.width / 2, nextViewport.height / 2);
+          context.rotate((rotation * Math.PI) / 180);
+          context.translate((-image.width * zoom) / 2, (-image.height * zoom) / 2);
+          image.draw(context, image.width * zoom, image.height * zoom);
+          context.restore();
         }
 
         if (!cancelled) {
           setViewport(nextViewport);
+          hasRenderedRef.current = true;
         }
       } catch (err) {
         if (
@@ -199,7 +211,7 @@ export function useDocument(
       cancelled = true;
       renderTaskRef.current?.cancel();
     };
-  }, [fileBytes, fileType, zoom, canvasElement, sourceReady]);
+  }, [fileBytes, fileType, zoom, rotation, canvasElement, sourceReady]);
 
   return { canvasRef, viewport, loading, error };
 }

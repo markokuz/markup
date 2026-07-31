@@ -228,6 +228,96 @@ export function distanceToSegment(
   return Math.hypot(point.x - projX, point.y - projY);
 }
 
+/** Estimate rendered label width in screen pixels (matches DimensionLabel). */
+export function estimateLabelWidth(label: string): number {
+  return Math.max(label.length * 7 + 12, 48);
+}
+
+export interface InlineLineLayout {
+  segment1Start: Point2D;
+  segment1End: Point2D;
+  segment2Start: Point2D;
+  segment2End: Point2D;
+  labelCenter: Point2D;
+  angleDeg: number;
+  labelWidth: number;
+  showGap: boolean;
+}
+
+/** Keep inline dimension labels readable (never upside down). */
+export function normalizeLabelAngleDeg(angleDeg: number): number {
+  let angle = angleDeg;
+  while (angle <= -90) angle += 180;
+  while (angle > 90) angle -= 180;
+  return angle;
+}
+
+/** Split a line at its midpoint to leave a gap for an inline dimension label. */
+export function computeInlineLineSegments(
+  start: Point2D,
+  end: Point2D,
+  labelWidth: number,
+  labelPadding = 4,
+): InlineLineLayout {
+  const gapHalf = (labelWidth + labelPadding * 2) / 2;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  const center = midpoint(start, end);
+  const angleDeg = normalizeLabelAngleDeg(
+    (Math.atan2(dy, dx) * 180) / Math.PI,
+  );
+
+  if (length <= gapHalf * 2 + 4) {
+    return {
+      segment1Start: start,
+      segment1End: end,
+      segment2Start: end,
+      segment2End: end,
+      labelCenter: center,
+      angleDeg,
+      labelWidth,
+      showGap: false,
+    };
+  }
+
+  const ux = dx / length;
+  const uy = dy / length;
+  const seg1End = { x: center.x - ux * gapHalf, y: center.y - uy * gapHalf };
+  const seg2Start = { x: center.x + ux * gapHalf, y: center.y + uy * gapHalf };
+
+  return {
+    segment1Start: start,
+    segment1End: seg1End,
+    segment2Start: seg2Start,
+    segment2End: end,
+    labelCenter: center,
+    angleDeg,
+    labelWidth,
+    showGap: true,
+  };
+}
+
+export interface InlineEdgeLayout {
+  segment1Start: Point2D;
+  segment1End: Point2D;
+  segment2Start: Point2D;
+  segment2End: Point2D;
+  labelCenter: Point2D;
+  angleDeg: number;
+  showGap: boolean;
+}
+
+/** Split a horizontal or vertical edge for an inline dimension label. */
+export function computeInlineEdgeSegments(
+  edgeStart: Point2D,
+  edgeEnd: Point2D,
+  labelWidth: number,
+  labelPadding = 4,
+): InlineEdgeLayout {
+  return computeInlineLineSegments(edgeStart, edgeEnd, labelWidth, labelPadding);
+}
+
 // Backwards-compatible aliases used across the app
 export const toPdfPoint = toDocPoint;
 export const pdfDistance = docDistance;

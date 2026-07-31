@@ -20,8 +20,8 @@ import {
 } from "@/app/utils/coordinates";
 import {
   findAnnotationsInMarquee,
+  hitTestAnnotations,
   screenRectFromPoints,
-  type MarqueeSelectionMode,
 } from "@/app/utils/selection";
 import {
   applyLineLength,
@@ -34,6 +34,10 @@ import {
   type RectCorner,
 } from "@/app/components/RectangleAnnotation";
 import { MeasurementLine } from "@/app/components/MeasurementLine";
+import { NoteAnnotation } from "@/app/components/NoteAnnotation";
+import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
+import { convertUnits, formatDistance } from "@/app/utils/units";
+import { docDistance } from "@/app/utils/coordinates";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
 interface AnnotationLayerProps {
@@ -49,17 +53,11 @@ type DragMode =
   | { type: "rectCorner"; id: string; fixedCornerScreen: Point2D }
   | { type: "rectWidthLabel"; id: string }
   | { type: "marquee"; startScreen: Point2D; currentScreen: Point2D; additive: boolean }
-  | { type: "rectHeightLabel"; id: string };
+  | { type: "rectHeightLabel"; id: string }
+  | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D };
 
 const MIN_RECT_SIZE = 5;
 const MIN_MARQUEE_SIZE = 4;
-
-function getMarqueeSelectionMode(
-  start: Point2D,
-  current: Point2D,
-): MarqueeSelectionMode {
-  return current.x >= start.x ? "contain" : "intersect";
-}
 
 function createId() {
   return crypto.randomUUID();
@@ -99,6 +97,21 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       if (state.tool === "select") {
+        const hitId = hitTestAnnotations(
+          local,
+          state.measurements,
+          state.rectangles,
+          state.notes,
+          viewport,
+          state.scale,
+          state.displayUnit,
+        );
+
+        if (hitId) {
+          handleSelect(hitId, event.shiftKey);
+          return;
+        }
+
         event.currentTarget.setPointerCapture(event.pointerId);
         dragRef.current = {
           type: "marquee",
@@ -112,6 +125,20 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         dispatch({
           type: "SET_PENDING_MARQUEE",
           marquee: { start: local, current: local },
+        });
+        return;
+      }
+
+      if (state.tool === "note") {
+        event.preventDefault();
+        event.stopPropagation();
+        dispatch({
+          type: "ADD_NOTE",
+          note: {
+            id: createId(),
+            position: pdfPoint,
+            text: "",
+          },
         });
         return;
       }
@@ -194,9 +221,14 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     },
     [
       dispatch,
+      handleSelect,
       overlayRef,
+      state.displayUnit,
       state.fileType,
+      state.measurements,
+      state.notes,
       state.pendingPoint,
+      state.rectangles,
       state.scale,
       state.tool,
       viewport,
@@ -299,6 +331,19 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
               heightLabelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
             },
           });
+        } else if (drag.type === "noteBody") {
+          const dx = pdfPoint.x - drag.originPdf.x;
+          const dy = pdfPoint.y - drag.originPdf.y;
+          dispatch({
+            type: "UPDATE_NOTE",
+            id: drag.id,
+            updates: {
+              position: {
+                x: drag.startPdf.x + dx,
+                y: drag.startPdf.y + dy,
+              },
+            },
+          });
         }
         return;
       }
@@ -307,7 +352,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, overlayRef, state.fileType, state.measurements, state.pendingPoint, state.rectangles, viewport],
+    [dispatch, overlayRef, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -328,9 +373,9 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         const found = findAnnotationsInMarquee(
           state.measurements,
           state.rectangles,
+          state.notes,
           viewport,
           marquee,
-          getMarqueeSelectionMode(marquee.start, marquee.current),
         );
         dispatch({
           type: "SET_SELECTION",
@@ -344,7 +389,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     }
 
     dragRef.current = null;
-  }, [dispatch, state.measurements, state.rectangles, state.selectedIds, viewport]);
+  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -449,6 +494,127 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     dragRef.current = { type: "rectHeightLabel", id };
   };
 
+  const onNoteBodyPointerDown = (id: string, event: React.PointerEvent) => {
+    const note = state.notes.find((n) => n.id === id);
+    if (!note) return;
+
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+
+    dispatch({ type: "RECORD_UNDO" });
+
+    const local = getLocalCoords(overlay, event.clientX, event.clientY);
+    const originPdf = toDocPoint(viewport, local.x, local.y);
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      type: "noteBody",
+      id,
+      originPdf,
+      startPdf: { ...note.position },
+    };
+  };
+
+  const handleUpdateNoteText = (id: string, text: string) => {
+    dispatch({ type: "UPDATE_NOTE", id, updates: { text } });
+  };
+
+  const handleStartEditNote = (id: string) => {
+    dispatch({ type: "SET_EDITING_NOTE", id });
+  };
+
+  const handleEndEditNote = () => {
+    dispatch({ type: "SET_EDITING_NOTE", id: null });
+  };
+
+  const renderMeasurement = (measurement: (typeof state.measurements)[0]) => (
+    <MeasurementLine
+      key={measurement.id}
+      measurement={measurement}
+      viewport={viewport}
+      scale={state.scale}
+      displayUnit={state.displayUnit}
+      isSelected={state.selectedIds.includes(measurement.id)}
+      isSelectMode={state.tool === "select"}
+      showHandles={
+        showEditHandles &&
+        singleSelectedId === measurement.id &&
+        !measurement.isCalibration
+      }
+      isEditingLength={
+        state.editingDimension?.target === "line" &&
+        state.editingDimension.id === measurement.id &&
+        state.editingDimension.field === "length"
+      }
+      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onEndpointPointerDown={onEndpointPointerDown}
+      onBodyPointerDown={onBodyPointerDown}
+      onLabelDragStart={onLabelDragStart}
+      onStartEditLength={handleStartEditLength}
+      onCommitLength={handleCommitLength}
+      onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
+    />
+  );
+
+  const renderRectangle = (rectangle: (typeof state.rectangles)[0]) => (
+    <RectangleAnnotation
+      key={rectangle.id}
+      rectangle={rectangle}
+      viewport={viewport}
+      fileType={state.fileType ?? "image"}
+      scale={state.scale}
+      displayUnit={state.displayUnit}
+      isSelected={state.selectedIds.includes(rectangle.id)}
+      isSelectMode={state.tool === "select"}
+      showHandles={showEditHandles && singleSelectedId === rectangle.id}
+      editingField={
+        state.editingDimension?.target === "rectangle" &&
+        state.editingDimension.id === rectangle.id
+          ? state.editingDimension.field === "width"
+            ? "width"
+            : state.editingDimension.field === "height"
+              ? "height"
+              : null
+          : null
+      }
+      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onBodyPointerDown={onRectBodyPointerDown}
+      onCornerPointerDown={onRectCornerPointerDown}
+      onWidthLabelDragStart={onWidthLabelDragStart}
+      onHeightLabelDragStart={onHeightLabelDragStart}
+      onStartEditWidth={handleStartEditWidth}
+      onStartEditHeight={handleStartEditHeight}
+      onCommitWidth={handleCommitWidth}
+      onCommitHeight={handleCommitHeight}
+      onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
+    />
+  );
+
+  const renderNote = (note: (typeof state.notes)[0]) => (
+    <NoteAnnotation
+      key={note.id}
+      note={note}
+      viewport={viewport}
+      isSelected={state.selectedIds.includes(note.id)}
+      isSelectMode={state.tool === "select"}
+      showHandles={showEditHandles && singleSelectedId === note.id}
+      isEditing={state.editingNoteId === note.id}
+      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onUpdateText={handleUpdateNoteText}
+      onStartEdit={handleStartEditNote}
+      onEndEdit={handleEndEditNote}
+      onBodyPointerDown={onNoteBodyPointerDown}
+    />
+  );
+
+  const selectedSet = new Set(state.selectedIds);
+  const unselectedMeasurements = state.measurements.filter((m) => !selectedSet.has(m.id));
+  const selectedMeasurements = state.measurements.filter((m) => selectedSet.has(m.id));
+  const unselectedRectangles = state.rectangles.filter((r) => !selectedSet.has(r.id));
+  const selectedRectangles = state.rectangles.filter((r) => selectedSet.has(r.id));
+  const unselectedNotes = state.notes.filter((n) => !selectedSet.has(n.id));
+  const selectedNotes = state.notes.filter((n) => selectedSet.has(n.id));
+
   const handleStartEditLength = (id: string) => {
     dispatch({
       type: "SET_EDITING_DIMENSION",
@@ -530,73 +696,25 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       width={viewport.width}
       height={viewport.height}
       className="absolute inset-0 touch-none"
-      style={{ cursor: state.tool === "pan" ? "grab" : "crosshair" }}
+      style={{
+        cursor:
+          state.tool === "pan"
+            ? "grab"
+            : state.tool === "note"
+              ? "text"
+              : "crosshair",
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
-      {state.measurements.map((measurement) => (
-        <MeasurementLine
-          key={measurement.id}
-          measurement={measurement}
-          viewport={viewport}
-          scale={state.scale}
-          displayUnit={state.displayUnit}
-          isSelected={state.selectedIds.includes(measurement.id)}
-          isSelectMode={state.tool === "select"}
-          showHandles={
-            showEditHandles &&
-            singleSelectedId === measurement.id &&
-            !measurement.isCalibration
-          }
-          isEditingLength={
-            state.editingDimension?.target === "line" &&
-            state.editingDimension.id === measurement.id &&
-            state.editingDimension.field === "length"
-          }
-          onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
-          onEndpointPointerDown={onEndpointPointerDown}
-          onBodyPointerDown={onBodyPointerDown}
-          onLabelDragStart={onLabelDragStart}
-          onStartEditLength={handleStartEditLength}
-          onCommitLength={handleCommitLength}
-          onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
-        />
-      ))}
-      {state.rectangles.map((rectangle) => (
-        <RectangleAnnotation
-          key={rectangle.id}
-          rectangle={rectangle}
-          viewport={viewport}
-          fileType={state.fileType ?? "image"}
-          scale={state.scale}
-          displayUnit={state.displayUnit}
-          isSelected={state.selectedIds.includes(rectangle.id)}
-          isSelectMode={state.tool === "select"}
-          showHandles={showEditHandles && singleSelectedId === rectangle.id}
-          editingField={
-            state.editingDimension?.target === "rectangle" &&
-            state.editingDimension.id === rectangle.id
-              ? state.editingDimension.field === "width"
-                ? "width"
-                : state.editingDimension.field === "height"
-                  ? "height"
-                  : null
-              : null
-          }
-          onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
-          onBodyPointerDown={onRectBodyPointerDown}
-          onCornerPointerDown={onRectCornerPointerDown}
-          onWidthLabelDragStart={onWidthLabelDragStart}
-          onHeightLabelDragStart={onHeightLabelDragStart}
-          onStartEditWidth={handleStartEditWidth}
-          onStartEditHeight={handleStartEditHeight}
-          onCommitWidth={handleCommitWidth}
-          onCommitHeight={handleCommitHeight}
-          onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
-        />
-      ))}
+      {unselectedRectangles.map(renderRectangle)}
+      {unselectedNotes.map(renderNote)}
+      {unselectedMeasurements.map(renderMeasurement)}
+      {selectedRectangles.map(renderRectangle)}
+      {selectedNotes.map(renderNote)}
+      {selectedMeasurements.map(renderMeasurement)}
       {marqueePreview && (
         <rect
           x={marqueePreview.x}
@@ -612,7 +730,28 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       )}
       {previewStart &&
         previewEndScreen &&
-        (state.tool === "measure" || state.tool === "calibrate") && (
+        state.tool === "measure" &&
+        state.scale &&
+        state.pendingPoint &&
+        previewEnd && (
+          <PreviewDimensionLine
+            start={previewStart}
+            end={previewEndScreen}
+            label={formatDistance(
+              convertUnits(
+                docDistance(state.pendingPoint, previewEnd) *
+                  state.scale.unitsPerPdfPoint,
+                state.scale.calibrationUnit,
+                state.displayUnit,
+              ),
+              state.displayUnit,
+            )}
+          />
+        )}
+      {previewStart &&
+        previewEndScreen &&
+        (state.tool === "calibrate" ||
+          (state.tool === "measure" && !state.scale)) && (
           <line
             x1={previewStart.x}
             y1={previewStart.y}

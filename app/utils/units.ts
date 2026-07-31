@@ -26,15 +26,15 @@ function formatFeetAndInches(feetDecimal: number): string {
   const inches = totalInches % 12;
 
   if (feet === 0 && inches === 0) {
-    return "0 ft";
+    return "0'";
   }
   if (feet === 0) {
-    return `${inches} in`;
+    return `${inches}"`;
   }
   if (inches === 0) {
-    return `${feet} ft`;
+    return `${feet}'`;
   }
-  return `${feet} ft ${inches} in`;
+  return `${feet}' ${inches}"`;
 }
 
 /** Value in display units for dimension edit fields (not necessarily equal to `formatDistance`). */
@@ -48,6 +48,13 @@ export function formatDistanceEditValue(value: number, unit: Unit): string {
 export function formatDistance(value: number, unit: Unit): string {
   if (unit === "ft") {
     return formatFeetAndInches(value);
+  }
+  if (unit === "in") {
+    const rounded = Math.round(value * 100) / 100;
+    const text = Number.isInteger(rounded)
+      ? String(rounded)
+      : rounded.toFixed(2).replace(/\.?0+$/, "");
+    return `${text}"`;
   }
   const decimals = unit === "mm" ? 0 : 2;
   return `${value.toFixed(decimals)} ${unit}`;

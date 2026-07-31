@@ -6,6 +6,7 @@ export function createUndoSnapshot(state: AppState): UndoSnapshot {
   return {
     measurements: structuredClone(state.measurements),
     rectangles: structuredClone(state.rectangles),
+    notes: structuredClone(state.notes),
     scale: state.scale ? { ...state.scale } : null,
     selectedIds: [...state.selectedIds],
   };

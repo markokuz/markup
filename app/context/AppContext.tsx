@@ -25,6 +25,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         pendingPoint: null,
         pendingMarquee: null,
         editingDimension: null,
+        editingNoteId: null,
         selectedIds: action.tool === "select" ? state.selectedIds : [],
       };
     case "SET_DISPLAY_UNIT":
@@ -37,10 +38,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
         fileType: action.fileType,
         fileMimeType: action.mimeType,
         zoom: 1,
+        rotation: 0,
         documentViewport: null,
       };
     case "SET_ZOOM":
       return { ...state, zoom: action.zoom };
+    case "SET_ROTATION":
+      return { ...state, rotation: action.rotation };
     case "SET_PENDING_POINT":
       return { ...state, pendingPoint: action.point };
     case "SET_PENDING_MARQUEE":
@@ -101,11 +105,38 @@ function appReducer(state: AppState, action: AppAction): AppState {
             : state.editingDimension,
       };
     }
+    case "ADD_NOTE":
+      return {
+        ...state,
+        history: appendHistory(state),
+        notes: [...state.notes, action.note],
+        selectedIds: [action.note.id],
+        editingNoteId: action.note.id,
+        tool: "select",
+      };
+    case "UPDATE_NOTE":
+      return {
+        ...state,
+        notes: state.notes.map((n) =>
+          n.id === action.id ? { ...n, ...action.updates } : n,
+        ),
+      };
+    case "DELETE_NOTE": {
+      const notes = state.notes.filter((n) => n.id !== action.id);
+      return {
+        ...state,
+        history: appendHistory(state),
+        notes,
+        selectedIds: removeIdsFromSelection(state.selectedIds, [action.id]),
+        editingNoteId: state.editingNoteId === action.id ? null : state.editingNoteId,
+      };
+    }
     case "SET_SELECTION":
       return {
         ...state,
         selectedIds: action.ids,
         editingDimension: null,
+        editingNoteId: null,
       };
     case "DELETE_SELECTED": {
       if (state.selectedIds.length === 0) return state;
@@ -115,14 +146,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
         (m) => !selected.has(m.id) || m.isCalibration,
       );
       const rectangles = state.rectangles.filter((r) => !selected.has(r.id));
+      const notes = state.notes.filter((n) => !selected.has(n.id));
 
       return {
         ...state,
         history: appendHistory(state),
         measurements,
         rectangles,
+        notes,
         selectedIds: [],
         editingDimension: null,
+        editingNoteId: null,
       };
     }
     case "SET_ANNOTATION_COLOR": {
@@ -138,12 +172,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
         rectangles: state.rectangles.map((r) =>
           targetIds.has(r.id) ? { ...r, color: action.color } : r,
         ),
+        notes: state.notes.map((n) =>
+          targetIds.has(n.id) ? { ...n, color: action.color } : n,
+        ),
       };
     }
     case "SET_EDITING_DIMENSION":
-      return { ...state, editingDimension: action.editing };
+      return { ...state, editingDimension: action.editing, editingNoteId: null };
     case "CLEAR_EDITING_DIMENSION":
       return { ...state, editingDimension: null };
+    case "SET_EDITING_NOTE":
+      return { ...state, editingNoteId: action.id, editingDimension: null };
     case "SET_SCALE":
       return {
         ...state,
@@ -178,10 +217,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
         scale: null,
         measurements: [],
         rectangles: [],
+        notes: [],
         selectedIds: [],
         pendingPoint: null,
         pendingMarquee: null,
         editingDimension: null,
+        editingNoteId: null,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
       };
@@ -198,11 +239,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
         history: state.history.slice(0, -1),
         measurements: snapshot.measurements,
         rectangles: snapshot.rectangles,
+        notes: snapshot.notes,
         scale: snapshot.scale,
         selectedIds: snapshot.selectedIds,
         pendingPoint: null,
         pendingMarquee: null,
         editingDimension: null,
+        editingNoteId: null,
       };
     }
     case "SET_DOCUMENT_VIEWPORT":

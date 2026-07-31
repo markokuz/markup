@@ -15,6 +15,8 @@ interface DimensionLabelProps {
   isSelected: boolean;
   showHandles: boolean;
   isEditing: boolean;
+  inline?: boolean;
+  clickable?: boolean;
   onSelect: () => void;
   onStartEdit: () => void;
   onCommit: (value: number) => void;
@@ -37,12 +39,20 @@ export function DimensionLabel({
   onCommit,
   onCancel,
   onDragStart,
+  inline = false,
+  clickable = false,
 }: DimensionLabelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
   const labelWidth = Math.max(label.length * 7 + 12, 48);
   const editValue = formatDistanceEditValue(valueInDisplayUnit, displayUnit);
+  const unitSuffix =
+    displayUnit === "ft" ? "'" : displayUnit === "in" ? '"' : displayUnit;
+  const rectX = inline ? x - labelWidth / 2 : x - 4;
+  const rectY = inline ? y - 10 : y - 14;
+  const textX = inline ? x : x + 2;
+  const textY = inline ? y : y;
 
   useEffect(() => {
     if (isEditing) {
@@ -62,6 +72,12 @@ export function DimensionLabel({
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
+    if (clickable && !showHandles) {
+      event.stopPropagation();
+      onSelect();
+      return;
+    }
+
     if (!showHandles) return;
     event.stopPropagation();
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
@@ -79,6 +95,8 @@ export function DimensionLabel({
     if (!showHandles || !isSelected || !pointerStartRef.current || dragStartedRef.current) {
       return;
     }
+
+    if (inline) return;
 
     const dx = event.clientX - pointerStartRef.current.x;
     const dy = event.clientY - pointerStartRef.current.y;
@@ -105,8 +123,8 @@ export function DimensionLabel({
   if (isEditing) {
     return (
       <foreignObject
-        x={x - 4}
-        y={y - 14}
+        x={rectX}
+        y={rectY}
         width={Math.max(labelWidth, 72)}
         height={24}
       >
@@ -129,7 +147,7 @@ export function DimensionLabel({
             }}
             onBlur={handleCommit}
           />
-          <span className="font-mono text-xs text-slate-400">{displayUnit}</span>
+          <span className="font-mono text-xs text-slate-400">{unitSuffix}</span>
         </div>
       </foreignObject>
     );
@@ -138,8 +156,8 @@ export function DimensionLabel({
   return (
     <>
       <rect
-        x={x - 4}
-        y={y - 14}
+        x={rectX}
+        y={rectY}
         width={labelWidth}
         height={20}
         rx={4}
@@ -147,20 +165,22 @@ export function DimensionLabel({
         stroke={color}
         strokeWidth={1}
         style={{
-          pointerEvents: showHandles ? "all" : "none",
-          cursor: showHandles ? "pointer" : "default",
+          pointerEvents: showHandles || clickable ? "all" : "none",
+          cursor: showHandles || clickable ? "pointer" : "default",
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       />
       <text
-        x={x + 2}
-        y={y}
+        x={textX}
+        y={textY}
         fill={color}
         fontSize={12}
         fontWeight={600}
         fontFamily="var(--font-geist-mono), monospace"
+        textAnchor={inline ? "middle" : "start"}
+        dominantBaseline={inline ? "middle" : "auto"}
         style={{ pointerEvents: "none", userSelect: "none" }}
       >
         {label}

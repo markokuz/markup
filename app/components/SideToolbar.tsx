@@ -6,6 +6,7 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "measure", label: "Line", hint: "Draw dimension lines" },
   { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle" },
+  { id: "note", label: "Note", hint: "Click to add a text note" },
   { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
@@ -86,6 +87,22 @@ function ToolIcon({ tool }: { tool: ToolMode }) {
             strokeWidth="1.5"
             strokeLinecap="round"
           />
+        </svg>
+      );
+    case "note":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <rect
+            x="3"
+            y="4"
+            width="14"
+            height="12"
+            rx="2"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <line x1="6" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="6" y1="11" x2="12" y2="11" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       );
     default:

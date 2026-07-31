@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ToolMode, Unit } from "@/app/types";
+import type { DocumentRotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
+import { ExportPreviewDialog } from "@/app/components/ExportPreviewDialog";
 import {
-  exportMarkedUpDocument,
+  buildMarkedUpImageBlob,
+  buildMarkedUpPdfBlob,
+  getMarkedUpExportFileName,
+  persistExportedBlob,
   supportsSaveFilePicker,
   type ExportSaveMode,
 } from "@/app/utils/exportDocument";
@@ -19,6 +23,7 @@ import {
   DEFAULT_ANNOTATION_COLOR,
   MARKUP_PALETTE,
 } from "@/app/utils/colors";
+import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
@@ -30,6 +35,11 @@ export function Toolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const [pendingSaveMode, setPendingSaveMode] = useState<ExportSaveMode>("download");
+  const previewBlobRef = useRef<Blob | null>(null);
 
   useEffect(() => {
     if (!saveMenuOpen) return;
@@ -65,22 +75,80 @@ export function Toolbar() {
   const handleSave = async (saveMode: ExportSaveMode = "download") => {
     if (!state.fileBytes || !state.fileName || !state.fileType) return;
     setSaveMenuOpen(false);
-    await exportMarkedUpDocument(
-      state.fileBytes,
-      state.fileType,
-      state.fileName,
-      state.fileMimeType ?? "",
-      state.measurements,
-      state.rectangles,
-      state.scale,
-      state.displayUnit,
-      saveMode,
-    );
+    setPendingSaveMode(saveMode);
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+
+    if (previewBlobUrl) {
+      URL.revokeObjectURL(previewBlobUrl);
+      setPreviewBlobUrl(null);
+    }
+    previewBlobRef.current = null;
+
+    try {
+      const blob =
+        state.fileType === "pdf"
+          ? await buildMarkedUpPdfBlob(
+              state.fileBytes,
+              state.measurements,
+              state.rectangles,
+              state.notes,
+              state.scale,
+              state.displayUnit,
+            )
+          : await buildMarkedUpImageBlob(
+              state.fileBytes,
+              state.fileName,
+              state.fileMimeType ?? "",
+              state.measurements,
+              state.rectangles,
+              state.notes,
+              state.scale,
+              state.displayUnit,
+            );
+
+      if (!blob) {
+        setPreviewOpen(false);
+        return;
+      }
+
+      previewBlobRef.current = blob;
+      setPreviewBlobUrl(URL.createObjectURL(blob));
+    } finally {
+      setPreviewLoading(false);
+    }
   };
+
+  const handleConfirmSave = async () => {
+    const blob = previewBlobRef.current;
+    if (!blob || !state.fileName || !state.fileType) return;
+
+    const outputFileName = getMarkedUpExportFileName(state.fileType, state.fileName);
+    await persistExportedBlob(blob, outputFileName, pendingSaveMode);
+    handleClosePreview();
+  };
+
+  const handleClosePreview = () => {
+    setPreviewOpen(false);
+    if (previewBlobUrl) {
+      URL.revokeObjectURL(previewBlobUrl);
+      setPreviewBlobUrl(null);
+    }
+    previewBlobRef.current = null;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (previewBlobUrl) {
+        URL.revokeObjectURL(previewBlobUrl);
+      }
+    };
+  }, [previewBlobUrl]);
 
   const annotationCount =
     state.measurements.filter((m) => !m.isCalibration).length +
-    state.rectangles.length;
+    state.rectangles.length +
+    state.notes.length;
 
   const saveLabel =
     state.fileType === "image" ? "Save PNG" : "Save PDF";
@@ -89,13 +157,28 @@ export function Toolbar() {
 
   const canChooseSaveLocation = supportsSaveFilePicker();
 
-  const zoomIn = () =>
+  const zoomIn = () => {
+    setZoomAnchor("center");
     dispatch({ type: "SET_ZOOM", zoom: Math.min(4, state.zoom + 0.25) });
-  const zoomOut = () =>
+  };
+  const zoomOut = () => {
+    setZoomAnchor("center");
     dispatch({ type: "SET_ZOOM", zoom: Math.max(0.25, state.zoom - 0.25) });
+  };
+
+  const rotateCw = () => {
+    const next = ((state.rotation + 90) % 360) as DocumentRotation;
+    dispatch({ type: "SET_ROTATION", rotation: next });
+  };
+
+  const rotateCcw = () => {
+    const next = ((state.rotation + 270) % 360) as DocumentRotation;
+    dispatch({ type: "SET_ROTATION", rotation: next });
+  };
 
   return (
-    <header className="border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
+    <>
+    <header className="relative z-30 border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-semibold tracking-tight text-white">
@@ -177,6 +260,34 @@ export function Toolbar() {
             </button>
           </div>
 
+          {state.fileBytes && (
+            <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900">
+              <button
+                type="button"
+                onClick={rotateCcw}
+                disabled={!state.fileBytes}
+                className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+                aria-label="Rotate counter-clockwise"
+                title="Rotate view left"
+              >
+                ↺
+              </button>
+              <span className="min-w-10 text-center font-mono text-xs text-slate-400">
+                {state.rotation}°
+              </span>
+              <button
+                type="button"
+                onClick={rotateCw}
+                disabled={!state.fileBytes}
+                className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+                aria-label="Rotate clockwise"
+                title="Rotate view right"
+              >
+                ↻
+              </button>
+            </div>
+          )}
+
           <div ref={saveMenuRef} className="relative flex">
             <button
               type="button"
@@ -235,6 +346,17 @@ export function Toolbar() {
         </div>
       </div>
     </header>
+    <ExportPreviewDialog
+      open={previewOpen}
+      blobUrl={previewBlobUrl}
+      fileType={state.fileType ?? "pdf"}
+      fileName={state.fileName ?? "export"}
+      loading={previewLoading}
+      saveMode={pendingSaveMode}
+      onConfirm={handleConfirmSave}
+      onCancel={handleClosePreview}
+    />
+    </>
   );
 }
 
@@ -261,6 +383,7 @@ export function StatusBar() {
   const selectedAnnotations = [
     ...state.measurements.filter((m) => colorableIds.includes(m.id)),
     ...state.rectangles.filter((r) => colorableIds.includes(r.id)),
+    ...state.notes.filter((n) => colorableIds.includes(n.id)),
   ];
   const sharedColor =
     selectedAnnotations.length > 0 &&
@@ -311,10 +434,11 @@ export function StatusBar() {
 
   const lineCount = state.measurements.filter((m) => !m.isCalibration).length;
   const rectCount = state.rectangles.length;
-  const totalCount = lineCount + rectCount;
+  const noteCount = state.notes.length;
+  const totalCount = lineCount + rectCount + noteCount;
 
   return (
-    <footer className="flex flex-wrap items-center gap-4 border-t border-slate-800 bg-slate-950/90 px-4 py-2 text-sm backdrop-blur">
+    <footer className="relative z-20 flex flex-wrap items-center gap-4 border-t border-slate-800 bg-slate-950/90 px-4 py-2 text-sm backdrop-blur">
       <div className="text-slate-400">
         {state.fileName}
         {totalCount > 0 && (
@@ -402,6 +526,10 @@ export function StatusBar() {
 
         {(state.tool === "measure" || state.tool === "rectangle") && !state.scale && (
           <span className="text-amber-400">Calibrate scale before measuring</span>
+        )}
+
+        {state.tool === "note" && (
+          <span className="text-slate-500">Click to place a note</span>
         )}
 
         {state.tool === "select" && state.selectedIds.length === 0 && (

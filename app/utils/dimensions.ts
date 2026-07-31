@@ -28,6 +28,14 @@ function parseFeetInchesInput(text: string): number | null {
     }
   }
 
+  const feetOnly = text.match(/^(-?\d+(?:\.\d+)?)\s*'$/);
+  if (feetOnly) {
+    const feet = Number.parseFloat(feetOnly[1]);
+    if (Number.isFinite(feet) && feet > 0) {
+      return feet;
+    }
+  }
+
   return null;
 }
 

@@ -1,22 +1,21 @@
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts, degrees, type PDFFont, type PDFPage } from "pdf-lib";
 import type {
   DocumentType,
   Measurement,
+  NoteAnnotation,
   RectMeasurement,
   Scale,
   Unit,
 } from "@/app/types";
 import {
-  CALIBRATION_COLOR,
   DEFAULT_ANNOTATION_COLOR,
   hexToRgb,
 } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import {
+  computeInlineEdgeSegments,
+  computeInlineLineSegments,
   docDistance,
-  getLineLabelDocPosition,
-  getRectHeightLabelDocPosition,
-  getRectWidthLabelDocPosition,
 } from "@/app/utils/coordinates";
 import {
   getRectDocHeight,
@@ -78,14 +77,178 @@ function getRectDimensionLabel(
   return formatDistance(value, displayUnit);
 }
 
+function getExportMeasurements(measurements: Measurement[]): Measurement[] {
+  return measurements.filter((m) => !m.isCalibration);
+}
+
 function getLineColor(measurement: Measurement): string {
-  return measurement.isCalibration
-    ? CALIBRATION_COLOR
-    : measurement.color ?? DEFAULT_ANNOTATION_COLOR;
+  return measurement.color ?? DEFAULT_ANNOTATION_COLOR;
 }
 
 function getRectangleColor(rectangle: RectMeasurement): string {
   return rectangle.color ?? DEFAULT_ANNOTATION_COLOR;
+}
+
+function getNoteColor(note: NoteAnnotation): string {
+  return note.color ?? DEFAULT_ANNOTATION_COLOR;
+}
+
+function measureCanvasLabelWidth(
+  context: CanvasRenderingContext2D,
+  label: string,
+  fontSize: number,
+): number {
+  context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
+  return Math.max(context.measureText(label).width + 12, 48);
+}
+
+function measurePdfLabelWidth(font: PDFFont, label: string, fontSize: number): number {
+  return Math.max(font.widthOfTextAtSize(label, fontSize) + 12, 48);
+}
+
+function drawDocLineSegment(
+  context: CanvasRenderingContext2D,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+}
+
+function drawInlineLineOnCanvas(
+  context: CanvasRenderingContext2D,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  color: string,
+  lineWidth: number,
+  label: string | null,
+  fontSize: number,
+) {
+  context.strokeStyle = color;
+  context.lineWidth = lineWidth;
+
+  if (!label) {
+    drawDocLineSegment(context, start, end);
+    return;
+  }
+
+  const labelWidth = measureCanvasLabelWidth(context, label, fontSize);
+  const layout = computeInlineLineSegments(start, end, labelWidth);
+
+  if (layout.showGap) {
+    drawDocLineSegment(context, layout.segment1Start, layout.segment1End);
+    drawDocLineSegment(context, layout.segment2Start, layout.segment2End);
+  } else {
+    drawDocLineSegment(context, start, end);
+  }
+
+  const center = layout.labelCenter;
+  const angle = Math.atan2(end.y - start.y, end.x - start.x);
+  context.save();
+  context.translate(center.x, center.y);
+  context.rotate(angle);
+  context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
+  context.fillStyle = color;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, 0, 0);
+  context.restore();
+}
+
+function drawInlineLineOnPdf(
+  page: PDFPage,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  color: ReturnType<typeof rgb>,
+  thickness: number,
+  label: string | null,
+  fontSize: number,
+  font: PDFFont,
+) {
+  if (!label) {
+    page.drawLine({ start, end, thickness, color });
+    return;
+  }
+
+  const labelWidth = measurePdfLabelWidth(font, label, fontSize);
+  const layout = computeInlineLineSegments(start, end, labelWidth);
+
+  if (layout.showGap) {
+    page.drawLine({ start: layout.segment1Start, end: layout.segment1End, thickness, color });
+    page.drawLine({ start: layout.segment2Start, end: layout.segment2End, thickness, color });
+  } else {
+    page.drawLine({ start, end, thickness, color });
+  }
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const angleDeg = layout.angleDeg;
+  const rad = (angleDeg * Math.PI) / 180;
+  const textWidth = font.widthOfTextAtSize(label, fontSize);
+  const baselineOffset = fontSize * 0.35;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const cx = layout.labelCenter.x;
+  const cy = layout.labelCenter.y;
+  const x = cx - (textWidth / 2) * cos + baselineOffset * sin;
+  const y = cy - (textWidth / 2) * sin - baselineOffset * cos;
+
+  page.drawText(label, {
+    x,
+    y,
+    size: fontSize,
+    font,
+    color,
+    rotate: degrees(angleDeg),
+  });
+}
+
+function drawRotatedLabelOnPdf(
+  page: PDFPage,
+  center: { x: number; y: number },
+  label: string,
+  angleDeg: number,
+  fontSize: number,
+  font: PDFFont,
+  color: ReturnType<typeof rgb>,
+) {
+  const textWidth = font.widthOfTextAtSize(label, fontSize);
+  const baselineOffset = fontSize * 0.35;
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const x = center.x - (textWidth / 2) * cos + baselineOffset * sin;
+  const y = center.y - (textWidth / 2) * sin - baselineOffset * cos;
+
+  page.drawText(label, {
+    x,
+    y,
+    size: fontSize,
+    font,
+    color,
+    rotate: degrees(angleDeg),
+  });
+}
+
+function drawRotatedLabelOnCanvas(
+  context: CanvasRenderingContext2D,
+  center: { x: number; y: number },
+  label: string,
+  angleDeg: number,
+  fontSize: number,
+  color: string,
+) {
+  context.save();
+  context.translate(center.x, center.y);
+  context.rotate((angleDeg * Math.PI) / 180);
+  context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
+  context.fillStyle = color;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, 0, 0);
+  context.restore();
 }
 
 function drawMeasurementOnCanvas(
@@ -96,27 +259,18 @@ function drawMeasurementOnCanvas(
   style: ExportStyle,
 ) {
   const color = getLineColor(measurement);
-  context.strokeStyle = color;
-  context.lineWidth = measurement.isCalibration
-    ? style.calibrationLineWidth
-    : style.lineWidth;
-  context.setLineDash(measurement.isCalibration ? style.calibrationDash : []);
-  context.beginPath();
-  context.moveTo(measurement.start.x, measurement.start.y);
-  context.lineTo(measurement.end.x, measurement.end.y);
-  context.stroke();
-  context.setLineDash([]);
+  const label =
+    scale ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
-  if (!scale) return;
-
-  const labelPos = getLineLabelDocPosition(measurement);
-  const label = measurement.isCalibration
-    ? "Calibration"
-    : getMeasurementLabel(measurement, scale, displayUnit);
-
-  context.font = `600 ${style.fontSize}px Helvetica, Arial, sans-serif`;
-  context.fillStyle = color;
-  context.fillText(label, labelPos.x, labelPos.y);
+  drawInlineLineOnCanvas(
+    context,
+    measurement.start,
+    measurement.end,
+    color,
+    style.lineWidth,
+    label,
+    style.fontSize,
+  );
 }
 
 function drawRectangleOnCanvas(
@@ -132,49 +286,128 @@ function drawRectangleOnCanvas(
   const width = rectangle.bottomRight.x - rectangle.topLeft.x;
   const height = rectangle.bottomRight.y - rectangle.topLeft.y;
 
+  const topLeft = { x, y };
+  const topRight = { x: x + width, y };
+  const bottomRight = { x: x + width, y: y + height };
+  const bottomLeft = { x, y: y + height };
+
   context.strokeStyle = color;
   context.lineWidth = style.borderWidth;
-  context.strokeRect(x, y, width, height);
-
-  if (!scale) return;
 
   const docWidth = getRectDocWidth(rectangle);
   const docHeightValue = getRectDocHeight(rectangle);
-  const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
-  const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
-  const widthLabelPos = getRectWidthLabelDocPosition(rectangle, "image");
-  const heightLabelPos = getRectHeightLabelDocPosition(rectangle);
+  const widthLabel =
+    scale && docWidth > 0 ? getRectDimensionLabel(docWidth, scale, displayUnit) : null;
+  const heightLabel =
+    scale && docHeightValue > 0
+      ? getRectDimensionLabel(docHeightValue, scale, displayUnit)
+      : null;
 
-  context.font = `600 ${style.fontSize}px Helvetica, Arial, sans-serif`;
+  if (widthLabel) {
+    const labelWidth = measureCanvasLabelWidth(context, widthLabel, style.fontSize);
+    const topEdge = computeInlineEdgeSegments(topLeft, topRight, labelWidth);
+    if (topEdge.showGap) {
+      drawDocLineSegment(context, topEdge.segment1Start, topEdge.segment1End);
+      drawDocLineSegment(context, topEdge.segment2Start, topEdge.segment2End);
+    } else {
+      drawDocLineSegment(context, topLeft, topRight);
+    }
+    drawRotatedLabelOnCanvas(
+      context,
+      topEdge.labelCenter,
+      widthLabel,
+      topEdge.angleDeg,
+      style.fontSize,
+      color,
+    );
+  } else {
+    drawDocLineSegment(context, topLeft, topRight);
+  }
+
+  drawDocLineSegment(context, topRight, bottomRight);
+  drawDocLineSegment(context, bottomRight, bottomLeft);
+
+  if (heightLabel) {
+    const labelWidth = measureCanvasLabelWidth(context, heightLabel, style.fontSize);
+    const leftEdge = computeInlineEdgeSegments(topLeft, bottomLeft, labelWidth);
+    if (leftEdge.showGap) {
+      drawDocLineSegment(context, leftEdge.segment1Start, leftEdge.segment1End);
+      drawDocLineSegment(context, leftEdge.segment2Start, leftEdge.segment2End);
+    } else {
+      drawDocLineSegment(context, topLeft, bottomLeft);
+    }
+    drawRotatedLabelOnCanvas(
+      context,
+      leftEdge.labelCenter,
+      heightLabel,
+      leftEdge.angleDeg,
+      style.fontSize,
+      color,
+    );
+  } else {
+    drawDocLineSegment(context, topLeft, bottomLeft);
+  }
+}
+
+function drawNoteOnCanvas(
+  context: CanvasRenderingContext2D,
+  note: NoteAnnotation,
+  style: ExportStyle,
+) {
+  const color = getNoteColor(note);
+  const fontSize = style.fontSize;
+  context.font = `500 ${fontSize}px Helvetica, Arial, sans-serif`;
+  const textWidth = Math.max(context.measureText(note.text || " ").width + 16, 48);
+  const textHeight = fontSize + 12;
+
+  context.fillStyle = "rgba(15, 23, 42, 0.55)";
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  context.fillRect(note.position.x, note.position.y, textWidth, textHeight);
+  context.strokeRect(note.position.x, note.position.y, textWidth, textHeight);
+
   context.fillStyle = color;
-  context.fillText(widthLabel, widthLabelPos.x, widthLabelPos.y);
-  context.fillText(heightLabel, heightLabelPos.x, heightLabelPos.y);
+  context.textBaseline = "top";
+  context.fillText(note.text, note.position.x + 8, note.position.y + 6);
 }
 
-async function exportMarkedUpPdf(
+function drawNoteOnPdf(
+  page: PDFPage,
+  note: NoteAnnotation,
+  style: ExportStyle,
+  font: PDFFont,
+) {
+  const colorHex = hexToRgb(getNoteColor(note));
+  const color = rgb(colorHex.r, colorHex.g, colorHex.b);
+  const fontSize = style.fontSize;
+  const textWidth = Math.max(font.widthOfTextAtSize(note.text || " ", fontSize) + 16, 48);
+  const textHeight = fontSize + 12;
+
+  page.drawRectangle({
+    x: note.position.x,
+    y: note.position.y,
+    width: textWidth,
+    height: textHeight,
+    color: rgb(0.06, 0.09, 0.16),
+    opacity: 0.55,
+    borderColor: color,
+    borderWidth: 1,
+  });
+
+  page.drawText(note.text, {
+    x: note.position.x + 8,
+    y: note.position.y + 6,
+    size: fontSize,
+    font,
+    color,
+  });
+}
+
+export async function buildMarkedUpPdfBlob(
   fileBytes: Uint8Array,
   measurements: Measurement[],
   rectangles: RectMeasurement[],
-  scale: Scale | null,
-  displayUnit: Unit,
-  fileName: string,
-  saveMode: ExportSaveMode,
-): Promise<void> {
-  const blob = await buildMarkedUpPdfBlob(
-    fileBytes,
-    measurements,
-    rectangles,
-    scale,
-    displayUnit,
-  );
-  const outputFileName = getMarkedUpExportFileName("pdf", fileName);
-  await persistExportedBlob(blob, outputFileName, saveMode);
-}
-
-async function buildMarkedUpPdfBlob(
-  fileBytes: Uint8Array,
-  measurements: Measurement[],
-  rectangles: RectMeasurement[],
+  notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
 ): Promise<Blob> {
@@ -183,36 +416,22 @@ async function buildMarkedUpPdfBlob(
   const { width: pageWidth, height: pageHeight } = page.getSize();
   const style = getExportStyle(pageWidth, pageHeight);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const calibrateColor = hexToRgb(CALIBRATION_COLOR);
 
-  for (const measurement of measurements) {
+  for (const measurement of getExportMeasurements(measurements)) {
     const { r, g, b } = hexToRgb(getLineColor(measurement));
-    const color = measurement.isCalibration
-      ? rgb(calibrateColor.r, calibrateColor.g, calibrateColor.b)
-      : rgb(r, g, b);
+    const color = rgb(r, g, b);
+    const label = scale ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
-    page.drawLine({
-      start: measurement.start,
-      end: measurement.end,
-      thickness: measurement.isCalibration
-        ? style.calibrationLineWidth
-        : style.lineWidth,
+    drawInlineLineOnPdf(
+      page,
+      measurement.start,
+      measurement.end,
       color,
-      dashArray: measurement.isCalibration ? style.calibrationDash : undefined,
-    });
-
-    if (scale) {
-      const labelPos = getLineLabelDocPosition(measurement);
-      const label = getMeasurementLabel(measurement, scale, displayUnit);
-
-      page.drawText(label, {
-        x: labelPos.x,
-        y: labelPos.y,
-        size: style.fontSize,
-        font,
-        color,
-      });
-    }
+      style.lineWidth,
+      label,
+      style.fontSize,
+      font,
+    );
   }
 
   for (const rectangle of rectangles) {
@@ -223,74 +442,103 @@ async function buildMarkedUpPdfBlob(
     const { r, g, b } = hexToRgb(getRectangleColor(rectangle));
     const color = rgb(r, g, b);
 
-    page.drawRectangle({
-      x,
-      y,
-      width: rectWidth,
-      height: rectHeight,
-      borderColor: color,
-      borderWidth: style.borderWidth,
-    });
+    const topLeft = { x, y: y + rectHeight };
+    const topRight = { x: x + rectWidth, y: y + rectHeight };
+    const bottomRight = { x: x + rectWidth, y };
+    const bottomLeft = { x, y };
 
-    if (scale) {
-      const docWidth = getRectDocWidth(rectangle);
-      const docHeightValue = getRectDocHeight(rectangle);
-      const widthLabel = getRectDimensionLabel(docWidth, scale, displayUnit);
-      const heightLabel = getRectDimensionLabel(docHeightValue, scale, displayUnit);
-      const widthLabelPos = getRectWidthLabelDocPosition(rectangle, "pdf");
-      const heightLabelPos = getRectHeightLabelDocPosition(rectangle);
+    const docWidth = getRectDocWidth(rectangle);
+    const docHeightValue = getRectDocHeight(rectangle);
+    const widthLabel =
+      scale && docWidth > 0 ? getRectDimensionLabel(docWidth, scale, displayUnit) : null;
+    const heightLabel =
+      scale && docHeightValue > 0
+        ? getRectDimensionLabel(docHeightValue, scale, displayUnit)
+        : null;
 
-      page.drawText(widthLabel, {
-        x: widthLabelPos.x,
-        y: widthLabelPos.y,
-        size: style.fontSize,
+    if (widthLabel) {
+      const labelWidth = measurePdfLabelWidth(font, widthLabel, style.fontSize);
+      const topEdge = computeInlineEdgeSegments(topLeft, topRight, labelWidth);
+      if (topEdge.showGap) {
+        page.drawLine({
+          start: topEdge.segment1Start,
+          end: topEdge.segment1End,
+          thickness: style.borderWidth,
+          color,
+        });
+        page.drawLine({
+          start: topEdge.segment2Start,
+          end: topEdge.segment2End,
+          thickness: style.borderWidth,
+          color,
+        });
+      } else {
+        page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color });
+      }
+      drawRotatedLabelOnPdf(
+        page,
+        topEdge.labelCenter,
+        widthLabel,
+        topEdge.angleDeg,
+        style.fontSize,
         font,
         color,
-      });
-      page.drawText(heightLabel, {
-        x: heightLabelPos.x,
-        y: heightLabelPos.y,
-        size: style.fontSize,
-        font,
-        color,
-      });
+      );
+    } else {
+      page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color });
     }
+
+    page.drawLine({ start: topRight, end: bottomRight, thickness: style.borderWidth, color });
+    page.drawLine({ start: bottomRight, end: bottomLeft, thickness: style.borderWidth, color });
+
+    if (heightLabel) {
+      const labelWidth = measurePdfLabelWidth(font, heightLabel, style.fontSize);
+      const leftEdge = computeInlineEdgeSegments(topLeft, bottomLeft, labelWidth);
+      if (leftEdge.showGap) {
+        page.drawLine({
+          start: leftEdge.segment1Start,
+          end: leftEdge.segment1End,
+          thickness: style.borderWidth,
+          color,
+        });
+        page.drawLine({
+          start: leftEdge.segment2Start,
+          end: leftEdge.segment2End,
+          thickness: style.borderWidth,
+          color,
+        });
+      } else {
+        page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color });
+      }
+      drawRotatedLabelOnPdf(
+        page,
+        leftEdge.labelCenter,
+        heightLabel,
+        leftEdge.angleDeg,
+        style.fontSize,
+        font,
+        color,
+      );
+    } else {
+      page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color });
+    }
+  }
+
+  for (const note of notes) {
+    drawNoteOnPdf(page, note, style, font);
   }
 
   const output = await pdfDoc.save();
   return new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" });
 }
 
-async function exportMarkedUpImage(
+export async function buildMarkedUpImageBlob(
   fileBytes: Uint8Array,
   fileName: string,
   mimeType: string,
   measurements: Measurement[],
   rectangles: RectMeasurement[],
-  scale: Scale | null,
-  displayUnit: Unit,
-  saveMode: ExportSaveMode,
-): Promise<void> {
-  const blob = await buildMarkedUpImageBlob(
-    fileBytes,
-    fileName,
-    mimeType,
-    measurements,
-    rectangles,
-    scale,
-    displayUnit,
-  );
-  if (!blob) return;
-  const outputFileName = getMarkedUpExportFileName("image", fileName);
-  await persistExportedBlob(blob, outputFileName, saveMode);
-}
-
-async function buildMarkedUpImageBlob(
-  fileBytes: Uint8Array,
-  fileName: string,
-  mimeType: string,
-  measurements: Measurement[],
-  rectangles: RectMeasurement[],
+  notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
 ): Promise<Blob | null> {
@@ -306,12 +554,16 @@ async function buildMarkedUpImageBlob(
 
   const style = getExportStyle(source.width, source.height);
 
-  for (const measurement of measurements) {
+  for (const measurement of getExportMeasurements(measurements)) {
     drawMeasurementOnCanvas(context, measurement, scale, displayUnit, style);
   }
 
   for (const rectangle of rectangles) {
     drawRectangleOnCanvas(context, rectangle, scale, displayUnit, style);
+  }
+
+  for (const note of notes) {
+    drawNoteOnCanvas(context, note, style);
   }
 
   const blob = await new Promise<Blob | null>((resolve) => {
@@ -342,7 +594,7 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-async function persistExportedBlob(
+export async function persistExportedBlob(
   blob: Blob,
   fileName: string,
   saveMode: ExportSaveMode,
@@ -371,31 +623,34 @@ export async function exportMarkedUpDocument(
   mimeType: string,
   measurements: Measurement[],
   rectangles: RectMeasurement[],
+  notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
   saveMode: ExportSaveMode = "download",
 ): Promise<void> {
-  if (fileType === "pdf") {
-    await exportMarkedUpPdf(
-      fileBytes,
-      measurements,
-      rectangles,
-      scale,
-      displayUnit,
-      fileName,
-      saveMode,
-    );
-    return;
-  }
+  const blob =
+    fileType === "pdf"
+      ? await buildMarkedUpPdfBlob(
+          fileBytes,
+          measurements,
+          rectangles,
+          notes,
+          scale,
+          displayUnit,
+        )
+      : await buildMarkedUpImageBlob(
+          fileBytes,
+          fileName,
+          mimeType,
+          measurements,
+          rectangles,
+          notes,
+          scale,
+          displayUnit,
+        );
 
-  await exportMarkedUpImage(
-    fileBytes,
-    fileName,
-    mimeType,
-    measurements,
-    rectangles,
-    scale,
-    displayUnit,
-    saveMode,
-  );
+  if (!blob) return;
+
+  const outputFileName = getMarkedUpExportFileName(fileType, fileName);
+  await persistExportedBlob(blob, outputFileName, saveMode);
 }

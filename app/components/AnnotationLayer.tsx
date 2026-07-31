@@ -721,8 +721,8 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           y={marqueePreview.y}
           width={marqueePreview.width}
           height={marqueePreview.height}
-          fill="rgba(34, 211, 238, 0.08)"
-          stroke="#22d3ee"
+          fill="rgba(255, 92, 0, 0.08)"
+          stroke="#ff5c00"
           strokeWidth={1.5}
           strokeDasharray="6 4"
           pointerEvents="none"

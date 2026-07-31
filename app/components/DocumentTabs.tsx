@@ -36,11 +36,16 @@ export function DocumentTabs() {
     return (
       <div
         key={tab.id}
-        className={`group flex max-w-[220px] shrink-0 items-center rounded-md border text-sm transition ${
+        className={`group flex max-w-[220px] shrink-0 items-center rounded-md text-sm transition ${
           isActive
-            ? "border-cyan-500/40 bg-slate-800 text-white"
-            : "border-transparent bg-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+            ? "border border-border bg-surface text-text-primary shadow-sm"
+            : "border border-transparent text-text-secondary hover:bg-surface-muted hover:text-text-primary"
         }`}
+        style={
+          isActive
+            ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" }
+            : undefined
+        }
       >
         <button
           type="button"
@@ -52,7 +57,7 @@ export function DocumentTabs() {
         </button>
         <button
           type="button"
-          className={`mr-1 rounded p-1 text-slate-500 transition hover:bg-slate-700 hover:text-slate-200 ${
+          className={`mr-1 rounded p-1 text-text-muted transition hover:bg-surface-muted hover:text-text-primary ${
             isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           }`}
           aria-label={`Close ${label}`}
@@ -76,12 +81,12 @@ export function DocumentTabs() {
   };
 
   return (
-    <div className="flex items-center gap-1 border-b border-slate-800 bg-slate-950/90 px-2">
+    <div className="flex items-center gap-1 border-b border-border bg-surface px-2">
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
         {tabs.map(renderTab)}
         <button
           type="button"
-          className="shrink-0 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white"
+          className="btn-secondary shrink-0 px-2.5 py-1.5 text-sm"
           title="Open another file"
           onClick={() => fileInputRef.current?.click()}
         >

@@ -178,18 +178,18 @@ export function Toolbar() {
 
   return (
     <>
-    <header className="relative z-30 border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
+    <header className="relative z-30 border-b border-border bg-surface px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold tracking-tight text-white">
+          <h1 className="text-lg font-semibold tracking-tight text-text-primary">
             Markup
           </h1>
-          <span className="hidden text-xs text-slate-500 sm:inline">
+          <span className="hidden text-xs text-text-muted sm:inline">
             PDF & image measure
           </span>
         </div>
 
-        <div className="h-6 w-px bg-slate-800" />
+        <div className="h-6 w-px bg-border" />
 
         <input
           ref={fileInputRef}
@@ -201,12 +201,12 @@ export function Toolbar() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition hover:bg-slate-700"
+          className="btn-secondary"
         >
           Upload File
         </button>
 
-        <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-0.5">
+        <div className="flex rounded-lg border border-border bg-surface-muted p-0.5">
           {TOOLS.map((tool) => (
             <button
               key={tool.id}
@@ -216,8 +216,8 @@ export function Toolbar() {
               onClick={() => dispatch({ type: "SET_TOOL", tool: tool.id })}
               className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-40 ${
                 state.tool === tool.id
-                  ? "bg-cyan-600 text-white shadow-sm"
-                  : "text-slate-300 hover:bg-slate-800"
+                  ? "bg-accent text-white shadow-sm"
+                  : "text-text-secondary hover:bg-surface hover:text-text-primary"
               }`}
             >
               {tool.label}
@@ -230,30 +230,30 @@ export function Toolbar() {
           title="Undo (Ctrl+Z)"
           disabled={!state.fileBytes || state.history.length === 0}
           onClick={() => dispatch({ type: "UNDO" })}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-40"
+          className="btn-secondary disabled:opacity-40"
         >
           Undo
         </button>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900">
+          <div className="flex items-center rounded-lg border border-border bg-surface">
             <button
               type="button"
               onClick={zoomOut}
               disabled={!state.fileBytes}
-              className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+              className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
               aria-label="Zoom out"
             >
               −
             </button>
-            <span className="min-w-14 text-center font-mono text-xs text-slate-400">
+            <span className="min-w-14 text-center font-mono text-xs text-text-secondary">
               {Math.round(state.zoom * 100)}%
             </span>
             <button
               type="button"
               onClick={zoomIn}
               disabled={!state.fileBytes}
-              className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+              className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
               aria-label="Zoom in"
             >
               +
@@ -261,25 +261,25 @@ export function Toolbar() {
           </div>
 
           {state.fileBytes && (
-            <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900">
+            <div className="flex items-center rounded-lg border border-border bg-surface">
               <button
                 type="button"
                 onClick={rotateCcw}
                 disabled={!state.fileBytes}
-                className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+                className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 aria-label="Rotate counter-clockwise"
                 title="Rotate view left"
               >
                 ↺
               </button>
-              <span className="min-w-10 text-center font-mono text-xs text-slate-400">
+              <span className="min-w-10 text-center font-mono text-xs text-text-secondary">
                 {state.rotation}°
               </span>
               <button
                 type="button"
                 onClick={rotateCw}
                 disabled={!state.fileBytes}
-                className="px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-800 disabled:opacity-40"
+                className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 aria-label="Rotate clockwise"
                 title="Rotate view right"
               >
@@ -293,7 +293,14 @@ export function Toolbar() {
               type="button"
               onClick={() => handleSave("download")}
               disabled={saveDisabled}
-              className="rounded-l-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-40"
+              className="rounded-l-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-40"
+              style={{ backgroundColor: "var(--save)" }}
+              onMouseEnter={(e) => {
+                if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--save)";
+              }}
             >
               {saveLabel}
             </button>
@@ -304,7 +311,14 @@ export function Toolbar() {
               aria-haspopup="menu"
               aria-label="Save options"
               onClick={() => setSaveMenuOpen((open) => !open)}
-              className="rounded-r-lg border-l border-emerald-500/40 bg-emerald-600 px-2 py-1.5 text-white transition hover:bg-emerald-500 disabled:opacity-40"
+              className="rounded-r-lg border-l border-emerald-700/20 px-2 py-1.5 text-white transition disabled:opacity-40"
+              style={{ backgroundColor: "var(--save)" }}
+              onMouseEnter={(e) => {
+                if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "var(--save)";
+              }}
             >
               <svg
                 aria-hidden
@@ -317,13 +331,13 @@ export function Toolbar() {
             {saveMenuOpen && !saveDisabled && (
               <div
                 role="menu"
-                className="absolute right-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-lg"
+                className="absolute right-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
               >
                 <button
                   type="button"
                   role="menuitem"
                   onClick={() => handleSave("download")}
-                  className="block w-full px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-800"
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
                 >
                   Save to Downloads
                 </button>
@@ -331,11 +345,11 @@ export function Toolbar() {
                   type="button"
                   role="menuitem"
                   onClick={() => handleSave("choose-location")}
-                  className="block w-full px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-800"
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
                 >
                   Choose save location…
                   {!canChooseSaveLocation && (
-                    <span className="mt-0.5 block text-xs text-slate-500">
+                    <span className="mt-0.5 block text-xs text-text-muted">
                       Uses Downloads in this browser
                     </span>
                   )}
@@ -438,11 +452,11 @@ export function StatusBar() {
   const totalCount = lineCount + rectCount + noteCount;
 
   return (
-    <footer className="relative z-20 flex flex-wrap items-center gap-4 border-t border-slate-800 bg-slate-950/90 px-4 py-2 text-sm backdrop-blur">
-      <div className="text-slate-400">
+    <footer className="relative z-20 flex flex-wrap items-center gap-4 border-t border-border bg-surface px-4 py-2 text-sm">
+      <div className="text-text-secondary">
         {state.fileName}
         {totalCount > 0 && (
-          <span className="ml-2 text-slate-500">
+          <span className="ml-2 text-text-muted">
             · {totalCount} annotation{totalCount === 1 ? "" : "s"}
           </span>
         )}
@@ -450,24 +464,24 @@ export function StatusBar() {
 
       <div className="ml-auto flex flex-wrap items-center gap-3">
         {state.selectedIds.length > 1 && (
-          <span className="font-mono text-cyan-300">
+          <span className="font-mono text-accent">
             {state.selectedIds.length} selected
           </span>
         )}
         {selectedLineLabel && (
-          <span className="font-mono text-cyan-300">
+          <span className="font-mono text-accent">
             Selected: {selectedLineLabel}
           </span>
         )}
         {selectedRectLabel && (
-          <span className="font-mono text-cyan-300">
+          <span className="font-mono text-accent">
             Selected: {selectedRectLabel}
           </span>
         )}
 
         {colorableIds.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-500">Color</span>
+            <span className="text-text-muted">Color</span>
             <div className="flex items-center gap-1">
               {MARKUP_PALETTE.map((color) => (
                 <button
@@ -477,8 +491,8 @@ export function StatusBar() {
                   onClick={() => applyColor(color)}
                   className={`h-5 w-5 rounded-full border-2 transition hover:scale-110 ${
                     sharedColor === color
-                      ? "border-white"
-                      : "border-slate-600"
+                      ? "border-text-primary"
+                      : "border-border"
                   }`}
                   style={{ backgroundColor: color }}
                 />
@@ -487,14 +501,14 @@ export function StatusBar() {
                 type="color"
                 value={sharedColor ?? DEFAULT_ANNOTATION_COLOR}
                 onChange={(event) => applyColor(event.target.value)}
-                className="h-6 w-8 cursor-pointer rounded border border-slate-700 bg-slate-900"
+                className="h-6 w-8 cursor-pointer rounded border border-border bg-surface"
                 title="Custom color"
               />
             </div>
           </div>
         )}
 
-        <label className="flex items-center gap-2 text-slate-400">
+        <label className="flex items-center gap-2 text-text-secondary">
           Display unit
           <select
             value={state.displayUnit}
@@ -504,7 +518,7 @@ export function StatusBar() {
                 unit: e.target.value as Unit,
               })
             }
-            className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 outline-none focus:border-cyan-500"
+            className="input-field rounded-md px-2 py-1 text-text-primary"
           >
             {(Object.keys(UNIT_LABELS) as Unit[]).map((u) => (
               <option key={u} value={u}>
@@ -518,22 +532,22 @@ export function StatusBar() {
           <button
             type="button"
             onClick={() => dispatch({ type: "DELETE_SELECTED" })}
-            className="rounded-md border border-red-500/40 px-2 py-1 text-red-300 transition hover:bg-red-500/10"
+            className="rounded-md border border-red-300 px-2 py-1 text-red-600 transition hover:bg-red-50"
           >
             Delete{state.selectedIds.length > 1 ? ` (${state.selectedIds.length})` : ""}
           </button>
         )}
 
         {(state.tool === "measure" || state.tool === "rectangle") && !state.scale && (
-          <span className="text-amber-400">Calibrate scale before measuring</span>
+          <span style={{ color: "var(--warning-text)" }}>Calibrate scale before measuring</span>
         )}
 
         {state.tool === "note" && (
-          <span className="text-slate-500">Click to place a note</span>
+          <span className="text-text-muted">Click to place a note</span>
         )}
 
         {state.tool === "select" && state.selectedIds.length === 0 && (
-          <span className="text-slate-500">
+          <span className="text-text-muted">
             Drag to select · Shift+click to toggle · click a label to edit dimensions
           </span>
         )}

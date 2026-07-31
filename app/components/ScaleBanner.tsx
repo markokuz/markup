@@ -10,9 +10,16 @@ export function ScaleBanner() {
 
   if (!scale) {
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
-        Scale not set — use <strong>Calibrate</strong> and click two points on a
-        known dimension (e.g. a labeled 10 ft line).
+      <div
+        className="rounded-lg border px-4 py-2 text-sm"
+        style={{
+          borderColor: "var(--warning-border)",
+          backgroundColor: "var(--warning-bg)",
+          color: "var(--warning-text)",
+        }}
+      >
+        Scale not set - use <strong>Calibrate</strong>{" "}
+        and click two points on a known dimension (e.g. a labeled 10&apos; line).
       </div>
     );
   }
@@ -25,9 +32,16 @@ export function ScaleBanner() {
   const unitLabel = fileType === "pdf" ? "PDF inch" : "100 px";
 
   return (
-    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+    <div
+      className="rounded-lg border px-4 py-2 text-sm"
+      style={{
+        borderColor: "var(--success-border)",
+        backgroundColor: "var(--success-bg)",
+        color: "var(--success-text)",
+      }}
+    >
       Scale calibrated — 1 {unitLabel} ≈{" "}
-      <span className="font-mono font-semibold text-emerald-300">{example}</span>
+      <span className="font-mono font-semibold">{example}</span>
     </div>
   );
 }

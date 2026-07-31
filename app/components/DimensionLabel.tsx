@@ -133,7 +133,7 @@ export function DimensionLabel({
             ref={inputRef}
             type="text"
             defaultValue={editValue}
-            className="w-14 rounded border border-cyan-500 bg-slate-900 px-1 py-0.5 font-mono text-xs text-cyan-100 outline-none"
+            className="w-14 rounded border border-accent bg-surface px-1 py-0.5 font-mono text-xs text-accent outline-none"
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === "Enter") {
@@ -147,7 +147,7 @@ export function DimensionLabel({
             }}
             onBlur={handleCommit}
           />
-          <span className="font-mono text-xs text-slate-400">{unitSuffix}</span>
+          <span className="font-mono text-xs text-text-muted">{unitSuffix}</span>
         </div>
       </foreignObject>
     );

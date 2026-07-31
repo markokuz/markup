@@ -54,10 +54,10 @@ function MarkupShell() {
   }, [dispatch, state.selectedIds.length]);
 
   return (
-    <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
+    <div className="flex h-screen flex-col bg-background text-text-primary">
       <Toolbar />
       <DocumentTabs />
-      <div className="border-b border-slate-800 px-4 py-2">
+      <div className="border-b border-border px-4 py-2">
         <ScaleBanner />
       </div>
       <div className="flex min-h-0 flex-1">

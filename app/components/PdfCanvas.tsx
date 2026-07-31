@@ -316,9 +316,9 @@ export function PdfViewer() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/50 p-12">
-          <p className="text-lg font-medium text-slate-200">No file loaded</p>
-          <p className="mt-2 max-w-sm text-sm text-slate-500">
+        <div className="rounded-2xl border border-dashed border-border bg-surface p-12 shadow-sm">
+          <p className="text-lg font-medium text-text-primary">No file loaded</p>
+          <p className="mt-2 max-w-sm text-sm text-text-secondary">
             Upload a PDF, TIF, or photo (PNG, JPG, etc.) to calibrate scale and
             add measurements.
           </p>
@@ -330,7 +330,7 @@ export function PdfViewer() {
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-auto bg-slate-900/50 p-6"
+      className="flex-1 overflow-auto bg-canvas-bg p-6"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
       style={{ cursor: panCursor }}
@@ -342,7 +342,7 @@ export function PdfViewer() {
       <div className="mx-auto flex min-h-full w-fit items-start justify-center">
         <div
           ref={overlayRef}
-          className="relative shadow-2xl shadow-black/40"
+          className="relative shadow-md"
           style={
             viewport
               ? { width: viewport.width, height: viewport.height }
@@ -351,12 +351,12 @@ export function PdfViewer() {
         >
           <canvas ref={canvasRef} className="block max-w-none bg-white" />
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/40 text-sm text-slate-200">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-text-secondary">
               Rendering…
             </div>
           )}
           {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-red-950/60 p-4 text-sm text-red-200">
+            <div className="absolute inset-0 flex items-center justify-center bg-red-50/90 p-4 text-sm text-red-700">
               {error}
             </div>
           )}

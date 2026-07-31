@@ -18,7 +18,7 @@ export function SideToolbar() {
   if (!state.fileBytes) return null;
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col gap-1 border-r border-slate-800 bg-slate-950/90 p-2">
+    <aside className="flex w-14 shrink-0 flex-col gap-1 border-r border-border bg-surface p-2">
       {TOOLS.map((tool) => (
         <button
           key={tool.id}
@@ -27,8 +27,8 @@ export function SideToolbar() {
           onClick={() => dispatch({ type: "SET_TOOL", tool: tool.id })}
           className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition ${
             state.tool === tool.id
-              ? "bg-cyan-600 text-white shadow-sm"
-              : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              ? "bg-accent text-white shadow-sm"
+              : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
           }`}
         >
           <ToolIcon tool={tool.id} />

@@ -4,12 +4,11 @@ import type { DocumentType, RectMeasurement, Scale, Unit } from "@/app/types";
 import {
   computeInlineEdgeSegments,
   estimateLabelWidth,
-  toScreenPoint,
+  getScreenRectEdgeDocLengths,
   toScreenRect,
 } from "@/app/utils/coordinates";
 import { getAnnotationColor } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
-import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
@@ -203,25 +202,25 @@ export function RectangleAnnotation({
   const color = getAnnotationColor(rectangle, isSelected);
   const strokeWidth = isSelected ? 2.5 : 2;
 
-  const docWidth = getRectDocWidth(rectangle);
-  const docHeight = getRectDocHeight(rectangle);
+  const { horizontal: horizontalDocLength, vertical: verticalDocLength } =
+    getScreenRectEdgeDocLengths(viewport, rectangle.topLeft, rectangle.bottomRight);
 
   const widthValueInDisplayUnit =
-    scale && docWidth > 0
-      ? getDimensionValueInDisplayUnit(docWidth, scale, displayUnit)
+    scale && horizontalDocLength > 0
+      ? getDimensionValueInDisplayUnit(horizontalDocLength, scale, displayUnit)
       : 0;
   const heightValueInDisplayUnit =
-    scale && docHeight > 0
-      ? getDimensionValueInDisplayUnit(docHeight, scale, displayUnit)
+    scale && verticalDocLength > 0
+      ? getDimensionValueInDisplayUnit(verticalDocLength, scale, displayUnit)
       : 0;
 
   const widthLabel =
-    scale && docWidth > 0
-      ? getDisplayDistance(docWidth, scale, displayUnit)
+    scale && horizontalDocLength > 0
+      ? getDisplayDistance(horizontalDocLength, scale, displayUnit)
       : "—";
   const heightLabel =
-    scale && docHeight > 0
-      ? getDisplayDistance(docHeight, scale, displayUnit)
+    scale && verticalDocLength > 0
+      ? getDisplayDistance(verticalDocLength, scale, displayUnit)
       : "—";
 
   const widthLabelWidth = estimateLabelWidth(widthLabel);

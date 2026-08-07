@@ -25,8 +25,8 @@ import {
 } from "@/app/utils/selection";
 import {
   applyLineLength,
-  applyRectHeight,
-  applyRectWidth,
+  applyRectHorizontalEdgeLength,
+  applyRectVerticalEdgeLength,
   normalizeRect,
 } from "@/app/utils/dimensions";
 import {
@@ -657,7 +657,13 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     dispatch({
       type: "UPDATE_RECTANGLE",
       id,
-      updates: applyRectWidth(rectangle, value, state.scale, state.displayUnit),
+      updates: applyRectHorizontalEdgeLength(
+        rectangle,
+        value,
+        state.scale,
+        state.displayUnit,
+        state.rotation,
+      ),
     });
     dispatch({ type: "CLEAR_EDITING_DIMENSION" });
   };
@@ -670,7 +676,13 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
     dispatch({
       type: "UPDATE_RECTANGLE",
       id,
-      updates: applyRectHeight(rectangle, value, state.scale, state.displayUnit),
+      updates: applyRectVerticalEdgeLength(
+        rectangle,
+        value,
+        state.scale,
+        state.displayUnit,
+        state.rotation,
+      ),
     });
     dispatch({ type: "CLEAR_EDITING_DIMENSION" });
   };

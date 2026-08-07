@@ -1,4 +1,11 @@
-import type { Measurement, Point2D, RectMeasurement, Scale, Unit } from "@/app/types";
+import type {
+  DocumentRotation,
+  Measurement,
+  Point2D,
+  RectMeasurement,
+  Scale,
+  Unit,
+} from "@/app/types";
 import { convertUnits } from "@/app/utils/units";
 
 function parseFeetInchesInput(text: string): number | null {
@@ -143,4 +150,50 @@ export function getRectDocWidth(rect: RectMeasurement): number {
 
 export function getRectDocHeight(rect: RectMeasurement): number {
   return Math.abs(rect.bottomRight.y - rect.topLeft.y);
+}
+
+/** Horizontal edge length as seen on screen (top/bottom label). */
+export function getRectHorizontalDocLength(
+  rect: RectMeasurement,
+  rotation: DocumentRotation,
+): number {
+  const width = getRectDocWidth(rect);
+  const height = getRectDocHeight(rect);
+  return rotation === 90 || rotation === 270 ? height : width;
+}
+
+/** Vertical edge length as seen on screen (left/right label). */
+export function getRectVerticalDocLength(
+  rect: RectMeasurement,
+  rotation: DocumentRotation,
+): number {
+  const width = getRectDocWidth(rect);
+  const height = getRectDocHeight(rect);
+  return rotation === 90 || rotation === 270 ? width : height;
+}
+
+export function applyRectHorizontalEdgeLength(
+  rect: RectMeasurement,
+  typedValue: number,
+  scale: Scale,
+  displayUnit: Unit,
+  rotation: DocumentRotation,
+): { bottomRight: Point2D } {
+  if (rotation === 90 || rotation === 270) {
+    return applyRectHeight(rect, typedValue, scale, displayUnit);
+  }
+  return applyRectWidth(rect, typedValue, scale, displayUnit);
+}
+
+export function applyRectVerticalEdgeLength(
+  rect: RectMeasurement,
+  typedValue: number,
+  scale: Scale,
+  displayUnit: Unit,
+  rotation: DocumentRotation,
+): { bottomRight: Point2D } {
+  if (rotation === 90 || rotation === 270) {
+    return applyRectWidth(rect, typedValue, scale, displayUnit);
+  }
+  return applyRectHeight(rect, typedValue, scale, displayUnit);
 }

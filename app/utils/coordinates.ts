@@ -150,6 +150,25 @@ export function toScreenRect(
   };
 }
 
+/** Doc lengths of the screen-aligned horizontal and vertical edges (rotation-aware). */
+export function getScreenRectEdgeDocLengths(
+  viewport: DocumentViewport,
+  topLeft: Point2D,
+  bottomRight: Point2D,
+): { horizontal: number; vertical: number } {
+  const screen = toScreenRect(viewport, topLeft, bottomRight);
+  return {
+    horizontal: docDistance(
+      toDocPoint(viewport, screen.x, screen.y),
+      toDocPoint(viewport, screen.x + screen.width, screen.y),
+    ),
+    vertical: docDistance(
+      toDocPoint(viewport, screen.x, screen.y),
+      toDocPoint(viewport, screen.x, screen.y + screen.height),
+    ),
+  };
+}
+
 export type ScreenCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 const OPPOSITE_SCREEN_CORNER: Record<ScreenCorner, ScreenCorner> = {

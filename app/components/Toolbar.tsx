@@ -16,8 +16,8 @@ import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import {
-  getRectDocHeight,
-  getRectDocWidth,
+  getRectHorizontalDocLength,
+  getRectVerticalDocLength,
 } from "@/app/utils/dimensions";
 import {
   DEFAULT_ANNOTATION_COLOR,
@@ -431,14 +431,16 @@ export function StatusBar() {
     selectedRect && state.scale
       ? `${formatDistance(
           convertUnits(
-            getRectDocWidth(selectedRect) * state.scale.unitsPerPdfPoint,
+            getRectHorizontalDocLength(selectedRect, state.rotation) *
+              state.scale.unitsPerPdfPoint,
             state.scale.calibrationUnit,
             state.displayUnit,
           ),
           state.displayUnit,
         )} × ${formatDistance(
           convertUnits(
-            getRectDocHeight(selectedRect) * state.scale.unitsPerPdfPoint,
+            getRectVerticalDocLength(selectedRect, state.rotation) *
+              state.scale.unitsPerPdfPoint,
             state.scale.calibrationUnit,
             state.displayUnit,
           ),

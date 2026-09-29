@@ -103,6 +103,10 @@ export interface TabsState {
   displayUnit: Unit;
   tabs: DocumentTab[];
   activeTabId: string | null;
+  /** Magnifier loupe enabled for the measure tool (calibrate always shows it). */
+  loupeEnabled: boolean;
+  /** Minimap manually hidden by the user. */
+  minimapHidden: boolean;
 }
 
 /** Merged view of the active tab plus global settings (returned by useAppState). */
@@ -111,6 +115,8 @@ export type AppState = Omit<DocumentTab, "id"> & {
   displayUnit: Unit;
   tabs: DocumentTab[];
   activeTabId: string | null;
+  loupeEnabled: boolean;
+  minimapHidden: boolean;
 };
 
 export type AppAction =
@@ -153,6 +159,7 @@ export type AppAction =
   | { type: "UPDATE_NOTE"; id: string; updates: Partial<NoteAnnotation> }
   | { type: "DELETE_NOTE"; id: string }
   | { type: "SET_SELECTION"; ids: string[] }
+  | { type: "NUDGE_SELECTED"; dx: number; dy: number; recordUndo: boolean }
   | { type: "DELETE_SELECTED" }
   | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string }
   | { type: "SET_EDITING_DIMENSION"; editing: EditingDimension | null }
@@ -164,11 +171,15 @@ export type AppAction =
   | { type: "CLEAR_ALL" }
   | { type: "RECORD_UNDO" }
   | { type: "UNDO" }
-  | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null };
+  | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null }
+  | { type: "TOGGLE_LOUPE" }
+  | { type: "SET_MINIMAP_HIDDEN"; hidden: boolean };
 
 export const initialTabsState: TabsState = {
   tool: "calibrate",
   displayUnit: "ft",
   tabs: [],
   activeTabId: null,
+  loupeEnabled: false,
+  minimapHidden: false,
 };

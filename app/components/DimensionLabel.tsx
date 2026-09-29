@@ -45,7 +45,7 @@ export function DimensionLabel({
   const inputRef = useRef<HTMLInputElement>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
-  const labelWidth = Math.max(label.length * 7 + 12, 48);
+  const labelWidth = Math.max(label.length * 7 + 12, 24);
   const editValue = formatDistanceEditValue(valueInDisplayUnit, displayUnit);
   const unitSuffix =
     displayUnit === "ft" ? "'" : displayUnit === "in" ? '"' : displayUnit;
@@ -161,9 +161,7 @@ export function DimensionLabel({
         width={labelWidth}
         height={20}
         rx={4}
-        fill="rgba(15, 23, 42, 0.85)"
-        stroke={color}
-        strokeWidth={1}
+        fill="transparent"
         style={{
           pointerEvents: showHandles || clickable ? "all" : "none",
           cursor: showHandles || clickable ? "pointer" : "default",
@@ -176,12 +174,14 @@ export function DimensionLabel({
         x={textX}
         y={textY}
         fill={color}
+        stroke="#ffffff"
+        strokeWidth={3}
         fontSize={12}
         fontWeight={600}
         fontFamily="var(--font-geist-mono), monospace"
         textAnchor={inline ? "middle" : "start"}
         dominantBaseline={inline ? "middle" : "auto"}
-        style={{ pointerEvents: "none", userSelect: "none" }}
+        style={{ pointerEvents: "none", userSelect: "none", paintOrder: "stroke" }}
       >
         {label}
       </text>

@@ -7,7 +7,7 @@ import {
   getScreenRectEdgeDocLengths,
   toScreenRect,
 } from "@/app/utils/coordinates";
-import { getAnnotationColor } from "@/app/utils/colors";
+import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -199,7 +199,7 @@ export function RectangleAnnotation({
     rectangle.bottomRight,
   );
 
-  const color = getAnnotationColor(rectangle, isSelected);
+  const color = getAnnotationColor(rectangle);
   const strokeWidth = isSelected ? 2.5 : 2;
 
   const { horizontal: horizontalDocLength, vertical: verticalDocLength } =
@@ -258,6 +258,19 @@ export function RectangleAnnotation({
 
   return (
     <g className="rectangle-annotation">
+      {isSelected && (
+        <rect
+          x={Math.min(x, x + width) - 4}
+          y={Math.min(y, y + height) - 4}
+          width={Math.abs(width) + 8}
+          height={Math.abs(height) + 8}
+          fill="none"
+          stroke={SELECTION_ACCENT}
+          strokeWidth={strokeWidth + 6}
+          opacity={0.3}
+          style={{ pointerEvents: "none" }}
+        />
+      )}
       {topEdge
         ? renderEdgeSegment(
             topEdge,

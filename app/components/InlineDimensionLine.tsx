@@ -2,10 +2,15 @@
 
 import type { Point2D } from "@/app/types";
 import {
-  computeInlineLineSegments,
+  arrowPolygonPoints,
+  computeDimensionLayout,
   estimateLabelWidth,
 } from "@/app/utils/coordinates";
+import { SELECTION_ACCENT } from "@/app/utils/colors";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
+
+const ARROW_LEN = 9;
+const ARROW_HALF_WIDTH = 4;
 
 interface InlineDimensionLineProps {
   start: Point2D;
@@ -56,7 +61,7 @@ export function InlineDimensionLine({
   showEndpointHandles = false,
 }: InlineDimensionLineProps) {
   const labelWidth = estimateLabelWidth(label);
-  const layout = computeInlineLineSegments(start, end, labelWidth);
+  const layout = computeDimensionLayout(start, end, labelWidth, ARROW_LEN);
 
   const handleLinePointerDown = (event: React.PointerEvent) => {
     if (!interactive) return;
@@ -68,41 +73,37 @@ export function InlineDimensionLine({
     }
   };
 
+  const lineSegments = layout.showGap
+    ? [
+        [layout.segment1Start, layout.segment1End] as const,
+        [layout.segment2Start, layout.segment2End] as const,
+      ]
+    : [[layout.fullStart, layout.fullEnd] as const];
+
   return (
     <g>
-      {layout.showGap ? (
-        <>
+      {isSelected &&
+        lineSegments.map(([a, b], i) => (
           <line
-            x1={layout.segment1Start.x}
-            y1={layout.segment1Start.y}
-            x2={layout.segment1End.x}
-            y2={layout.segment1End.y}
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
+            key={`halo-${i}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke={SELECTION_ACCENT}
+            strokeWidth={strokeWidth + 6}
             strokeLinecap="round"
-            style={{ pointerEvents: interactive ? "stroke" : "none" }}
-            onPointerDown={handleLinePointerDown}
+            opacity={0.35}
+            style={{ pointerEvents: "none" }}
           />
-          <line
-            x1={layout.segment2Start.x}
-            y1={layout.segment2Start.y}
-            x2={layout.segment2End.x}
-            y2={layout.segment2End.y}
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-            strokeLinecap="round"
-            style={{ pointerEvents: interactive ? "stroke" : "none" }}
-            onPointerDown={handleLinePointerDown}
-          />
-        </>
-      ) : (
+        ))}
+      {lineSegments.map(([a, b], i) => (
         <line
-          x1={start.x}
-          y1={start.y}
-          x2={end.x}
-          y2={end.y}
+          key={`seg-${i}`}
+          x1={a.x}
+          y1={a.y}
+          x2={b.x}
+          y2={b.y}
           stroke={color}
           strokeWidth={strokeWidth}
           strokeDasharray={strokeDasharray}
@@ -110,7 +111,17 @@ export function InlineDimensionLine({
           style={{ pointerEvents: interactive ? "stroke" : "none" }}
           onPointerDown={handleLinePointerDown}
         />
-      )}
+      ))}
+      <polygon
+        points={arrowPolygonPoints(layout.arrowStart, ARROW_LEN, ARROW_HALF_WIDTH)}
+        fill={color}
+        style={{ pointerEvents: "none" }}
+      />
+      <polygon
+        points={arrowPolygonPoints(layout.arrowEnd, ARROW_LEN, ARROW_HALF_WIDTH)}
+        fill={color}
+        style={{ pointerEvents: "none" }}
+      />
       {label !== "—" && (
         <g
           transform={`rotate(${layout.angleDeg}, ${layout.labelCenter.x}, ${layout.labelCenter.y})`}
@@ -225,69 +236,55 @@ interface PreviewDimensionLineProps {
 
 export function PreviewDimensionLine({ start, end, label }: PreviewDimensionLineProps) {
   const labelWidth = estimateLabelWidth(label);
-  const layout = computeInlineLineSegments(start, end, labelWidth);
+  const layout = computeDimensionLayout(start, end, labelWidth, ARROW_LEN);
   const color = "#94a3b8";
+
+  const segments = layout.showGap
+    ? [
+        [layout.segment1Start, layout.segment1End] as const,
+        [layout.segment2Start, layout.segment2End] as const,
+      ]
+    : [[layout.fullStart, layout.fullEnd] as const];
 
   return (
     <g pointerEvents="none">
-      {layout.showGap ? (
-        <>
-          <line
-            x1={layout.segment1Start.x}
-            y1={layout.segment1Start.y}
-            x2={layout.segment1End.x}
-            y2={layout.segment1End.y}
-            stroke={color}
-            strokeWidth={1.5}
-            strokeDasharray="6 4"
-            strokeLinecap="round"
-          />
-          <line
-            x1={layout.segment2Start.x}
-            y1={layout.segment2Start.y}
-            x2={layout.segment2End.x}
-            y2={layout.segment2End.y}
-            stroke={color}
-            strokeWidth={1.5}
-            strokeDasharray="6 4"
-            strokeLinecap="round"
-          />
-        </>
-      ) : (
+      {segments.map(([a, b], i) => (
         <line
-          x1={start.x}
-          y1={start.y}
-          x2={end.x}
-          y2={end.y}
+          key={i}
+          x1={a.x}
+          y1={a.y}
+          x2={b.x}
+          y2={b.y}
           stroke={color}
           strokeWidth={1.5}
           strokeDasharray="6 4"
           strokeLinecap="round"
         />
-      )}
+      ))}
+      <polygon
+        points={arrowPolygonPoints(layout.arrowStart, ARROW_LEN, ARROW_HALF_WIDTH)}
+        fill={color}
+      />
+      <polygon
+        points={arrowPolygonPoints(layout.arrowEnd, ARROW_LEN, ARROW_HALF_WIDTH)}
+        fill={color}
+      />
       {label !== "—" && (
         <g
           transform={`rotate(${layout.angleDeg}, ${layout.labelCenter.x}, ${layout.labelCenter.y})`}
         >
-          <rect
-            x={layout.labelCenter.x - labelWidth / 2}
-            y={layout.labelCenter.y - 10}
-            width={labelWidth}
-            height={20}
-            rx={4}
-            fill="rgba(15, 23, 42, 0.85)"
-            stroke={color}
-            strokeWidth={1}
-          />
           <text
             x={layout.labelCenter.x}
             y={layout.labelCenter.y}
             fill={color}
+            stroke="#ffffff"
+            strokeWidth={3}
             fontSize={12}
             fontWeight={600}
             fontFamily="var(--font-geist-mono), monospace"
             textAnchor="middle"
             dominantBaseline="middle"
+            style={{ paintOrder: "stroke" }}
           >
             {label}
           </text>

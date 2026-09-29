@@ -195,6 +195,42 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         editingDimension: null,
         editingNoteId: null,
       }));
+    case "NUDGE_SELECTED":
+      return updateActiveTab(state, (tab) => {
+        if (tab.selectedIds.length === 0) return tab;
+        const selected = new Set(tab.selectedIds);
+        const { dx, dy } = action;
+        return {
+          ...tab,
+          history: action.recordUndo ? appendHistory(tab) : tab.history,
+          measurements: tab.measurements.map((m) =>
+            selected.has(m.id) && !m.isCalibration
+              ? {
+                  ...m,
+                  start: { x: m.start.x + dx, y: m.start.y + dy },
+                  end: { x: m.end.x + dx, y: m.end.y + dy },
+                }
+              : m,
+          ),
+          rectangles: tab.rectangles.map((r) =>
+            selected.has(r.id)
+              ? {
+                  ...r,
+                  topLeft: { x: r.topLeft.x + dx, y: r.topLeft.y + dy },
+                  bottomRight: {
+                    x: r.bottomRight.x + dx,
+                    y: r.bottomRight.y + dy,
+                  },
+                }
+              : r,
+          ),
+          notes: tab.notes.map((n) =>
+            selected.has(n.id)
+              ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
+              : n,
+          ),
+        };
+      });
     case "DELETE_SELECTED":
       return updateActiveTab(state, (tab) => {
         if (tab.selectedIds.length === 0) return tab;
@@ -319,6 +355,10 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...tab,
         documentViewport: action.viewport,
       }));
+    case "TOGGLE_LOUPE":
+      return { ...state, loupeEnabled: !state.loupeEnabled };
+    case "SET_MINIMAP_HIDDEN":
+      return { ...state, minimapHidden: action.hidden };
     default:
       return state;
   }
@@ -333,6 +373,8 @@ function mergeActiveTabView(state: TabsState): AppState {
       displayUnit: state.displayUnit,
       tabs: state.tabs,
       activeTabId: state.activeTabId,
+      loupeEnabled: state.loupeEnabled,
+      minimapHidden: state.minimapHidden,
     };
   }
 
@@ -343,6 +385,8 @@ function mergeActiveTabView(state: TabsState): AppState {
     displayUnit: state.displayUnit,
     tabs: state.tabs,
     activeTabId: state.activeTabId,
+    loupeEnabled: state.loupeEnabled,
+    minimapHidden: state.minimapHidden,
   };
 }
 

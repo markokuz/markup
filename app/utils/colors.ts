@@ -13,12 +13,8 @@ export const MARKUP_PALETTE = [
   "#94a3b8",
 ] as const;
 
-export function getAnnotationColor(
-  annotation: { color?: string },
-  isSelected: boolean,
-): string {
-  const base = annotation.color ?? DEFAULT_ANNOTATION_COLOR;
-  return isSelected ? SELECTION_ACCENT : base;
+export function getAnnotationColor(annotation: { color?: string }): string {
+  return annotation.color ?? DEFAULT_ANNOTATION_COLOR;
 }
 
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {

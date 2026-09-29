@@ -213,5 +213,5 @@ export function useDocument(
     };
   }, [fileBytes, fileType, zoom, rotation, canvasElement, sourceReady]);
 
-  return { canvasRef, viewport, loading, error };
+  return { canvasRef, canvasElement, viewport, loading, error };
 }

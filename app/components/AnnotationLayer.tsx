@@ -43,6 +43,7 @@ import type { DocumentViewport } from "@/app/utils/documentViewport";
 interface AnnotationLayerProps {
   viewport: DocumentViewport;
   overlayRef: React.RefObject<HTMLDivElement | null>;
+  onCursorMove?: (cursor: Point2D | null) => void;
 }
 
 type DragMode =
@@ -63,7 +64,11 @@ function createId() {
   return crypto.randomUUID();
 }
 
-export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) {
+export function AnnotationLayer({
+  viewport,
+  overlayRef,
+  onCursorMove,
+}: AnnotationLayerProps) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
@@ -154,7 +159,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
           const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
           const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
 
-          if (width >= MIN_RECT_SIZE && height >= MIN_RECT_SIZE) {
+          if (width >= MIN_RECT_SIZE || height >= MIN_RECT_SIZE) {
             const rectangle = {
               id: createId(),
               ...normalized,
@@ -242,6 +247,8 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
 
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
+
+      onCursorMove?.(local);
 
       if (dragRef.current) {
         const drag = dragRef.current;
@@ -352,7 +359,7 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, overlayRef, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, viewport],
+    [dispatch, onCursorMove, overlayRef, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -719,7 +726,10 @@ export function AnnotationLayer({ viewport, overlayRef }: AnnotationLayerProps) 
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
+      onPointerLeave={() => {
+        handlePointerUp();
+        onCursorMove?.(null);
+      }}
     >
       {unselectedRectangles.map(renderRectangle)}
       {unselectedNotes.map(renderNote)}

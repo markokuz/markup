@@ -247,9 +247,9 @@ export function distanceToSegment(
   return Math.hypot(point.x - projX, point.y - projY);
 }
 
-/** Estimate rendered label width in screen pixels (matches DimensionLabel). */
+/** Estimate rendered label width in screen pixels (tight to the text). */
 export function estimateLabelWidth(label: string): number {
-  return Math.max(label.length * 7 + 12, 48);
+  return label.length * 7 + 10;
 }
 
 export interface InlineLineLayout {
@@ -345,6 +345,115 @@ export function computeInlineLineSegments(
     labelWidth,
     showGap: true,
   };
+}
+
+export interface ArrowSpec {
+  /** Tip position (at the endpoint). */
+  tip: Point2D;
+  /** Unit vector the arrow points toward. */
+  dir: Point2D;
+}
+
+export interface DimensionLayout {
+  showGap: boolean;
+  segment1Start: Point2D;
+  segment1End: Point2D;
+  segment2Start: Point2D;
+  segment2End: Point2D;
+  fullStart: Point2D;
+  fullEnd: Point2D;
+  labelCenter: Point2D;
+  angleDeg: number;
+  arrowStart: ArrowSpec;
+  arrowEnd: ArrowSpec;
+  /** True when the line is too short to hold arrows + label inside its span. */
+  arrowsOutside: boolean;
+}
+
+/**
+ * Bluebeam-style dimension line layout: arrowheads at both ends, number in the
+ * middle. When the line is long enough the arrows point outward at the endpoints
+ * and the line breaks for the number. When it is too short, the arrows flip to
+ * the outside pointing inward and the number sits just above the line.
+ */
+export function computeDimensionLayout(
+  start: Point2D,
+  end: Point2D,
+  labelWidth: number,
+  arrowLen: number,
+  labelPadding = 4,
+): DimensionLayout {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const ux = dx / length;
+  const uy = dy / length;
+  const center = midpoint(start, end);
+  const angleDeg = normalizeLabelAngleDeg((Math.atan2(dy, dx) * 180) / Math.PI);
+
+  // "Up" perpendicular (screen y-down), used to lift the label off short lines.
+  let perp = { x: -uy, y: ux };
+  if (perp.y > 0) perp = { x: -perp.x, y: -perp.y };
+
+  const arrowsOutside = length < 2 * arrowLen + labelWidth + labelPadding * 2;
+
+  const arrowStart: ArrowSpec = {
+    tip: start,
+    dir: arrowsOutside ? { x: ux, y: uy } : { x: -ux, y: -uy },
+  };
+  const arrowEnd: ArrowSpec = {
+    tip: end,
+    dir: arrowsOutside ? { x: -ux, y: -uy } : { x: ux, y: uy },
+  };
+
+  if (arrowsOutside) {
+    const lift = arrowLen + 8;
+    return {
+      showGap: false,
+      segment1Start: start,
+      segment1End: end,
+      segment2Start: end,
+      segment2End: end,
+      fullStart: start,
+      fullEnd: end,
+      labelCenter: { x: center.x + perp.x * lift, y: center.y + perp.y * lift },
+      angleDeg,
+      arrowStart,
+      arrowEnd,
+      arrowsOutside,
+    };
+  }
+
+  const gapHalf = (labelWidth + labelPadding * 2) / 2;
+  return {
+    showGap: true,
+    segment1Start: start,
+    segment1End: { x: center.x - ux * gapHalf, y: center.y - uy * gapHalf },
+    segment2Start: { x: center.x + ux * gapHalf, y: center.y + uy * gapHalf },
+    segment2End: end,
+    fullStart: start,
+    fullEnd: end,
+    labelCenter: center,
+    angleDeg,
+    arrowStart,
+    arrowEnd,
+    arrowsOutside,
+  };
+}
+
+/** Build an SVG/points polygon for a filled triangular arrowhead. */
+export function arrowPolygonPoints(
+  arrow: ArrowSpec,
+  arrowLen: number,
+  arrowHalfWidth: number,
+): string {
+  const { tip, dir } = arrow;
+  const perp = { x: -dir.y, y: dir.x };
+  const baseX = tip.x - dir.x * arrowLen;
+  const baseY = tip.y - dir.y * arrowLen;
+  const p1 = { x: baseX + perp.x * arrowHalfWidth, y: baseY + perp.y * arrowHalfWidth };
+  const p2 = { x: baseX - perp.x * arrowHalfWidth, y: baseY - perp.y * arrowHalfWidth };
+  return `${tip.x},${tip.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`;
 }
 
 export interface InlineEdgeLayout {

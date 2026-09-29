@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { NoteAnnotation as NoteAnnotationType } from "@/app/types";
 import { toScreenPoint } from "@/app/utils/coordinates";
-import { getAnnotationColor } from "@/app/utils/colors";
+import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 
 const FOREIGN_OBJECT_WIDTH = 320;
@@ -41,8 +41,11 @@ export function NoteAnnotation({
   const dragStartedRef = useRef(false);
   const ignoreBlurRef = useRef(false);
   const screenPos = toScreenPoint(viewport, note.position.x, note.position.y);
-  const color = getAnnotationColor(note, isSelected);
+  const color = getAnnotationColor(note);
   const interactive = isEditing || isSelectMode;
+  const selectionGlow = isSelected
+    ? `0 0 0 3px ${SELECTION_ACCENT}66`
+    : undefined;
 
   useEffect(() => {
     if (!isEditing) return;
@@ -160,6 +163,7 @@ export function NoteAnnotation({
               width: "fit-content",
               minWidth: "3rem",
               cursor: isSelectMode ? "pointer" : "default",
+              boxShadow: selectionGlow,
             }}
             onPointerDown={handleDisplayPointerDown}
             onPointerMove={handleDisplayPointerMove}

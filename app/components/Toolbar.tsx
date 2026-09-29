@@ -640,6 +640,12 @@ export function StatusBar() {
           <span className="text-text-muted">Click to place a note</span>
         )}
 
+        {state.tool === "measure" && (
+          <span className="text-text-muted">
+            Magnifier {state.loupeEnabled ? "on" : "off"} · press L to toggle
+          </span>
+        )}
+
         {state.tool === "select" && state.selectedIds.length === 0 && (
           <span className="text-text-muted">
             Drag to select · Shift+click to toggle · click a label to edit dimensions

@@ -78,7 +78,7 @@ export function MeasurementLine({
 
   const color = measurement.isCalibration
     ? CALIBRATION_COLOR
-    : getAnnotationColor(measurement, isSelected);
+    : getAnnotationColor(measurement);
   const strokeWidth = isSelected ? 2.5 : 2;
   const label =
     scale && !measurement.isCalibration

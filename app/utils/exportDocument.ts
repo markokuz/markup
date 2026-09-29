@@ -13,10 +13,12 @@ import {
 } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import {
+  arrowPolygonPoints,
+  computeDimensionLayout,
   computeInlineEdgeSegments,
-  computeInlineLineSegments,
   computePdfLabelAngleDeg,
   docDistance,
+  type ArrowSpec,
 } from "@/app/utils/coordinates";
 import {
   getRectDocHeight,
@@ -34,6 +36,8 @@ export interface ExportStyle {
   borderWidth: number;
   fontSize: number;
   calibrationDash: [number, number];
+  arrowLen: number;
+  arrowHalfWidth: number;
 }
 
 /**
@@ -50,6 +54,8 @@ export function getExportStyle(zoom: number): ExportStyle {
     borderWidth: 2 * scale,
     fontSize: 12 * scale,
     calibrationDash: [6 * scale, 4 * scale],
+    arrowLen: 9 * scale,
+    arrowHalfWidth: 4 * scale,
   };
 }
 
@@ -126,6 +132,26 @@ function drawDocLineSegment(
   context.stroke();
 }
 
+function fillArrowOnCanvas(
+  context: CanvasRenderingContext2D,
+  arrow: ArrowSpec,
+  arrowLen: number,
+  arrowHalfWidth: number,
+  color: string,
+) {
+  const { tip, dir } = arrow;
+  const perp = { x: -dir.y, y: dir.x };
+  const baseX = tip.x - dir.x * arrowLen;
+  const baseY = tip.y - dir.y * arrowLen;
+  context.beginPath();
+  context.moveTo(tip.x, tip.y);
+  context.lineTo(baseX + perp.x * arrowHalfWidth, baseY + perp.y * arrowHalfWidth);
+  context.lineTo(baseX - perp.x * arrowHalfWidth, baseY - perp.y * arrowHalfWidth);
+  context.closePath();
+  context.fillStyle = color;
+  context.fill();
+}
+
 function drawInlineLineOnCanvas(
   context: CanvasRenderingContext2D,
   start: { x: number; y: number },
@@ -134,35 +160,60 @@ function drawInlineLineOnCanvas(
   lineWidth: number,
   label: string | null,
   fontSize: number,
+  arrowLen: number,
+  arrowHalfWidth: number,
 ) {
   context.strokeStyle = color;
   context.lineWidth = lineWidth;
 
-  if (!label) {
-    drawDocLineSegment(context, start, end);
-    return;
-  }
+  const labelWidth = label ? measureCanvasLabelWidth(context, label, fontSize) : 0;
+  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen);
 
-  const labelWidth = measureCanvasLabelWidth(context, label, fontSize);
-  const layout = computeInlineLineSegments(start, end, labelWidth);
-
-  if (layout.showGap) {
+  if (layout.showGap && label) {
     drawDocLineSegment(context, layout.segment1Start, layout.segment1End);
     drawDocLineSegment(context, layout.segment2Start, layout.segment2End);
   } else {
-    drawDocLineSegment(context, start, end);
+    drawDocLineSegment(context, layout.fullStart, layout.fullEnd);
   }
+
+  fillArrowOnCanvas(context, layout.arrowStart, arrowLen, arrowHalfWidth, color);
+  fillArrowOnCanvas(context, layout.arrowEnd, arrowLen, arrowHalfWidth, color);
+
+  if (!label) return;
 
   const center = layout.labelCenter;
   context.save();
   context.translate(center.x, center.y);
   context.rotate((layout.angleDeg * Math.PI) / 180);
   context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
-  context.fillStyle = color;
   context.textAlign = "center";
   context.textBaseline = "middle";
+  context.lineWidth = Math.max(fontSize * 0.25, 1);
+  context.strokeStyle = "#ffffff";
+  context.lineJoin = "round";
+  context.strokeText(label, 0, 0);
+  context.fillStyle = color;
   context.fillText(label, 0, 0);
   context.restore();
+}
+
+function fillArrowOnPdf(
+  page: PDFPage,
+  arrow: ArrowSpec,
+  arrowLen: number,
+  arrowHalfWidth: number,
+  color: ReturnType<typeof rgb>,
+) {
+  const { tip, dir } = arrow;
+  const perp = { x: -dir.y, y: dir.x };
+  const baseX = tip.x - dir.x * arrowLen;
+  const baseY = tip.y - dir.y * arrowLen;
+  const c1 = { x: baseX + perp.x * arrowHalfWidth, y: baseY + perp.y * arrowHalfWidth };
+  const c2 = { x: baseX - perp.x * arrowHalfWidth, y: baseY - perp.y * arrowHalfWidth };
+  // drawSvgPath maps a path point (px,py) to PDF (x+px, y-py); negate y to land
+  // the triangle at absolute PDF coordinates.
+  const path = `M ${tip.x} ${-tip.y} L ${c1.x} ${-c1.y} L ${c2.x} ${-c2.y} Z`;
+  page.drawSvgPath(path, { x: 0, y: 0, scale: 1, color, borderWidth: 0 });
 }
 
 function drawInlineLineOnPdf(
@@ -174,21 +225,23 @@ function drawInlineLineOnPdf(
   label: string | null,
   fontSize: number,
   font: PDFFont,
+  arrowLen: number,
+  arrowHalfWidth: number,
 ) {
-  if (!label) {
-    page.drawLine({ start, end, thickness, color });
-    return;
-  }
+  const labelWidth = label ? measurePdfLabelWidth(font, label, fontSize) : 0;
+  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen);
 
-  const labelWidth = measurePdfLabelWidth(font, label, fontSize);
-  const layout = computeInlineLineSegments(start, end, labelWidth);
-
-  if (layout.showGap) {
+  if (layout.showGap && label) {
     page.drawLine({ start: layout.segment1Start, end: layout.segment1End, thickness, color });
     page.drawLine({ start: layout.segment2Start, end: layout.segment2End, thickness, color });
   } else {
-    page.drawLine({ start, end, thickness, color });
+    page.drawLine({ start: layout.fullStart, end: layout.fullEnd, thickness, color });
   }
+
+  fillArrowOnPdf(page, layout.arrowStart, arrowLen, arrowHalfWidth, color);
+  fillArrowOnPdf(page, layout.arrowEnd, arrowLen, arrowHalfWidth, color);
+
+  if (!label) return;
 
   const angleDeg = computePdfLabelAngleDeg(start, end);
   const rad = (angleDeg * Math.PI) / 180;
@@ -276,6 +329,8 @@ function drawMeasurementOnCanvas(
     style.lineWidth,
     label,
     style.fontSize,
+    style.arrowLen,
+    style.arrowHalfWidth,
   );
 }
 
@@ -437,6 +492,8 @@ export async function buildMarkedUpPdfBlob(
       label,
       style.fontSize,
       font,
+      style.arrowLen,
+      style.arrowHalfWidth,
     );
   }
 

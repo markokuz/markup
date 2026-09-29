@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
+import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
+import { Minimap } from "@/app/components/Minimap";
 import { detectDocumentType } from "@/app/utils/fileTypes";
 import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
@@ -59,9 +62,19 @@ async function readDocumentFile(
 }
 
 export function PdfViewer() {
-  const { fileBytes, fileType, fileName, fileMimeType, zoom, rotation, tool } = useAppState();
+  const {
+    fileBytes,
+    fileType,
+    fileName,
+    fileMimeType,
+    zoom,
+    rotation,
+    tool,
+    loupeEnabled,
+    minimapHidden,
+  } = useAppState();
   const dispatch = useAppDispatch();
-  const { canvasRef, viewport, loading, error } = useDocument(
+  const { canvasRef, canvasElement, viewport, loading, error } = useDocument(
     fileBytes,
     fileType,
     fileName,
@@ -69,12 +82,25 @@ export function PdfViewer() {
     zoom,
     rotation,
   );
+  const [cursor, setCursor] = useState<Point2D | null>(null);
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     dispatch({ type: "SET_DOCUMENT_VIEWPORT", viewport });
   }, [dispatch, viewport]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setContainerSize({ w: el.clientWidth, h: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fileBytes]);
   const overlayRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const didCenterRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(
     null,
   );
@@ -202,6 +228,16 @@ export function PdfViewer() {
       zoomCommitTimerRef.current = null;
     }
   }, [zoom, clearPreviewTransform]);
+
+  // On first render for this tab, center the document instead of letting the
+  // browser pin the view to a corner as the content grows.
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !viewport || didCenterRef.current) return;
+    didCenterRef.current = true;
+    scrollEl.scrollLeft = Math.max(0, (scrollEl.scrollWidth - scrollEl.clientWidth) / 2);
+    scrollEl.scrollTop = 0;
+  }, [viewport]);
 
   useEffect(() => {
     prevZoomRef.current = zoom;
@@ -334,6 +370,13 @@ export function PdfViewer() {
 
   const panCursor = isPanning ? "grabbing" : tool === "pan" ? "grab" : undefined;
 
+  const showLoupe =
+    tool === "calibrate" || (tool === "measure" && loupeEnabled);
+  const overflowing =
+    !!viewport &&
+    (viewport.width > containerSize.w + 1 || viewport.height > containerSize.h + 1);
+  const showMinimap = overflowing && !minimapHidden && !!canvasElement;
+
   if (!fileBytes) {
     return (
       <div
@@ -353,43 +396,75 @@ export function PdfViewer() {
   }
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex-1 overflow-auto bg-canvas-bg p-6"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={handleDrop}
-      style={{ cursor: panCursor }}
-      onPointerDown={handlePanPointerDown}
-      onPointerMove={handlePanPointerMove}
-      onPointerUp={handlePanPointerUp}
-      onPointerLeave={handlePanPointerUp}
-    >
-      <div className="mx-auto flex min-h-full w-fit items-start justify-center">
-        <div
-          ref={overlayRef}
-          className="relative shadow-md"
-          style={
-            viewport
-              ? { width: viewport.width, height: viewport.height }
-              : { minWidth: 320, minHeight: 420 }
-          }
-        >
-          <canvas ref={canvasRef} className="block max-w-none bg-white" />
-          {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-text-secondary">
-              Rendering…
-            </div>
-          )}
-          {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-red-50/90 p-4 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          {viewport && tool !== "pan" && (
-            <AnnotationLayer viewport={viewport} overlayRef={overlayRef} />
-          )}
+    <div className="relative min-h-0 flex-1">
+      <div
+        ref={scrollRef}
+        className="h-full w-full overflow-auto bg-canvas-bg p-6"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+        style={{ cursor: panCursor }}
+        onPointerDown={handlePanPointerDown}
+        onPointerMove={handlePanPointerMove}
+        onPointerUp={handlePanPointerUp}
+        onPointerLeave={handlePanPointerUp}
+      >
+        <div className="mx-auto flex min-h-full w-fit items-start justify-center">
+          <div
+            ref={overlayRef}
+            className="relative shadow-md"
+            style={
+              viewport
+                ? { width: viewport.width, height: viewport.height }
+                : { minWidth: 320, minHeight: 420 }
+            }
+          >
+            <canvas ref={canvasRef} className="block max-w-none bg-white" />
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-text-secondary">
+                Rendering…
+              </div>
+            )}
+            {error && (
+              <div className="absolute inset-0 flex items-center justify-center bg-red-50/90 p-4 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            {viewport && tool !== "pan" && (
+              <AnnotationLayer
+                viewport={viewport}
+                overlayRef={overlayRef}
+                onCursorMove={setCursor}
+              />
+            )}
+            {showLoupe && viewport && (
+              <MagnifierLoupe
+                sourceCanvas={canvasElement}
+                cursor={cursor}
+                viewportWidth={viewport.width}
+                viewportHeight={viewport.height}
+              />
+            )}
+          </div>
         </div>
       </div>
+      {showMinimap && viewport && (
+        <Minimap
+          sourceCanvas={canvasElement}
+          scrollRef={scrollRef}
+          viewportWidth={viewport.width}
+          viewportHeight={viewport.height}
+          onHide={() => dispatch({ type: "SET_MINIMAP_HIDDEN", hidden: true })}
+        />
+      )}
+      {overflowing && minimapHidden && (
+        <button
+          type="button"
+          onClick={() => dispatch({ type: "SET_MINIMAP_HIDDEN", hidden: false })}
+          className="absolute bottom-4 right-4 z-30 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary shadow hover:bg-surface-muted"
+        >
+          Map
+        </button>
+      )}
     </div>
   );
 }

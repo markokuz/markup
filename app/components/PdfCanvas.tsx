@@ -5,6 +5,7 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { detectDocumentType } from "@/app/utils/fileTypes";
+import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
 
 const ZOOM_WHEEL_STEP = 0.1;
@@ -20,17 +21,41 @@ async function readDocumentFile(
   file: File,
   dispatch: React.Dispatch<import("@/app/types").AppAction>,
 ) {
-  const fileType = detectDocumentType(file);
-  if (!fileType) return;
+  try {
+    if (isProjectFile(file)) {
+      const project = await readProjectFile(file);
+      dispatch({
+        type: "LOAD_PROJECT",
+        bytes: project.bytes,
+        fileName: project.fileName,
+        fileType: project.fileType,
+        mimeType: project.mimeType,
+        scale: project.scale,
+        measurements: project.measurements,
+        rectangles: project.rectangles,
+        notes: project.notes,
+        displayUnit: project.displayUnit,
+        zoom: project.zoom,
+        rotation: project.rotation,
+      });
+      return;
+    }
 
-  const buffer = await file.arrayBuffer();
-  dispatch({
-    type: "LOAD_FILE",
-    bytes: new Uint8Array(buffer),
-    fileName: file.name,
-    fileType,
-    mimeType: file.type,
-  });
+    const fileType = detectDocumentType(file);
+    if (!fileType) return;
+
+    const buffer = await file.arrayBuffer();
+    dispatch({
+      type: "LOAD_FILE",
+      bytes: new Uint8Array(buffer),
+      fileName: file.name,
+      fileType,
+      mimeType: file.type,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to open file.";
+    window.alert(message);
+  }
 }
 
 export function PdfViewer() {

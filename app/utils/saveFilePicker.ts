@@ -23,26 +23,37 @@ export function supportsSaveFilePicker(): boolean {
   return typeof getSaveFilePicker() === "function";
 }
 
+export interface PickerFileType {
+  description: string;
+  accept: Record<string, string[]>;
+}
+
+function inferFileType(blob: Blob): PickerFileType {
+  if (blob.type === "application/pdf") {
+    return { description: "PDF document", accept: { "application/pdf": [".pdf"] } };
+  }
+  if (blob.type === "application/json") {
+    return {
+      description: "Markup project",
+      accept: { "application/json": [".mkup"] },
+    };
+  }
+  return { description: "PNG image", accept: { "image/png": [".png"] } };
+}
+
 export async function writeBlobWithSaveFilePicker(
   blob: Blob,
   suggestedName: string,
+  fileType?: PickerFileType,
 ): Promise<boolean> {
   const showSaveFilePicker = getSaveFilePicker();
   if (!showSaveFilePicker) {
     return false;
   }
 
-  const isPdf = blob.type === "application/pdf";
   const handle = await showSaveFilePicker({
     suggestedName,
-    types: [
-      {
-        description: isPdf ? "PDF document" : "PNG image",
-        accept: isPdf
-          ? { "application/pdf": [".pdf"] }
-          : { "image/png": [".png"] },
-      },
-    ],
+    types: [fileType ?? inferFileType(blob)],
   });
   const writable = await handle.createWritable();
   await writable.write(blob);

@@ -3,6 +3,11 @@
 import { useRef } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
+import {
+  isProjectFile,
+  PROJECT_ACCEPT,
+  readProjectFile,
+} from "@/app/utils/projectFile";
 
 export function DocumentTabs() {
   const { tabs, activeTabId } = useAppState();
@@ -15,18 +20,43 @@ export function DocumentTabs() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const fileType = detectDocumentType(file);
-    if (!fileType) return;
+    try {
+      if (isProjectFile(file)) {
+        const project = await readProjectFile(file);
+        dispatch({
+          type: "LOAD_PROJECT",
+          bytes: project.bytes,
+          fileName: project.fileName,
+          fileType: project.fileType,
+          mimeType: project.mimeType,
+          scale: project.scale,
+          measurements: project.measurements,
+          rectangles: project.rectangles,
+          notes: project.notes,
+          displayUnit: project.displayUnit,
+          zoom: project.zoom,
+          rotation: project.rotation,
+        });
+        return;
+      }
 
-    const buffer = await file.arrayBuffer();
-    dispatch({
-      type: "LOAD_FILE",
-      bytes: new Uint8Array(buffer),
-      fileName: file.name,
-      fileType,
-      mimeType: file.type,
-    });
-    event.target.value = "";
+      const fileType = detectDocumentType(file);
+      if (!fileType) return;
+
+      const buffer = await file.arrayBuffer();
+      dispatch({
+        type: "LOAD_FILE",
+        bytes: new Uint8Array(buffer),
+        fileName: file.name,
+        fileType,
+        mimeType: file.type,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to open file.";
+      window.alert(message);
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const renderTab = (tab: (typeof tabs)[0]) => {
@@ -96,7 +126,7 @@ export function DocumentTabs() {
       <input
         ref={fileInputRef}
         type="file"
-        accept={ACCEPTED_FILE_TYPES}
+        accept={`${ACCEPTED_FILE_TYPES},${PROJECT_ACCEPT}`}
         className="hidden"
         onChange={handleFileChange}
       />

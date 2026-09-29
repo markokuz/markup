@@ -56,6 +56,30 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         tool: "calibrate",
       };
     }
+    case "LOAD_PROJECT": {
+      const base = createDocumentTab({
+        bytes: action.bytes,
+        fileName: action.fileName,
+        fileType: action.fileType,
+        mimeType: action.mimeType,
+      });
+      const tab = {
+        ...base,
+        scale: action.scale,
+        measurements: action.measurements,
+        rectangles: action.rectangles,
+        notes: action.notes,
+        zoom: action.zoom,
+        rotation: action.rotation,
+      };
+      return {
+        ...state,
+        tabs: [...state.tabs, tab],
+        activeTabId: tab.id,
+        displayUnit: action.displayUnit,
+        tool: action.scale ? "measure" : "calibrate",
+      };
+    }
     case "SWITCH_TAB":
       if (!state.tabs.some((tab) => tab.id === action.tabId)) return state;
       return { ...state, activeTabId: action.tabId };

@@ -13,6 +13,14 @@ import {
   type ExportSaveMode,
 } from "@/app/utils/exportDocument";
 import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
+import {
+  buildProjectBlob,
+  getProjectFileName,
+  isProjectFile,
+  PROJECT_ACCEPT,
+  persistProjectBlob,
+  readProjectFile,
+} from "@/app/utils/projectFile";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import {
@@ -58,18 +66,64 @@ export function Toolbar() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const fileType = detectDocumentType(file);
-    if (!fileType) return;
+    try {
+      if (isProjectFile(file)) {
+        const project = await readProjectFile(file);
+        dispatch({
+          type: "LOAD_PROJECT",
+          bytes: project.bytes,
+          fileName: project.fileName,
+          fileType: project.fileType,
+          mimeType: project.mimeType,
+          scale: project.scale,
+          measurements: project.measurements,
+          rectangles: project.rectangles,
+          notes: project.notes,
+          displayUnit: project.displayUnit,
+          zoom: project.zoom,
+          rotation: project.rotation,
+        });
+        return;
+      }
 
-    const buffer = await file.arrayBuffer();
-    dispatch({
-      type: "LOAD_FILE",
-      bytes: new Uint8Array(buffer),
-      fileName: file.name,
-      fileType,
-      mimeType: file.type,
+      const fileType = detectDocumentType(file);
+      if (!fileType) return;
+
+      const buffer = await file.arrayBuffer();
+      dispatch({
+        type: "LOAD_FILE",
+        bytes: new Uint8Array(buffer),
+        fileName: file.name,
+        fileType,
+        mimeType: file.type,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to open file.";
+      window.alert(message);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleSaveProject = async (saveMode: ExportSaveMode = "download") => {
+    if (!state.fileBytes || !state.fileName || !state.fileType) return;
+    setSaveMenuOpen(false);
+
+    const blob = buildProjectBlob({
+      fileName: state.fileName,
+      fileType: state.fileType,
+      mimeType: state.fileMimeType ?? "",
+      fileBytes: state.fileBytes,
+      scale: state.scale,
+      measurements: state.measurements,
+      rectangles: state.rectangles,
+      notes: state.notes,
+      displayUnit: state.displayUnit,
+      zoom: state.zoom,
+      rotation: state.rotation,
     });
-    event.target.value = "";
+
+    await persistProjectBlob(blob, getProjectFileName(state.fileName), saveMode);
   };
 
   const handleSave = async (saveMode: ExportSaveMode = "download") => {
@@ -156,6 +210,7 @@ export function Toolbar() {
     state.fileType === "image" ? "Save PNG" : "Save PDF";
 
   const saveDisabled = !state.fileBytes || annotationCount === 0;
+  const projectSaveDisabled = !state.fileBytes;
 
   const canChooseSaveLocation = supportsSaveFilePicker();
 
@@ -196,7 +251,7 @@ export function Toolbar() {
         <input
           ref={fileInputRef}
           type="file"
-          accept={ACCEPTED_FILE_TYPES}
+          accept={`${ACCEPTED_FILE_TYPES},${PROJECT_ACCEPT}`}
           className="hidden"
           onChange={handleFileChange}
         />
@@ -308,7 +363,7 @@ export function Toolbar() {
             </button>
             <button
               type="button"
-              disabled={saveDisabled}
+              disabled={projectSaveDisabled}
               aria-expanded={saveMenuOpen}
               aria-haspopup="menu"
               aria-label="Save options"
@@ -316,7 +371,7 @@ export function Toolbar() {
               className="rounded-r-lg border-l border-emerald-700/20 px-2 py-1.5 text-white transition disabled:opacity-40"
               style={{ backgroundColor: "var(--save)" }}
               onMouseEnter={(e) => {
-                if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
+                if (!projectSaveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = "var(--save)";
@@ -330,26 +385,61 @@ export function Toolbar() {
                 <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-            {saveMenuOpen && !saveDisabled && (
+            {saveMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full z-50 mt-1 min-w-[12rem] overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
+                className="absolute right-0 top-full z-50 mt-1 min-w-[14rem] overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
               >
+                <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Export flattened
+                </div>
                 <button
                   type="button"
                   role="menuitem"
+                  disabled={saveDisabled}
                   onClick={() => handleSave("download")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   Save to Downloads
                 </button>
                 <button
                   type="button"
                   role="menuitem"
+                  disabled={saveDisabled}
                   onClick={() => handleSave("choose-location")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   Choose save location…
+                  {!canChooseSaveLocation && (
+                    <span className="mt-0.5 block text-xs text-text-muted">
+                      Uses Downloads in this browser
+                    </span>
+                  )}
+                </button>
+                <div className="my-1 border-t border-border" />
+                <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Editable project
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={projectSaveDisabled}
+                  onClick={() => handleSaveProject("download")}
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Save project (.mkup)
+                  <span className="mt-0.5 block text-xs text-text-muted">
+                    Re-open later to keep editing
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={projectSaveDisabled}
+                  onClick={() => handleSaveProject("choose-location")}
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  Save project as…
                   {!canChooseSaveLocation && (
                     <span className="mt-0.5 block text-xs text-text-muted">
                       Uses Downloads in this browser

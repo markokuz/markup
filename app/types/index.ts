@@ -123,6 +123,20 @@ export type AppAction =
       fileType: DocumentType;
       mimeType: string;
     }
+  | {
+      type: "LOAD_PROJECT";
+      bytes: Uint8Array;
+      fileName: string;
+      fileType: DocumentType;
+      mimeType: string;
+      scale: Scale | null;
+      measurements: Measurement[];
+      rectangles: RectMeasurement[];
+      notes: NoteAnnotation[];
+      displayUnit: Unit;
+      zoom: number;
+      rotation: DocumentRotation;
+    }
   | { type: "SWITCH_TAB"; tabId: string }
   | { type: "CLOSE_TAB"; tabId: string }
   | { type: "SET_ZOOM"; zoom: number }

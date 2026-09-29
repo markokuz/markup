@@ -396,7 +396,7 @@ export function PdfViewer() {
   }
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={scrollRef}
         className="h-full w-full overflow-auto bg-canvas-bg p-6"

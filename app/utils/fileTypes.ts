@@ -1,6 +1,17 @@
 import type { DocumentType } from "@/app/types";
 
-const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"];
+const IMAGE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".heif",
+];
 
 export function detectDocumentType(file: File): DocumentType | null {
   const name = file.name.toLowerCase();
@@ -20,7 +31,7 @@ export function detectDocumentType(file: File): DocumentType | null {
 }
 
 export const ACCEPTED_FILE_TYPES =
-  "application/pdf,image/*,.tif,.tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp";
+  "application/pdf,image/*,.tif,.tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp,.heic,.heif";
 
 export function isTiffFile(fileName: string, mimeType = ""): boolean {
   const name = fileName.toLowerCase();
@@ -29,5 +40,17 @@ export function isTiffFile(fileName: string, mimeType = ""): boolean {
     mimeType === "image/tif" ||
     name.endsWith(".tif") ||
     name.endsWith(".tiff")
+  );
+}
+
+export function isHeicFile(fileName: string, mimeType = ""): boolean {
+  const name = fileName.toLowerCase();
+  return (
+    mimeType === "image/heic" ||
+    mimeType === "image/heif" ||
+    mimeType === "image/heic-sequence" ||
+    mimeType === "image/heif-sequence" ||
+    name.endsWith(".heic") ||
+    name.endsWith(".heif")
   );
 }

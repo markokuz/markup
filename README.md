@@ -19,7 +19,7 @@ Everything runs in the browser — no account, no server upload.
 | Type | Formats |
 |------|---------|
 | PDF | `.pdf` |
-| Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tif`, `.tiff` |
+| Images | `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.heic`, `.heif` |
 
 ## Getting started
 

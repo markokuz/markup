@@ -1,5 +1,5 @@
 import UTIF from "utif";
-import { isTiffFile } from "@/app/utils/fileTypes";
+import { isHeicFile, isTiffFile } from "@/app/utils/fileTypes";
 
 export interface ImageSource {
   width: number;
@@ -57,9 +57,15 @@ export async function loadImageSource(
     return loadTiffImage(bytes);
   }
 
-  const blob = new Blob([bytes.slice().buffer as ArrayBuffer], {
+  let blob: Blob = new Blob([bytes.slice().buffer as ArrayBuffer], {
     type: mimeType || undefined,
   });
+
+  if (isHeicFile(fileName, mimeType)) {
+    const { heicTo } = await import("heic-to");
+    blob = await heicTo({ blob, type: "image/jpeg", quality: 0.92 });
+  }
+
   const url = URL.createObjectURL(blob);
 
   try {

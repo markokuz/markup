@@ -25,9 +25,6 @@ import {
 import { loadImageSource } from "@/app/utils/loadImage";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
-/** US Letter width in PDF points — baseline for on-screen markup sizing. */
-const REFERENCE_PAGE_MIN_DIMENSION = 612;
-
 export type ExportSaveMode = "download" | "choose-location";
 export { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
 
@@ -39,9 +36,14 @@ export interface ExportStyle {
   calibrationDash: [number, number];
 }
 
-/** Scale line/text styling so markups stay readable on large pages when viewed zoomed out. */
-export function getExportStyle(pageWidth: number, pageHeight: number): ExportStyle {
-  const scale = Math.max(1, Math.min(pageWidth, pageHeight) / REFERENCE_PAGE_MIN_DIMENSION);
+/**
+ * Size markups in document units to visually match what the user drew on screen.
+ * The on-screen stroke is 2 screen-px and label is 12 screen-px regardless of zoom,
+ * so in document units that is `screenSize / zoom`. Scaling by page size instead
+ * makes markups huge on large-format drawings.
+ */
+export function getExportStyle(zoom: number): ExportStyle {
+  const scale = 1 / Math.max(zoom, 0.0001);
   return {
     lineWidth: 2 * scale,
     calibrationLineWidth: 1.5 * scale,
@@ -408,11 +410,11 @@ export async function buildMarkedUpPdfBlob(
   notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
+  zoom: number,
 ): Promise<Blob> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const page = pdfDoc.getPage(0);
-  const { width: pageWidth, height: pageHeight } = page.getSize();
-  const style = getExportStyle(pageWidth, pageHeight);
+  const style = getExportStyle(zoom);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
   for (const measurement of getExportMeasurements(measurements)) {
@@ -539,6 +541,7 @@ export async function buildMarkedUpImageBlob(
   notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
+  zoom: number,
 ): Promise<Blob | null> {
   const source = await loadImageSource(fileBytes, fileName, mimeType);
   const canvas = document.createElement("canvas");
@@ -550,7 +553,7 @@ export async function buildMarkedUpImageBlob(
 
   source.draw(context, source.width, source.height);
 
-  const style = getExportStyle(source.width, source.height);
+  const style = getExportStyle(zoom);
 
   for (const measurement of getExportMeasurements(measurements)) {
     drawMeasurementOnCanvas(context, measurement, scale, displayUnit, style);
@@ -624,6 +627,7 @@ export async function exportMarkedUpDocument(
   notes: NoteAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
+  zoom: number,
   saveMode: ExportSaveMode = "download",
 ): Promise<void> {
   const blob =
@@ -635,6 +639,7 @@ export async function exportMarkedUpDocument(
           notes,
           scale,
           displayUnit,
+          zoom,
         )
       : await buildMarkedUpImageBlob(
           fileBytes,
@@ -645,6 +650,7 @@ export async function exportMarkedUpDocument(
           notes,
           scale,
           displayUnit,
+          zoom,
         );
 
   if (!blob) return;

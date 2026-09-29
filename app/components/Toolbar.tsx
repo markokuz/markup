@@ -95,6 +95,7 @@ export function Toolbar() {
               state.notes,
               state.scale,
               state.displayUnit,
+              state.zoom,
             )
           : await buildMarkedUpImageBlob(
               state.fileBytes,
@@ -105,6 +106,7 @@ export function Toolbar() {
               state.notes,
               state.scale,
               state.displayUnit,
+              state.zoom,
             );
 
       if (!blob) {

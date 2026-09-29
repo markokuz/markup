@@ -96,17 +96,23 @@ function getNoteColor(note: NoteAnnotation): string {
   return note.color ?? DEFAULT_ANNOTATION_COLOR;
 }
 
+/**
+ * Tight label width for exports: just enough gap for the text to sit in without
+ * leaving empty space on either side. Unlike the on-screen version there is no
+ * pill background here, so a fixed min-width would leave visible gaps around
+ * short labels ("35", '13"', etc.).
+ */
 function measureCanvasLabelWidth(
   context: CanvasRenderingContext2D,
   label: string,
   fontSize: number,
 ): number {
   context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
-  return Math.max(context.measureText(label).width + 12, 48);
+  return context.measureText(label).width + fontSize * 0.5;
 }
 
 function measurePdfLabelWidth(font: PDFFont, label: string, fontSize: number): number {
-  return Math.max(font.widthOfTextAtSize(label, fontSize) + 12, 48);
+  return font.widthOfTextAtSize(label, fontSize) + fontSize * 0.5;
 }
 
 function drawDocLineSegment(

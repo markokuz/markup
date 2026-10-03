@@ -8,6 +8,7 @@ import { PdfViewer } from "@/app/components/PdfCanvas";
 import { ScaleBanner } from "@/app/components/ScaleBanner";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
+import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
 
 function MarkupShell() {
   const state = useAppState();
@@ -17,6 +18,7 @@ function MarkupShell() {
   const documentViewport = state.documentViewport;
   const zoom = state.zoom;
   const hasSelection = state.selectedIds.length > 0;
+  const closeDialogOpen = state.pendingCloseTabId !== null;
 
   useEffect(() => {
     const ARROW_KEYS: Record<string, { x: number; y: number }> = {
@@ -42,6 +44,11 @@ function MarkupShell() {
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.tagName === "SELECT";
+
+      if (closeDialogOpen) {
+        if (event.key === "Escape") dispatch({ type: "CANCEL_CLOSE_TAB" });
+        return;
+      }
 
       if (event.key === "Escape") {
         dispatch({ type: "SET_PENDING_POINT", point: null });
@@ -107,7 +114,14 @@ function MarkupShell() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [dispatch, state.selectedIds, documentViewport, zoom, hasSelection]);
+  }, [
+    dispatch,
+    state.selectedIds,
+    documentViewport,
+    zoom,
+    hasSelection,
+    closeDialogOpen,
+  ]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-text-primary">
@@ -120,6 +134,7 @@ function MarkupShell() {
       </div>
       <StatusBar />
       <CalibrateDialog />
+      <UnsavedChangesDialog />
     </div>
   );
 }

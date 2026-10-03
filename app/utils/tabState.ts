@@ -30,6 +30,7 @@ export function createDocumentTab(
     pendingCalibrationLine: null,
     history: [],
     documentViewport: null,
+    dirty: false,
   };
 }
 
@@ -82,4 +83,5 @@ export const EMPTY_DOCUMENT_VIEW = {
   pendingCalibrationLine: null,
   history: [],
   documentViewport: null,
+  dirty: false,
 };

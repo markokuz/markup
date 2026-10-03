@@ -123,7 +123,10 @@ export function Toolbar() {
       rotation: state.rotation,
     });
 
-    await persistProjectBlob(blob, getProjectFileName(state.fileName), saveMode);
+    const saved = await persistProjectBlob(blob, getProjectFileName(state.fileName), saveMode);
+    if (saved && state.activeTabId) {
+      dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId });
+    }
   };
 
   const handleSave = async (saveMode: ExportSaveMode = "download") => {
@@ -180,7 +183,10 @@ export function Toolbar() {
     if (!blob || !state.fileName || !state.fileType) return;
 
     const outputFileName = getMarkedUpExportFileName(state.fileType, state.fileName);
-    await persistExportedBlob(blob, outputFileName, pendingSaveMode);
+    const saved = await persistExportedBlob(blob, outputFileName, pendingSaveMode);
+    if (saved && state.activeTabId) {
+      dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId });
+    }
     handleClosePreview();
   };
 

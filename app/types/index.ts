@@ -95,6 +95,8 @@ export interface DocumentTab {
   pendingCalibrationLine: PendingCalibrationLine | null;
   history: UndoSnapshot[];
   documentViewport: DocumentViewport | null;
+  /** Annotations or scale changed since the tab was opened or last saved. */
+  dirty: boolean;
 }
 
 /** Internal reducer state. */
@@ -107,6 +109,10 @@ export interface TabsState {
   loupeEnabled: boolean;
   /** Minimap manually hidden by the user. */
   minimapHidden: boolean;
+  /** Ask before closing a tab that has unsaved changes. */
+  confirmCloseUnsaved: boolean;
+  /** Tab awaiting the "unsaved changes" confirmation. */
+  pendingCloseTabId: string | null;
 }
 
 /** Merged view of the active tab plus global settings (returned by useAppState). */
@@ -117,6 +123,8 @@ export type AppState = Omit<DocumentTab, "id"> & {
   activeTabId: string | null;
   loupeEnabled: boolean;
   minimapHidden: boolean;
+  confirmCloseUnsaved: boolean;
+  pendingCloseTabId: string | null;
 };
 
 export type AppAction =
@@ -145,6 +153,10 @@ export type AppAction =
     }
   | { type: "SWITCH_TAB"; tabId: string }
   | { type: "CLOSE_TAB"; tabId: string }
+  | { type: "REQUEST_CLOSE_TAB"; tabId: string }
+  | { type: "CANCEL_CLOSE_TAB" }
+  | { type: "MARK_TAB_SAVED"; tabId: string }
+  | { type: "SET_CONFIRM_CLOSE_UNSAVED"; enabled: boolean }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_ROTATION"; rotation: DocumentRotation }
   | { type: "SET_PENDING_POINT"; point: Point2D | null }
@@ -182,4 +194,6 @@ export const initialTabsState: TabsState = {
   activeTabId: null,
   loupeEnabled: false,
   minimapHidden: false,
+  confirmCloseUnsaved: true,
+  pendingCloseTabId: null,
 };

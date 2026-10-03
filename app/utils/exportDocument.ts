@@ -662,22 +662,23 @@ export async function persistExportedBlob(
   blob: Blob,
   fileName: string,
   saveMode: ExportSaveMode,
-): Promise<void> {
+): Promise<boolean> {
   if (saveMode === "choose-location") {
     try {
       const saved = await writeBlobWithSaveFilePicker(blob, fileName);
       if (saved) {
-        return;
+        return true;
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        return;
+        return false;
       }
       throw error;
     }
   }
 
   downloadBlob(blob, fileName);
+  return true;
 }
 
 export async function exportMarkedUpDocument(

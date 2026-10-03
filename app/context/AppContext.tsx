@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useReducer,
   type Dispatch,
   type ReactNode,
@@ -15,10 +16,15 @@ import {
 } from "@/app/types";
 import { appendHistory } from "@/app/utils/history";
 import {
+  loadConfirmCloseUnsaved,
+  saveConfirmCloseUnsaved,
+} from "@/app/utils/preferences";
+import {
   createDocumentTab,
   EMPTY_DOCUMENT_VIEW,
   getActiveTab,
   updateActiveTab,
+  updateTabById,
 } from "@/app/utils/tabState";
 
 function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): string[] {
@@ -97,8 +103,28 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
             : tabs[Math.min(index, tabs.length - 1)].id;
       }
 
-      return { ...state, tabs, activeTabId };
+      return {
+        ...state,
+        tabs,
+        activeTabId,
+        pendingCloseTabId:
+          state.pendingCloseTabId === action.tabId ? null : state.pendingCloseTabId,
+      };
     }
+    case "REQUEST_CLOSE_TAB": {
+      const tab = state.tabs.find((t) => t.id === action.tabId);
+      if (!tab) return state;
+      if (tab.dirty && state.confirmCloseUnsaved) {
+        return { ...state, pendingCloseTabId: tab.id };
+      }
+      return tabsReducer(state, { type: "CLOSE_TAB", tabId: tab.id });
+    }
+    case "CANCEL_CLOSE_TAB":
+      return { ...state, pendingCloseTabId: null };
+    case "MARK_TAB_SAVED":
+      return updateTabById(state, action.tabId, (tab) => ({ ...tab, dirty: false }));
+    case "SET_CONFIRM_CLOSE_UNSAVED":
+      return { ...state, confirmCloseUnsaved: action.enabled };
     case "SET_ZOOM":
       return updateActiveTab(state, (tab) => ({ ...tab, zoom: action.zoom }));
     case "SET_ROTATION":
@@ -364,6 +390,38 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
   }
 }
 
+/** Flags tabs whose annotations or scale changed as a result of an action. */
+function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
+  if (prev.tabs === next.tabs) return next;
+
+  const prevById = new Map(prev.tabs.map((tab) => [tab.id, tab]));
+  let changed = false;
+  const tabs = next.tabs.map((tab) => {
+    const before = prevById.get(tab.id);
+    if (!before || tab.dirty) return tab;
+    if (
+      tab.measurements !== before.measurements ||
+      tab.rectangles !== before.rectangles ||
+      tab.notes !== before.notes ||
+      tab.scale !== before.scale
+    ) {
+      changed = true;
+      return { ...tab, dirty: true };
+    }
+    return tab;
+  });
+
+  return changed ? { ...next, tabs } : next;
+}
+
+function appReducer(state: TabsState, action: AppAction): TabsState {
+  return trackDirtyTabs(state, tabsReducer(state, action));
+}
+
+function initTabsState(state: TabsState): TabsState {
+  return { ...state, confirmCloseUnsaved: loadConfirmCloseUnsaved() };
+}
+
 function mergeActiveTabView(state: TabsState): AppState {
   const activeTab = getActiveTab(state);
   if (!activeTab) {
@@ -375,6 +433,8 @@ function mergeActiveTabView(state: TabsState): AppState {
       activeTabId: state.activeTabId,
       loupeEnabled: state.loupeEnabled,
       minimapHidden: state.minimapHidden,
+      confirmCloseUnsaved: state.confirmCloseUnsaved,
+      pendingCloseTabId: state.pendingCloseTabId,
     };
   }
 
@@ -387,6 +447,8 @@ function mergeActiveTabView(state: TabsState): AppState {
     activeTabId: state.activeTabId,
     loupeEnabled: state.loupeEnabled,
     minimapHidden: state.minimapHidden,
+    confirmCloseUnsaved: state.confirmCloseUnsaved,
+    pendingCloseTabId: state.pendingCloseTabId,
   };
 }
 
@@ -394,8 +456,23 @@ const AppStateContext = createContext<AppState | null>(null);
 const AppDispatchContext = createContext<Dispatch<AppAction> | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [tabsState, dispatch] = useReducer(tabsReducer, initialTabsState);
+  const [tabsState, dispatch] = useReducer(appReducer, initialTabsState, initTabsState);
   const appState = mergeActiveTabView(tabsState);
+
+  useEffect(() => {
+    saveConfirmCloseUnsaved(tabsState.confirmCloseUnsaved);
+  }, [tabsState.confirmCloseUnsaved]);
+
+  // Warn before the browser tab itself closes or reloads with unsaved work.
+  const hasUnsavedTabs = tabsState.tabs.some((tab) => tab.dirty);
+  useEffect(() => {
+    if (!hasUnsavedTabs || !tabsState.confirmCloseUnsaved) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedTabs, tabsState.confirmCloseUnsaved]);
 
   return (
     <AppStateContext.Provider value={appState}>

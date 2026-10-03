@@ -123,14 +123,14 @@ export async function persistProjectBlob(
   blob: Blob,
   fileName: string,
   saveMode: "download" | "choose-location",
-): Promise<void> {
+): Promise<boolean> {
   if (saveMode === "choose-location") {
     try {
       const saved = await writeBlobWithSaveFilePicker(blob, fileName);
-      if (saved) return;
+      if (saved) return true;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        return;
+        return false;
       }
       throw error;
     }
@@ -142,4 +142,5 @@ export async function persistProjectBlob(
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
+  return true;
 }

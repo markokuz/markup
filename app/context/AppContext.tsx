@@ -12,12 +12,17 @@ import {
   initialTabsState,
   type AppAction,
   type AppState,
+  type Point2D,
   type TabsState,
 } from "@/app/types";
 import { appendHistory } from "@/app/utils/history";
 import {
+  loadAutoOrientPortrait,
   loadConfirmCloseUnsaved,
+  loadSnapLines,
+  saveAutoOrientPortrait,
   saveConfirmCloseUnsaved,
+  saveSnapLines,
 } from "@/app/utils/preferences";
 import {
   createDocumentTab,
@@ -57,7 +62,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       });
       return {
         ...state,
-        tabs: [...state.tabs, tab],
+        tabs: [...state.tabs, { ...tab, autoOrientPending: state.autoOrientPortrait }],
         activeTabId: tab.id,
         tool: "calibrate",
       };
@@ -77,6 +82,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         notes: action.notes,
         zoom: action.zoom,
         rotation: action.rotation,
+        projectHandle: action.handle ?? null,
+        legacyRotationFixPending: action.legacyRotatedImage ?? false,
       };
       return {
         ...state,
@@ -385,6 +392,70 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, loupeEnabled: !state.loupeEnabled };
     case "SET_MINIMAP_HIDDEN":
       return { ...state, minimapHidden: action.hidden };
+    case "SET_SNAP_LINES":
+      return { ...state, snapLines: action.enabled };
+    case "SET_AUTO_ORIENT_PORTRAIT":
+      return { ...state, autoOrientPortrait: action.enabled };
+    case "APPLY_AUTO_ORIENT":
+      return updateTabById(state, action.tabId, (tab) => ({
+        ...tab,
+        rotation: action.rotation,
+        autoOrientPending: false,
+      }));
+    case "SET_PROJECT_HANDLE":
+      return updateTabById(state, action.tabId, (tab) => ({
+        ...tab,
+        projectHandle: action.handle,
+      }));
+    case "FIX_LEGACY_ROTATION":
+      return updateTabById(state, action.tabId, (tab) => {
+        if (!tab.legacyRotationFixPending) return tab;
+        // Pre-v2 rotated-image coords were offset by (height - width) along one
+        // doc axis: x at 270°, y at 90°.
+        const shift = action.height - action.width;
+        const offset =
+          tab.rotation === 270 ? { x: -shift, y: 0 } : tab.rotation === 90 ? { x: 0, y: shift } : null;
+        if (!offset) return { ...tab, legacyRotationFixPending: false };
+        const move = (p: Point2D): Point2D => ({ x: p.x + offset.x, y: p.y + offset.y });
+        return {
+          ...tab,
+          legacyRotationFixPending: false,
+          measurements: tab.measurements.map((m) => ({
+            ...m,
+            start: move(m.start),
+            end: move(m.end),
+          })),
+          rectangles: tab.rectangles.map((r) => ({
+            ...r,
+            topLeft: move(r.topLeft),
+            bottomRight: move(r.bottomRight),
+          })),
+          notes: tab.notes.map((n) => ({ ...n, position: move(n.position) })),
+        };
+      });
+    case "PASTE_ANNOTATIONS": {
+      const pastedIds = [
+        ...action.measurements.map((m) => m.id),
+        ...action.rectangles.map((r) => r.id),
+        ...action.notes.map((n) => n.id),
+      ];
+      if (pastedIds.length === 0) return state;
+      return {
+        ...updateActiveTab(state, (tab) => ({
+          ...tab,
+          history: appendHistory(tab),
+          measurements: [...tab.measurements, ...action.measurements],
+          rectangles: [...tab.rectangles, ...action.rectangles],
+          notes: [...tab.notes, ...action.notes],
+          selectedIds: pastedIds,
+          pendingPoint: null,
+          pendingMarquee: null,
+          editingDimension: null,
+          editingNoteId: null,
+        })),
+        tool: "select",
+      };
+    }
     default:
       return state;
   }
@@ -415,11 +486,19 @@ function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
 }
 
 function appReducer(state: TabsState, action: AppAction): TabsState {
-  return trackDirtyTabs(state, tabsReducer(state, action));
+  const next = tabsReducer(state, action);
+  // Migrating an old project's coordinates isn't a user edit.
+  if (action.type === "FIX_LEGACY_ROTATION") return next;
+  return trackDirtyTabs(state, next);
 }
 
 function initTabsState(state: TabsState): TabsState {
-  return { ...state, confirmCloseUnsaved: loadConfirmCloseUnsaved() };
+  return {
+    ...state,
+    confirmCloseUnsaved: loadConfirmCloseUnsaved(),
+    snapLines: loadSnapLines(),
+    autoOrientPortrait: loadAutoOrientPortrait(),
+  };
 }
 
 function mergeActiveTabView(state: TabsState): AppState {
@@ -435,6 +514,8 @@ function mergeActiveTabView(state: TabsState): AppState {
       minimapHidden: state.minimapHidden,
       confirmCloseUnsaved: state.confirmCloseUnsaved,
       pendingCloseTabId: state.pendingCloseTabId,
+      snapLines: state.snapLines,
+      autoOrientPortrait: state.autoOrientPortrait,
     };
   }
 
@@ -449,6 +530,8 @@ function mergeActiveTabView(state: TabsState): AppState {
     minimapHidden: state.minimapHidden,
     confirmCloseUnsaved: state.confirmCloseUnsaved,
     pendingCloseTabId: state.pendingCloseTabId,
+    snapLines: state.snapLines,
+    autoOrientPortrait: state.autoOrientPortrait,
   };
 }
 
@@ -462,6 +545,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveConfirmCloseUnsaved(tabsState.confirmCloseUnsaved);
   }, [tabsState.confirmCloseUnsaved]);
+
+  useEffect(() => {
+    saveSnapLines(tabsState.snapLines);
+  }, [tabsState.snapLines]);
+
+  useEffect(() => {
+    saveAutoOrientPortrait(tabsState.autoOrientPortrait);
+  }, [tabsState.autoOrientPortrait]);
 
   // Warn before the browser tab itself closes or reloads with unsaved work.
   const hasUnsavedTabs = tabsState.tabs.some((tab) => tab.dirty);

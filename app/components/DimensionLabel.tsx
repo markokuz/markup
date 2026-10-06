@@ -3,7 +3,22 @@
 import { useEffect, useRef } from "react";
 import type { Unit } from "@/app/types";
 import { parseDimensionInput } from "@/app/utils/dimensions";
-import { formatDistanceEditValue } from "@/app/utils/units";
+import { formatDistanceEditValue, splitFeetInches } from "@/app/utils/units";
+
+/** Gap between the feet and inches parts — narrower than a full mono space. */
+const FEET_INCHES_GAP = 3;
+
+/** Label text with a tight gap between feet and inches (e.g. `10' 1"`). */
+export function DimensionText({ label }: { label: string }) {
+  const parts = splitFeetInches(label);
+  if (!parts) return <>{label}</>;
+  return (
+    <>
+      <tspan>{parts[0]}</tspan>
+      <tspan dx={FEET_INCHES_GAP}>{parts[1]}</tspan>
+    </>
+  );
+}
 
 interface DimensionLabelProps {
   x: number;
@@ -183,7 +198,7 @@ export function DimensionLabel({
         dominantBaseline={inline ? "middle" : "auto"}
         style={{ pointerEvents: "none", userSelect: "none", paintOrder: "stroke" }}
       >
-        {label}
+        <DimensionText label={label} />
       </text>
     </>
   );

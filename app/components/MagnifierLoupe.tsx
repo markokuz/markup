@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { Point2D } from "@/app/types";
+import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 
 const LOUPE_SIZE = 128;
 const MAGNIFICATION = 3;
@@ -55,19 +56,6 @@ export function MagnifierLoupe({
     } catch {
       // drawImage can throw if the crop is fully out of bounds — ignore.
     }
-
-    // Crosshair marking the exact cursor point.
-    ctx.strokeStyle = "rgba(239, 68, 68, 0.9)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(LOUPE_SIZE / 2, 0);
-    ctx.lineTo(LOUPE_SIZE / 2, LOUPE_SIZE);
-    ctx.moveTo(0, LOUPE_SIZE / 2);
-    ctx.lineTo(LOUPE_SIZE, LOUPE_SIZE / 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(LOUPE_SIZE / 2, LOUPE_SIZE / 2, 3, 0, Math.PI * 2);
-    ctx.stroke();
   }, [sourceCanvas, cursor, viewportWidth, viewportHeight]);
 
   if (!cursor || !sourceCanvas) return null;
@@ -77,6 +65,11 @@ export function MagnifierLoupe({
   if (left + LOUPE_SIZE > viewportWidth) left = cursor.x - LOUPE_SIZE - CURSOR_OFFSET;
   if (left < 0) left = CURSOR_OFFSET;
   if (top < 0) top = cursor.y + CURSOR_OFFSET;
+
+  // Same crop as the canvas, in overlay coordinates, for the live markup copy.
+  const cropCss = LOUPE_SIZE / MAGNIFICATION;
+  const viewBox = `${cursor.x - cropCss / 2} ${cursor.y - cropCss / 2} ${cropCss} ${cropCss}`;
+  const center = LOUPE_SIZE / 2;
 
   return (
     <div
@@ -99,6 +92,28 @@ export function MagnifierLoupe({
         ref={canvasRef}
         style={{ width: LOUPE_SIZE, height: LOUPE_SIZE, display: "block" }}
       />
+      <svg
+        width={LOUPE_SIZE}
+        height={LOUPE_SIZE}
+        viewBox={viewBox}
+        style={{ position: "absolute", inset: 0 }}
+        aria-hidden
+      >
+        <use href={`#${ANNOTATION_ROOT_ID}`} />
+      </svg>
+      {/* Crosshair marking the exact cursor point, above the markups. */}
+      <svg
+        width={LOUPE_SIZE}
+        height={LOUPE_SIZE}
+        style={{ position: "absolute", inset: 0 }}
+        aria-hidden
+      >
+        <g stroke="rgba(239, 68, 68, 0.9)" strokeWidth={1} fill="none">
+          <line x1={center} y1={0} x2={center} y2={LOUPE_SIZE} />
+          <line x1={0} y1={center} x2={LOUPE_SIZE} y2={center} />
+          <circle cx={center} cy={center} r={3} />
+        </g>
+      </svg>
     </div>
   );
 }

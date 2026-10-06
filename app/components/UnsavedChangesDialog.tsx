@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import {
-  buildProjectBlob,
-  getProjectFileName,
-  persistProjectBlob,
-} from "@/app/utils/projectFile";
+import { saveTabProject } from "@/app/utils/projectSave";
 
 export function UnsavedChangesDialog() {
   const { tabs, pendingCloseTabId, displayUnit } = useAppState();
@@ -40,20 +36,7 @@ export function UnsavedChangesDialog() {
     if (!tab.fileBytes || !tab.fileName || !tab.fileType) return;
     setSaving(true);
     try {
-      const blob = buildProjectBlob({
-        fileName: tab.fileName,
-        fileType: tab.fileType,
-        mimeType: tab.fileMimeType ?? "",
-        fileBytes: tab.fileBytes,
-        scale: tab.scale,
-        measurements: tab.measurements,
-        rectangles: tab.rectangles,
-        notes: tab.notes,
-        displayUnit,
-        zoom: tab.zoom,
-        rotation: tab.rotation,
-      });
-      const saved = await persistProjectBlob(blob, getProjectFileName(tab.fileName), "download");
+      const saved = await saveTabProject(tab, displayUnit, "linked", dispatch);
       if (!saved) return;
       applyDontAskAgain();
       dispatch({ type: "CLOSE_TAB", tabId: tab.id });

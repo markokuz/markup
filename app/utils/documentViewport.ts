@@ -25,11 +25,11 @@ function docPointFromViewUnzoomed(
     case 0:
       return { x, y };
     case 90:
-      return { x: y, y: naturalWidth - x };
+      return { x: y, y: naturalHeight - x };
     case 180:
       return { x: naturalWidth - x, y: naturalHeight - y };
     case 270:
-      return { x: naturalHeight - y, y: x };
+      return { x: naturalWidth - y, y: x };
   }
 }
 
@@ -49,8 +49,10 @@ function viewPointFromDocUnzoomed(
       viewX = docX;
       viewY = docY;
       break;
+    // Must mirror the canvas draw in useDocument (rotate about the centre):
+    // a 90°/270° view is naturalHeight wide and naturalWidth tall.
     case 90:
-      viewX = naturalWidth - docY;
+      viewX = naturalHeight - docY;
       viewY = docX;
       break;
     case 180:
@@ -59,7 +61,7 @@ function viewPointFromDocUnzoomed(
       break;
     case 270:
       viewX = docY;
-      viewY = naturalHeight - docX;
+      viewY = naturalWidth - docX;
       break;
   }
 

@@ -1,5 +1,6 @@
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import type { DocumentType, Measurement, Point2D, RectMeasurement } from "@/app/types";
+import { splitFeetInches } from "@/app/utils/units";
 
 export function toDocPoint(
   viewport: DocumentViewport,
@@ -249,7 +250,29 @@ export function distanceToSegment(
 
 /** Estimate rendered label width in screen pixels (tight to the text). */
 export function estimateLabelWidth(label: string): number {
-  return label.length * 7 + 10;
+  // Feet/inches labels render with a narrow gap instead of a full mono space.
+  const tightGap = splitFeetInches(label) ? 4 : 0;
+  return label.length * 7 + 10 - tightGap;
+}
+
+/**
+ * Snap `point` so the segment from `anchor` is exactly horizontal or vertical
+ * when it is within `thresholdDeg` of either axis (screen space).
+ */
+export function snapScreenPointToAxis(
+  anchor: Point2D,
+  point: Point2D,
+  thresholdDeg = 5,
+): Point2D {
+  const dx = point.x - anchor.x;
+  const dy = point.y - anchor.y;
+  if (dx === 0 && dy === 0) return point;
+  const angle = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+  const fromHorizontal = Math.min(angle, 180 - angle);
+  const fromVertical = Math.abs(90 - angle);
+  if (fromHorizontal <= thresholdDeg) return { x: point.x, y: anchor.y };
+  if (fromVertical <= thresholdDeg) return { x: anchor.x, y: point.y };
+  return point;
 }
 
 export interface InlineLineLayout {
@@ -375,6 +398,10 @@ export interface DimensionLayout {
  * middle. When the line is long enough the arrows point outward at the endpoints
  * and the line breaks for the number. When it is too short, the arrows flip to
  * the outside pointing inward and the number sits just above the line.
+ *
+ * `upDir` is the direction that reads as "up" on screen, in the same space as
+ * `start`/`end`. Defaults to screen space (y-down); exports pass the doc-space
+ * equivalent so PDF (y-up) and rotated views keep the label above the line.
  */
 export function computeDimensionLayout(
   start: Point2D,
@@ -382,6 +409,7 @@ export function computeDimensionLayout(
   labelWidth: number,
   arrowLen: number,
   labelPadding = 4,
+  upDir: Point2D = { x: 0, y: -1 },
 ): DimensionLayout {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -391,9 +419,9 @@ export function computeDimensionLayout(
   const center = midpoint(start, end);
   const angleDeg = normalizeLabelAngleDeg((Math.atan2(dy, dx) * 180) / Math.PI);
 
-  // "Up" perpendicular (screen y-down), used to lift the label off short lines.
+  // "Up" perpendicular, used to lift the label off short lines.
   let perp = { x: -uy, y: ux };
-  if (perp.y > 0) perp = { x: -perp.x, y: -perp.y };
+  if (perp.x * upDir.x + perp.y * upDir.y < 0) perp = { x: -perp.x, y: -perp.y };
 
   const arrowsOutside = length < 2 * arrowLen + labelWidth + labelPadding * 2;
 
@@ -424,15 +452,20 @@ export function computeDimensionLayout(
     };
   }
 
+  // Arrows point outward with their bodies over the line: stop the line inside
+  // the arrowhead so no stroke shows past (or beside) the tip.
+  const inset = arrowLen / 2;
+  const lineStart = { x: start.x + ux * inset, y: start.y + uy * inset };
+  const lineEnd = { x: end.x - ux * inset, y: end.y - uy * inset };
   const gapHalf = (labelWidth + labelPadding * 2) / 2;
   return {
     showGap: true,
-    segment1Start: start,
+    segment1Start: lineStart,
     segment1End: { x: center.x - ux * gapHalf, y: center.y - uy * gapHalf },
     segment2Start: { x: center.x + ux * gapHalf, y: center.y + uy * gapHalf },
-    segment2End: end,
-    fullStart: start,
-    fullEnd: end,
+    segment2End: lineEnd,
+    fullStart: lineStart,
+    fullEnd: lineEnd,
     labelCenter: center,
     angleDeg,
     arrowStart,

@@ -41,22 +41,48 @@ function inferFileType(blob: Blob): PickerFileType {
   return { description: "PNG image", accept: { "image/png": [".png"] } };
 }
 
+/** Shows the save picker and writes the blob; returns the chosen handle (null if unsupported). */
 export async function writeBlobWithSaveFilePicker(
   blob: Blob,
   suggestedName: string,
   fileType?: PickerFileType,
-): Promise<boolean> {
+): Promise<FileSystemFileHandle | null> {
   const showSaveFilePicker = getSaveFilePicker();
   if (!showSaveFilePicker) {
-    return false;
+    return null;
   }
 
   const handle = await showSaveFilePicker({
     suggestedName,
     types: [fileType ?? inferFileType(blob)],
   });
+  await writeBlobToHandle(handle, blob);
+  return handle;
+}
+
+type PermissionedFileHandle = FileSystemFileHandle & {
+  queryPermission?: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
+  requestPermission?: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
+};
+
+/** Overwrite an existing file handle, asking for write access if needed. */
+export async function writeBlobToHandle(
+  handle: FileSystemFileHandle,
+  blob: Blob,
+): Promise<void> {
+  const permissioned = handle as PermissionedFileHandle;
+  if (permissioned.queryPermission && permissioned.requestPermission) {
+    const descriptor = { mode: "readwrite" } as const;
+    let permission = await permissioned.queryPermission(descriptor);
+    if (permission !== "granted") {
+      permission = await permissioned.requestPermission(descriptor);
+    }
+    if (permission !== "granted") {
+      throw new Error(`Permission to save "${handle.name}" was denied.`);
+    }
+  }
+
   const writable = await handle.createWritable();
   await writable.write(blob);
   await writable.close();
-  return true;
 }

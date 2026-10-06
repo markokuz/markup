@@ -1,4 +1,4 @@
-import type { DocumentTab, TabsState } from "@/app/types";
+import type { AppState, DocumentTab, TabsState } from "@/app/types";
 
 export function createDocumentTab(
   file: {
@@ -31,6 +31,9 @@ export function createDocumentTab(
     history: [],
     documentViewport: null,
     dirty: false,
+    autoOrientPending: false,
+    projectHandle: null,
+    legacyRotationFixPending: false,
   };
 }
 
@@ -84,4 +87,12 @@ export const EMPTY_DOCUMENT_VIEW = {
   history: [],
   documentViewport: null,
   dirty: false,
+  autoOrientPending: false,
+  projectHandle: null,
+  legacyRotationFixPending: false,
 };
+
+/** The active tab as stored in the tab list (useful for helpers that take a tab). */
+export function getActiveTabFromAppState(state: AppState): DocumentTab | null {
+  return state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
+}

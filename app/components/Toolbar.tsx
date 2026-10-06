@@ -8,19 +8,16 @@ import {
   buildMarkedUpImageBlob,
   buildMarkedUpPdfBlob,
   getMarkedUpExportFileName,
+  getScreenUpDocDirection,
   persistExportedBlob,
   supportsSaveFilePicker,
   type ExportSaveMode,
 } from "@/app/utils/exportDocument";
-import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
-import {
-  buildProjectBlob,
-  getProjectFileName,
-  isProjectFile,
-  PROJECT_ACCEPT,
-  persistProjectBlob,
-  readProjectFile,
-} from "@/app/utils/projectFile";
+import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
+import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
+import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
+import { saveTabProject, type ProjectSaveMode } from "@/app/utils/projectSave";
+import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import {
@@ -64,68 +61,19 @@ export function Toolbar() {
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      if (isProjectFile(file)) {
-        const project = await readProjectFile(file);
-        dispatch({
-          type: "LOAD_PROJECT",
-          bytes: project.bytes,
-          fileName: project.fileName,
-          fileType: project.fileType,
-          mimeType: project.mimeType,
-          scale: project.scale,
-          measurements: project.measurements,
-          rectangles: project.rectangles,
-          notes: project.notes,
-          displayUnit: project.displayUnit,
-          zoom: project.zoom,
-          rotation: project.rotation,
-        });
-        return;
-      }
-
-      const fileType = detectDocumentType(file);
-      if (!fileType) return;
-
-      const buffer = await file.arrayBuffer();
-      dispatch({
-        type: "LOAD_FILE",
-        bytes: new Uint8Array(buffer),
-        fileName: file.name,
-        fileType,
-        mimeType: file.type,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to open file.";
-      window.alert(message);
-    } finally {
-      event.target.value = "";
-    }
+    event.target.value = "";
+    if (file) await openDocumentFile(file, dispatch);
   };
 
-  const handleSaveProject = async (saveMode: ExportSaveMode = "download") => {
-    if (!state.fileBytes || !state.fileName || !state.fileType) return;
+  const handleSaveProject = async (saveMode: ProjectSaveMode) => {
     setSaveMenuOpen(false);
-
-    const blob = buildProjectBlob({
-      fileName: state.fileName,
-      fileType: state.fileType,
-      mimeType: state.fileMimeType ?? "",
-      fileBytes: state.fileBytes,
-      scale: state.scale,
-      measurements: state.measurements,
-      rectangles: state.rectangles,
-      notes: state.notes,
-      displayUnit: state.displayUnit,
-      zoom: state.zoom,
-      rotation: state.rotation,
-    });
-
-    const saved = await persistProjectBlob(blob, getProjectFileName(state.fileName), saveMode);
-    if (saved && state.activeTabId) {
-      dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId });
+    const tab = getActiveTabFromAppState(state);
+    if (!tab) return;
+    try {
+      await saveTabProject(tab, state.displayUnit, saveMode, dispatch);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save project.";
+      window.alert(message);
     }
   };
 
@@ -143,6 +91,7 @@ export function Toolbar() {
     previewBlobRef.current = null;
 
     try {
+      const screenUpDoc = getScreenUpDocDirection(state.documentViewport, state.fileType);
       const blob =
         state.fileType === "pdf"
           ? await buildMarkedUpPdfBlob(
@@ -153,6 +102,7 @@ export function Toolbar() {
               state.scale,
               state.displayUnit,
               state.zoom,
+              screenUpDoc,
             )
           : await buildMarkedUpImageBlob(
               state.fileBytes,
@@ -164,6 +114,7 @@ export function Toolbar() {
               state.scale,
               state.displayUnit,
               state.zoom,
+              screenUpDoc,
             );
 
       if (!blob) {
@@ -263,7 +214,7 @@ export function Toolbar() {
         />
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
           className="btn-secondary"
         >
           Upload File
@@ -430,13 +381,27 @@ export function Toolbar() {
                   type="button"
                   role="menuitem"
                   disabled={projectSaveDisabled}
+                  onClick={() => handleSaveProject("linked")}
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    Save project (.mkup)
+                    <span className="font-mono text-xs text-text-muted">Ctrl+S</span>
+                  </span>
+                  <span className="mt-0.5 block text-xs text-text-muted">
+                    {state.projectHandle
+                      ? `Updates ${state.projectHandle.name}`
+                      : "Re-open later to keep editing"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={projectSaveDisabled}
                   onClick={() => handleSaveProject("download")}
                   className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
-                  Save project (.mkup)
-                  <span className="mt-0.5 block text-xs text-text-muted">
-                    Re-open later to keep editing
-                  </span>
+                  Save project copy to Downloads
                 </button>
                 <button
                   type="button"
@@ -646,7 +611,7 @@ export function StatusBar() {
           <span className="text-text-muted">Click to place a note</span>
         )}
 
-        {state.tool === "measure" && (
+        {state.tool !== "pan" && state.tool !== "calibrate" && (
           <span className="text-text-muted">
             Magnifier {state.loupeEnabled ? "on" : "off"} · press L to toggle
           </span>

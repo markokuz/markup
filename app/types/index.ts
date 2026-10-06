@@ -97,6 +97,12 @@ export interface DocumentTab {
   documentViewport: DocumentViewport | null;
   /** Annotations or scale changed since the tab was opened or last saved. */
   dirty: boolean;
+  /** Pick 0° or 270° from the page aspect once the document loads. */
+  autoOrientPending: boolean;
+  /** Linked .mkup file that Ctrl+S writes to (File System Access API). */
+  projectHandle: FileSystemFileHandle | null;
+  /** Opened from a v1 project with a rotated image; shift coords once size is known. */
+  legacyRotationFixPending: boolean;
 }
 
 /** Internal reducer state. */
@@ -113,6 +119,10 @@ export interface TabsState {
   confirmCloseUnsaved: boolean;
   /** Tab awaiting the "unsaved changes" confirmation. */
   pendingCloseTabId: string | null;
+  /** Snap drawn lines to horizontal/vertical when close. */
+  snapLines: boolean;
+  /** Open portrait pages rotated to 270°. */
+  autoOrientPortrait: boolean;
 }
 
 /** Merged view of the active tab plus global settings (returned by useAppState). */
@@ -125,6 +135,8 @@ export type AppState = Omit<DocumentTab, "id"> & {
   minimapHidden: boolean;
   confirmCloseUnsaved: boolean;
   pendingCloseTabId: string | null;
+  snapLines: boolean;
+  autoOrientPortrait: boolean;
 };
 
 export type AppAction =
@@ -150,6 +162,8 @@ export type AppAction =
       displayUnit: Unit;
       zoom: number;
       rotation: DocumentRotation;
+      handle?: FileSystemFileHandle | null;
+      legacyRotatedImage?: boolean;
     }
   | { type: "SWITCH_TAB"; tabId: string }
   | { type: "CLOSE_TAB"; tabId: string }
@@ -185,7 +199,18 @@ export type AppAction =
   | { type: "UNDO" }
   | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null }
   | { type: "TOGGLE_LOUPE" }
-  | { type: "SET_MINIMAP_HIDDEN"; hidden: boolean };
+  | { type: "SET_MINIMAP_HIDDEN"; hidden: boolean }
+  | { type: "SET_SNAP_LINES"; enabled: boolean }
+  | { type: "SET_AUTO_ORIENT_PORTRAIT"; enabled: boolean }
+  | { type: "APPLY_AUTO_ORIENT"; tabId: string; rotation: DocumentRotation }
+  | { type: "SET_PROJECT_HANDLE"; tabId: string; handle: FileSystemFileHandle | null }
+  | { type: "FIX_LEGACY_ROTATION"; tabId: string; width: number; height: number }
+  | {
+      type: "PASTE_ANNOTATIONS";
+      measurements: Measurement[];
+      rectangles: RectMeasurement[];
+      notes: NoteAnnotation[];
+    };
 
 export const initialTabsState: TabsState = {
   tool: "calibrate",
@@ -196,4 +221,6 @@ export const initialTabsState: TabsState = {
   minimapHidden: false,
   confirmCloseUnsaved: true,
   pendingCloseTabId: null,
+  snapLines: true,
+  autoOrientPortrait: true,
 };

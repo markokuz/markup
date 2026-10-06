@@ -14,6 +14,7 @@ import {
   getRectHeightLabelAnchorDoc,
   getRectWidthLabelAnchorDoc,
   midpoint,
+  snapScreenPointToAxis,
   toDocPoint,
   toScreenPoint,
   toScreenRect,
@@ -39,6 +40,7 @@ import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
+import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 
 interface AnnotationLayerProps {
   viewport: DocumentViewport;
@@ -89,6 +91,17 @@ export function AnnotationLayer({
       }
     },
     [dispatch, state.selectedIds],
+  );
+
+  /** Doc point under the cursor, snapped straight from `anchorDoc` when snapping is on. */
+  const snapToLine = useCallback(
+    (anchorDoc: Point2D | null, local: Point2D): Point2D => {
+      if (!state.snapLines || !anchorDoc) return toDocPoint(viewport, local.x, local.y);
+      const anchorScreen = toScreenPoint(viewport, anchorDoc.x, anchorDoc.y);
+      const snapped = snapScreenPointToAxis(anchorScreen, local);
+      return toDocPoint(viewport, snapped.x, snapped.y);
+    },
+    [state.snapLines, viewport],
   );
 
   const handlePointerDown = useCallback(
@@ -199,7 +212,7 @@ export function AnnotationLayer({
           setPreviewEnd(pdfPoint);
         } else {
           const start = state.pendingPoint;
-          const end = pdfPoint;
+          const end = snapToLine(start, local);
 
           if (state.tool === "calibrate") {
             dispatch({
@@ -228,6 +241,7 @@ export function AnnotationLayer({
       dispatch,
       handleSelect,
       overlayRef,
+      snapToLine,
       state.displayUnit,
       state.fileType,
       state.measurements,
@@ -263,10 +277,16 @@ export function AnnotationLayer({
         }
 
         if (drag.type === "endpoint") {
+          const measurement = state.measurements.find((m) => m.id === drag.id);
+          const fixedEnd = measurement
+            ? drag.endpoint === "start"
+              ? measurement.end
+              : measurement.start
+            : null;
           dispatch({
             type: "UPDATE_MEASUREMENT",
             id: drag.id,
-            updates: { [drag.endpoint]: pdfPoint },
+            updates: { [drag.endpoint]: snapToLine(fixedEnd, local) },
           });
         } else if (drag.type === "body") {
           const dx = pdfPoint.x - drag.originPdf.x;
@@ -356,10 +376,14 @@ export function AnnotationLayer({
       }
 
       if (state.pendingPoint) {
-        setPreviewEnd(pdfPoint);
+        setPreviewEnd(
+          state.tool === "measure" || state.tool === "calibrate"
+            ? snapToLine(state.pendingPoint, local)
+            : pdfPoint,
+        );
       }
     },
-    [dispatch, onCursorMove, overlayRef, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, viewport],
+    [dispatch, onCursorMove, overlayRef, snapToLine, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -731,73 +755,75 @@ export function AnnotationLayer({
         onCursorMove?.(null);
       }}
     >
-      {unselectedRectangles.map(renderRectangle)}
-      {unselectedNotes.map(renderNote)}
-      {unselectedMeasurements.map(renderMeasurement)}
-      {selectedRectangles.map(renderRectangle)}
-      {selectedNotes.map(renderNote)}
-      {selectedMeasurements.map(renderMeasurement)}
-      {marqueePreview && (
-        <rect
-          x={marqueePreview.x}
-          y={marqueePreview.y}
-          width={marqueePreview.width}
-          height={marqueePreview.height}
-          fill="rgba(255, 92, 0, 0.08)"
-          stroke="#ff5c00"
-          strokeWidth={1.5}
-          strokeDasharray="6 4"
-          pointerEvents="none"
-        />
-      )}
-      {previewStart &&
-        previewEndScreen &&
-        state.tool === "measure" &&
-        state.scale &&
-        state.pendingPoint &&
-        previewEnd && (
-          <PreviewDimensionLine
-            start={previewStart}
-            end={previewEndScreen}
-            label={formatDistance(
-              convertUnits(
-                docDistance(state.pendingPoint, previewEnd) *
-                  state.scale.unitsPerPdfPoint,
-                state.scale.calibrationUnit,
-                state.displayUnit,
-              ),
-              state.displayUnit,
-            )}
+      <g id={ANNOTATION_ROOT_ID}>
+        {unselectedRectangles.map(renderRectangle)}
+        {unselectedNotes.map(renderNote)}
+        {unselectedMeasurements.map(renderMeasurement)}
+        {selectedRectangles.map(renderRectangle)}
+        {selectedNotes.map(renderNote)}
+        {selectedMeasurements.map(renderMeasurement)}
+        {marqueePreview && (
+          <rect
+            x={marqueePreview.x}
+            y={marqueePreview.y}
+            width={marqueePreview.width}
+            height={marqueePreview.height}
+            fill="rgba(255, 92, 0, 0.08)"
+            stroke="#ff5c00"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            pointerEvents="none"
           />
         )}
-      {previewStart &&
-        previewEndScreen &&
-        (state.tool === "calibrate" ||
-          (state.tool === "measure" && !state.scale)) && (
-          <line
-            x1={previewStart.x}
-            y1={previewStart.y}
-            x2={previewEndScreen.x}
-            y2={previewEndScreen.y}
+        {previewStart &&
+          previewEndScreen &&
+          state.tool === "measure" &&
+          state.scale &&
+          state.pendingPoint &&
+          previewEnd && (
+            <PreviewDimensionLine
+              start={previewStart}
+              end={previewEndScreen}
+              label={formatDistance(
+                convertUnits(
+                  docDistance(state.pendingPoint, previewEnd) *
+                    state.scale.unitsPerPdfPoint,
+                  state.scale.calibrationUnit,
+                  state.displayUnit,
+                ),
+                state.displayUnit,
+              )}
+            />
+          )}
+        {previewStart &&
+          previewEndScreen &&
+          (state.tool === "calibrate" ||
+            (state.tool === "measure" && !state.scale)) && (
+            <line
+              x1={previewStart.x}
+              y1={previewStart.y}
+              x2={previewEndScreen.x}
+              y2={previewEndScreen.y}
+              stroke="#94a3b8"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              pointerEvents="none"
+            />
+          )}
+        {rectPreview && (
+          <rect
+            x={rectPreview.x}
+            y={rectPreview.y}
+            width={rectPreview.width}
+            height={rectPreview.height}
+            fill="none"
             stroke="#94a3b8"
             strokeWidth={1.5}
             strokeDasharray="6 4"
             pointerEvents="none"
           />
         )}
-      {rectPreview && (
-        <rect
-          x={rectPreview.x}
-          y={rectPreview.y}
-          width={rectPreview.width}
-          height={rectPreview.height}
-          fill="none"
-          stroke="#94a3b8"
-          strokeWidth={1.5}
-          strokeDasharray="6 4"
-          pointerEvents="none"
-        />
-      )}
+      </g>
     </svg>
   );
 }

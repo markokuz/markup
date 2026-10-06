@@ -39,6 +39,8 @@ export function useDocument(
   mimeType: string | null,
   zoom: number,
   rotation: import("@/app/types").DocumentRotation = 0,
+  /** Skip rendering (e.g. until auto-orientation has picked a rotation). */
+  holdRender = false,
 ) {
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(
     null,
@@ -51,6 +53,10 @@ export function useDocument(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceReady, setSourceReady] = useState(0);
+  /** Unrotated page size in doc units, known once the source has loaded. */
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
 
   const pageRef = useRef<PDFPageProxy | null>(null);
   const imageRef = useRef<ImageSource | null>(null);
@@ -62,6 +68,7 @@ export function useDocument(
       pageRef.current = null;
       imageRef.current = null;
       setViewport(null);
+      setNaturalSize(null);
       setSourceReady(0);
       setError(null);
       hasRenderedRef.current = false;
@@ -87,13 +94,17 @@ export function useDocument(
           if (cancelled) return;
 
           const page = await pdf.getPage(1);
+          if (cancelled) return;
           pageRef.current = page;
           imageRef.current = null;
+          const base = page.getViewport({ scale: 1 });
+          setNaturalSize({ width: base.width, height: base.height });
         } else {
           const image = await loadImageSource(bytes, fileName ?? "image", mimeType ?? "");
           if (cancelled) return;
           imageRef.current = image;
           pageRef.current = null;
+          setNaturalSize({ width: image.width, height: image.height });
         }
 
         setSourceReady((version) => version + 1);
@@ -114,7 +125,7 @@ export function useDocument(
   }, [fileBytes, fileType, fileName, mimeType]);
 
   useLayoutEffect(() => {
-    if (!canvasElement || !fileBytes || !fileType || sourceReady === 0) {
+    if (!canvasElement || !fileBytes || !fileType || sourceReady === 0 || holdRender) {
       return;
     }
 
@@ -211,7 +222,7 @@ export function useDocument(
       cancelled = true;
       renderTaskRef.current?.cancel();
     };
-  }, [fileBytes, fileType, zoom, rotation, canvasElement, sourceReady]);
+  }, [fileBytes, fileType, zoom, rotation, canvasElement, sourceReady, holdRender]);
 
-  return { canvasRef, canvasElement, viewport, loading, error };
+  return { canvasRef, canvasElement, viewport, naturalSize, loading, error };
 }

@@ -7,8 +7,9 @@ import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
 import { Minimap } from "@/app/components/Minimap";
-import { detectDocumentType } from "@/app/utils/fileTypes";
-import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
+import { openDroppedFile } from "@/app/utils/openFile";
+import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
+import { viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
 
 const ZOOM_WHEEL_STEP = 0.1;
@@ -18,47 +19,6 @@ const MAX_ZOOM = 4;
 
 function clampZoom(value: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
-}
-
-async function readDocumentFile(
-  file: File,
-  dispatch: React.Dispatch<import("@/app/types").AppAction>,
-) {
-  try {
-    if (isProjectFile(file)) {
-      const project = await readProjectFile(file);
-      dispatch({
-        type: "LOAD_PROJECT",
-        bytes: project.bytes,
-        fileName: project.fileName,
-        fileType: project.fileType,
-        mimeType: project.mimeType,
-        scale: project.scale,
-        measurements: project.measurements,
-        rectangles: project.rectangles,
-        notes: project.notes,
-        displayUnit: project.displayUnit,
-        zoom: project.zoom,
-        rotation: project.rotation,
-      });
-      return;
-    }
-
-    const fileType = detectDocumentType(file);
-    if (!fileType) return;
-
-    const buffer = await file.arrayBuffer();
-    dispatch({
-      type: "LOAD_FILE",
-      bytes: new Uint8Array(buffer),
-      fileName: file.name,
-      fileType,
-      mimeType: file.type,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to open file.";
-    window.alert(message);
-  }
 }
 
 export function PdfViewer() {
@@ -72,22 +32,53 @@ export function PdfViewer() {
     tool,
     loupeEnabled,
     minimapHidden,
+    activeTabId,
+    autoOrientPending,
+    legacyRotationFixPending,
   } = useAppState();
   const dispatch = useAppDispatch();
-  const { canvasRef, canvasElement, viewport, loading, error } = useDocument(
+  const { canvasRef, canvasElement, viewport, naturalSize, loading, error } = useDocument(
     fileBytes,
     fileType,
     fileName,
     fileMimeType,
     zoom,
     rotation,
+    autoOrientPending,
   );
-  const [cursor, setCursor] = useState<Point2D | null>(null);
+  const [cursor, setCursorState] = useState<Point2D | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+
+  const setCursor = useCallback((next: Point2D | null) => {
+    viewerBridge.cursor = next;
+    setCursorState(next);
+  }, []);
 
   useEffect(() => {
     dispatch({ type: "SET_DOCUMENT_VIEWPORT", viewport });
   }, [dispatch, viewport]);
+
+  // Sideways scans: once the page size is known, open portrait pages at 270°.
+  useEffect(() => {
+    if (!autoOrientPending || !naturalSize || !activeTabId) return;
+    dispatch({
+      type: "APPLY_AUTO_ORIENT",
+      tabId: activeTabId,
+      rotation: naturalSize.height > naturalSize.width ? 270 : 0,
+    });
+  }, [activeTabId, autoOrientPending, dispatch, naturalSize]);
+
+  // Old projects saved with a rotated image used a mapping offset by the page
+  // aspect; shift their coordinates once the image size is known.
+  useEffect(() => {
+    if (!legacyRotationFixPending || !naturalSize || !activeTabId) return;
+    dispatch({
+      type: "FIX_LEGACY_ROTATION",
+      tabId: activeTabId,
+      width: naturalSize.width,
+      height: naturalSize.height,
+    });
+  }, [activeTabId, dispatch, legacyRotationFixPending, naturalSize]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -229,15 +220,64 @@ export function PdfViewer() {
     }
   }, [zoom, clearPreviewTransform]);
 
-  // On first render for this tab, center the document instead of letting the
-  // browser pin the view to a corner as the content grows.
+  // On first render for this tab, return to where the user left it, or center
+  // the document instead of letting the browser pin the view to a corner.
   useLayoutEffect(() => {
     const scrollEl = scrollRef.current;
     if (!scrollEl || !viewport || didCenterRef.current) return;
     didCenterRef.current = true;
-    scrollEl.scrollLeft = Math.max(0, (scrollEl.scrollWidth - scrollEl.clientWidth) / 2);
-    scrollEl.scrollTop = 0;
-  }, [viewport]);
+    const saved = activeTabId ? getTabScroll(activeTabId) : null;
+    if (saved) {
+      scrollEl.scrollLeft = saved.left;
+      scrollEl.scrollTop = saved.top;
+    } else {
+      scrollEl.scrollLeft = Math.max(0, (scrollEl.scrollWidth - scrollEl.clientWidth) / 2);
+      scrollEl.scrollTop = 0;
+    }
+  }, [activeTabId, viewport]);
+
+  // Remember this tab's scroll position (only once the initial position is set,
+  // so the empty mount-time 0,0 can't overwrite it).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeTabId) return;
+    const handleScroll = () => {
+      if (!didCenterRef.current) return;
+      saveTabScroll(activeTabId, el.scrollLeft, el.scrollTop);
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [activeTabId, fileBytes]);
+
+  // Scroll events are frame-aligned, so a switch right after scrolling can miss
+  // the last one. Layout cleanup runs before the node is detached, so the
+  // position is still readable here.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeTabId) return;
+    return () => {
+      if (didCenterRef.current) saveTabScroll(activeTabId, el.scrollLeft, el.scrollTop);
+    };
+  }, [activeTabId, fileBytes]);
+
+  // Let app-level shortcuts (paste) find the visible centre of the page.
+  useEffect(() => {
+    viewerBridge.getVisibleCenter = () => {
+      const scrollEl = scrollRef.current;
+      const overlay = overlayRef.current;
+      if (!scrollEl || !overlay) return null;
+      const scrollRect = scrollEl.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      return {
+        x: scrollRect.left + scrollRect.width / 2 - overlayRect.left,
+        y: scrollRect.top + scrollRect.height / 2 - overlayRect.top,
+      };
+    };
+    return () => {
+      viewerBridge.getVisibleCenter = null;
+      viewerBridge.cursor = null;
+    };
+  }, []);
 
   useEffect(() => {
     prevZoomRef.current = zoom;
@@ -344,8 +384,7 @@ export function PdfViewer() {
   const handleDrop = useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault();
-      const file = event.dataTransfer.files[0];
-      if (file) await readDocumentFile(file, dispatch);
+      await openDroppedFile(event.dataTransfer, dispatch);
     },
     [dispatch],
   );
@@ -370,8 +409,7 @@ export function PdfViewer() {
 
   const panCursor = isPanning ? "grabbing" : tool === "pan" ? "grab" : undefined;
 
-  const showLoupe =
-    tool === "calibrate" || (tool === "measure" && loupeEnabled);
+  const showLoupe = tool === "calibrate" || (loupeEnabled && tool !== "pan");
   const overflowing =
     !!viewport &&
     (viewport.width > containerSize.w + 1 || viewport.height > containerSize.h + 1);

@@ -2,15 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { ACCEPTED_FILE_TYPES, detectDocumentType } from "@/app/utils/fileTypes";
-import {
-  isProjectFile,
-  PROJECT_ACCEPT,
-  readProjectFile,
-} from "@/app/utils/projectFile";
+import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
+import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
+import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
+import { pruneTabScroll } from "@/app/utils/tabScroll";
 
 export function DocumentTabs() {
-  const { tabs, activeTabId, confirmCloseUnsaved } = useAppState();
+  const { tabs, activeTabId, confirmCloseUnsaved, snapLines, autoOrientPortrait } =
+    useAppState();
   const dispatch = useAppDispatch();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -29,49 +28,16 @@ export function DocumentTabs() {
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [settingsOpen]);
 
+  useEffect(() => {
+    pruneTabScroll(tabs.map((tab) => tab.id));
+  }, [tabs]);
+
   if (tabs.length === 0) return null;
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      if (isProjectFile(file)) {
-        const project = await readProjectFile(file);
-        dispatch({
-          type: "LOAD_PROJECT",
-          bytes: project.bytes,
-          fileName: project.fileName,
-          fileType: project.fileType,
-          mimeType: project.mimeType,
-          scale: project.scale,
-          measurements: project.measurements,
-          rectangles: project.rectangles,
-          notes: project.notes,
-          displayUnit: project.displayUnit,
-          zoom: project.zoom,
-          rotation: project.rotation,
-        });
-        return;
-      }
-
-      const fileType = detectDocumentType(file);
-      if (!fileType) return;
-
-      const buffer = await file.arrayBuffer();
-      dispatch({
-        type: "LOAD_FILE",
-        bytes: new Uint8Array(buffer),
-        fileName: file.name,
-        fileType,
-        mimeType: file.type,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to open file.";
-      window.alert(message);
-    } finally {
-      event.target.value = "";
-    }
+    event.target.value = "";
+    if (file) await openDocumentFile(file, dispatch);
   };
 
   const renderTab = (tab: (typeof tabs)[0]) => {
@@ -144,7 +110,7 @@ export function DocumentTabs() {
           type="button"
           className="btn-secondary shrink-0 px-2.5 py-1.5 text-sm"
           title="Open another file"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
         >
           +
         </button>
@@ -153,10 +119,10 @@ export function DocumentTabs() {
         <button
           type="button"
           className="rounded p-1.5 text-text-muted transition hover:bg-surface-muted hover:text-text-primary"
-          aria-label="Tab settings"
+          aria-label="Settings"
           aria-expanded={settingsOpen}
           aria-haspopup="dialog"
-          title="Tab settings"
+          title="Settings"
           onClick={() => setSettingsOpen((open) => !open)}
         >
           <svg
@@ -191,6 +157,41 @@ export function DocumentTabs() {
                 Ask before closing tabs with unsaved changes
                 <span className="mt-0.5 block text-xs text-text-muted">
                   Also warns before leaving or reloading the page.
+                </span>
+              </span>
+            </label>
+            <label className="mt-3 flex items-start gap-2 text-sm text-text-primary">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={snapLines}
+                onChange={(event) =>
+                  dispatch({ type: "SET_SNAP_LINES", enabled: event.target.checked })
+                }
+              />
+              <span>
+                Snap lines to horizontal / vertical
+                <span className="mt-0.5 block text-xs text-text-muted">
+                  Lines within 5° of straight snap flat or plumb.
+                </span>
+              </span>
+            </label>
+            <label className="mt-3 flex items-start gap-2 text-sm text-text-primary">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={autoOrientPortrait}
+                onChange={(event) =>
+                  dispatch({
+                    type: "SET_AUTO_ORIENT_PORTRAIT",
+                    enabled: event.target.checked,
+                  })
+                }
+              />
+              <span>
+                Open portrait pages rotated to 270°
+                <span className="mt-0.5 block text-xs text-text-muted">
+                  For sheets scanned sideways. Applies to newly opened files.
                 </span>
               </span>
             </label>

@@ -11,7 +11,11 @@ import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 const PROJECT_FILE_EXTENSION = ".mkup";
 const PROJECT_FILE_MAGIC = "markup-project";
-const PROJECT_FILE_VERSION = 1;
+/**
+ * v2: rotated (90°/270°) image coordinates use the corrected view mapping.
+ * v1 files with a rotated image need `legacyRotatedImage` migration on load.
+ */
+const PROJECT_FILE_VERSION = 2;
 
 export const PROJECT_ACCEPT = ".mkup,application/json";
 
@@ -44,6 +48,8 @@ export interface LoadedProject {
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
+  /** Saved before v2 with an image rotated 90°/270°: coordinates need shifting. */
+  legacyRotatedImage: boolean;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -116,21 +122,30 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     displayUnit: payload.displayUnit,
     zoom: payload.zoom,
     rotation: payload.rotation,
+    legacyRotatedImage:
+      payload.version < 2 &&
+      payload.fileType === "image" &&
+      (payload.rotation === 90 || payload.rotation === 270),
   };
 }
 
+export type ProjectSaveResult =
+  | { saved: false }
+  | { saved: true; handle: FileSystemFileHandle | null };
+
+/** Save a project blob; "choose-location" returns the picked handle so the tab can link to it. */
 export async function persistProjectBlob(
   blob: Blob,
   fileName: string,
   saveMode: "download" | "choose-location",
-): Promise<boolean> {
+): Promise<ProjectSaveResult> {
   if (saveMode === "choose-location") {
     try {
-      const saved = await writeBlobWithSaveFilePicker(blob, fileName);
-      if (saved) return true;
+      const handle = await writeBlobWithSaveFilePicker(blob, fileName);
+      if (handle) return { saved: true, handle };
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        return false;
+        return { saved: false };
       }
       throw error;
     }
@@ -142,5 +157,5 @@ export async function persistProjectBlob(
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
-  return true;
+  return { saved: true, handle: null };
 }

@@ -7,7 +7,7 @@ import {
   estimateLabelWidth,
 } from "@/app/utils/coordinates";
 import { SELECTION_ACCENT } from "@/app/utils/colors";
-import { DimensionLabel } from "@/app/components/DimensionLabel";
+import { DimensionLabel, DimensionText } from "@/app/components/DimensionLabel";
 
 const ARROW_LEN = 9;
 const ARROW_HALF_WIDTH = 4;
@@ -107,7 +107,7 @@ export function InlineDimensionLine({
           stroke={color}
           strokeWidth={strokeWidth}
           strokeDasharray={strokeDasharray}
-          strokeLinecap="round"
+          strokeLinecap="butt"
           style={{ pointerEvents: interactive ? "stroke" : "none" }}
           onPointerDown={handleLinePointerDown}
         />
@@ -258,7 +258,7 @@ export function PreviewDimensionLine({ start, end, label }: PreviewDimensionLine
           stroke={color}
           strokeWidth={1.5}
           strokeDasharray="6 4"
-          strokeLinecap="round"
+          strokeLinecap="butt"
         />
       ))}
       <polygon
@@ -286,7 +286,7 @@ export function PreviewDimensionLine({ start, end, label }: PreviewDimensionLine
             dominantBaseline="middle"
             style={{ paintOrder: "stroke" }}
           >
-            {label}
+            <DimensionText label={label} />
           </text>
         </g>
       )}

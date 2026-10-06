@@ -60,6 +60,12 @@ export function formatDistance(value: number, unit: Unit): string {
   return `${value.toFixed(decimals)} ${unit}`;
 }
 
+/** Split a `10' 1"` label into its feet and inches parts (null for other labels). */
+export function splitFeetInches(label: string): [string, string] | null {
+  const match = /^(\d+')\s(\d+")$/.exec(label);
+  return match ? [match[1], match[2]] : null;
+}
+
 export const UNIT_LABELS: Record<Unit, string> = {
   ft: "Feet (ft)",
   in: "Inches (in)",

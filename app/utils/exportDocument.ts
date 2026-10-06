@@ -3,10 +3,12 @@ import type {
   DocumentType,
   Measurement,
   NoteAnnotation,
+  Point2D,
   RectMeasurement,
   Scale,
   Unit,
 } from "@/app/types";
+import type { DocumentViewport } from "@/app/utils/documentViewport";
 import {
   DEFAULT_ANNOTATION_COLOR,
   hexToRgb,
@@ -57,6 +59,24 @@ export function getExportStyle(zoom: number): ExportStyle {
     arrowLen: 9 * scale,
     arrowHalfWidth: 4 * scale,
   };
+}
+
+/**
+ * Doc-space direction that reads as "up" on screen. Keeps labels lifted off short
+ * lines on the same side as the editor, whatever the doc's y-axis or view rotation.
+ */
+export function getScreenUpDocDirection(
+  viewport: DocumentViewport | null,
+  fileType: DocumentType,
+): Point2D {
+  if (viewport) {
+    const a = viewport.convertToDocPoint(0, 0);
+    const b = viewport.convertToDocPoint(0, -1);
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length > 0) return { x: (b.x - a.x) / length, y: (b.y - a.y) / length };
+  }
+  // Unrotated defaults: PDF space is y-up, image pixels are y-down.
+  return fileType === "pdf" ? { x: 0, y: 1 } : { x: 0, y: -1 };
 }
 
 function getMeasurementLabel(
@@ -162,12 +182,13 @@ function drawInlineLineOnCanvas(
   fontSize: number,
   arrowLen: number,
   arrowHalfWidth: number,
+  upDir: Point2D,
 ) {
   context.strokeStyle = color;
   context.lineWidth = lineWidth;
 
   const labelWidth = label ? measureCanvasLabelWidth(context, label, fontSize) : 0;
-  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen);
+  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen, 4, upDir);
 
   if (layout.showGap && label) {
     drawDocLineSegment(context, layout.segment1Start, layout.segment1End);
@@ -227,9 +248,10 @@ function drawInlineLineOnPdf(
   font: PDFFont,
   arrowLen: number,
   arrowHalfWidth: number,
+  upDir: Point2D,
 ) {
   const labelWidth = label ? measurePdfLabelWidth(font, label, fontSize) : 0;
-  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen);
+  const layout = computeDimensionLayout(start, end, labelWidth, arrowLen, 4, upDir);
 
   if (layout.showGap && label) {
     page.drawLine({ start: layout.segment1Start, end: layout.segment1End, thickness, color });
@@ -316,6 +338,7 @@ function drawMeasurementOnCanvas(
   scale: Scale | null,
   displayUnit: Unit,
   style: ExportStyle,
+  upDir: Point2D,
 ) {
   const color = getLineColor(measurement);
   const label =
@@ -331,6 +354,7 @@ function drawMeasurementOnCanvas(
     style.fontSize,
     style.arrowLen,
     style.arrowHalfWidth,
+    upDir,
   );
 }
 
@@ -472,6 +496,7 @@ export async function buildMarkedUpPdfBlob(
   scale: Scale | null,
   displayUnit: Unit,
   zoom: number,
+  screenUpDoc: Point2D = { x: 0, y: 1 },
 ): Promise<Blob> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const page = pdfDoc.getPage(0);
@@ -494,6 +519,7 @@ export async function buildMarkedUpPdfBlob(
       font,
       style.arrowLen,
       style.arrowHalfWidth,
+      screenUpDoc,
     );
   }
 
@@ -605,6 +631,7 @@ export async function buildMarkedUpImageBlob(
   scale: Scale | null,
   displayUnit: Unit,
   zoom: number,
+  screenUpDoc: Point2D = { x: 0, y: -1 },
 ): Promise<Blob | null> {
   const source = await loadImageSource(fileBytes, fileName, mimeType);
   const canvas = document.createElement("canvas");
@@ -619,7 +646,7 @@ export async function buildMarkedUpImageBlob(
   const style = getExportStyle(zoom);
 
   for (const measurement of getExportMeasurements(measurements)) {
-    drawMeasurementOnCanvas(context, measurement, scale, displayUnit, style);
+    drawMeasurementOnCanvas(context, measurement, scale, displayUnit, style, screenUpDoc);
   }
 
   for (const rectangle of rectangles) {
@@ -665,8 +692,8 @@ export async function persistExportedBlob(
 ): Promise<boolean> {
   if (saveMode === "choose-location") {
     try {
-      const saved = await writeBlobWithSaveFilePicker(blob, fileName);
-      if (saved) {
+      const handle = await writeBlobWithSaveFilePicker(blob, fileName);
+      if (handle) {
         return true;
       }
     } catch (error) {
@@ -693,6 +720,7 @@ export async function exportMarkedUpDocument(
   displayUnit: Unit,
   zoom: number,
   saveMode: ExportSaveMode = "download",
+  screenUpDoc?: Point2D,
 ): Promise<void> {
   const blob =
     fileType === "pdf"
@@ -704,6 +732,7 @@ export async function exportMarkedUpDocument(
           scale,
           displayUnit,
           zoom,
+          screenUpDoc,
         )
       : await buildMarkedUpImageBlob(
           fileBytes,
@@ -715,6 +744,7 @@ export async function exportMarkedUpDocument(
           scale,
           displayUnit,
           zoom,
+          screenUpDoc,
         );
 
   if (!blob) return;

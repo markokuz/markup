@@ -9,11 +9,21 @@ import { ScaleBanner } from "@/app/components/ScaleBanner";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
+import { buildPaste, copySelection, hasClipboardContent } from "@/app/utils/clipboard";
+import { saveTabProject } from "@/app/utils/projectSave";
+import { getActiveTabFromAppState } from "@/app/utils/tabState";
+import { viewerBridge } from "@/app/utils/viewerBridge";
 
 function MarkupShell() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const nudgingRef = useRef(false);
+  const savingRef = useRef(false);
+  // Latest state for shortcut handlers without re-binding listeners on every change.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  });
 
   const documentViewport = state.documentViewport;
   const zoom = state.zoom;
@@ -47,6 +57,60 @@ function MarkupShell() {
 
       if (closeDialogOpen) {
         if (event.key === "Escape") dispatch({ type: "CANCEL_CLOSE_TAB" });
+        return;
+      }
+
+      const ctrl = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+
+      if (ctrl && key === "s" && !event.shiftKey) {
+        // Always block the browser's "Save page" dialog.
+        event.preventDefault();
+        const current = stateRef.current;
+        const tab = getActiveTabFromAppState(current);
+        if (!tab || savingRef.current) return;
+        // Commit an in-progress dimension/note edit (they save on blur) first.
+        if (isEditing) target.blur();
+        savingRef.current = true;
+        // Let the blur's state update land before reading the tab.
+        setTimeout(() => {
+          const latest = getActiveTabFromAppState(stateRef.current) ?? tab;
+          saveTabProject(latest, stateRef.current.displayUnit, "linked", dispatch)
+            .catch((error: unknown) => {
+              const message =
+                error instanceof Error ? error.message : "Failed to save project.";
+              window.alert(message);
+            })
+            .finally(() => {
+              savingRef.current = false;
+            });
+        }, 0);
+        return;
+      }
+
+      if (ctrl && key === "c" && !isEditing) {
+        const current = stateRef.current;
+        if (current.selectedIds.length === 0 || !current.documentViewport) return;
+        if (window.getSelection()?.toString()) return;
+        event.preventDefault();
+        copySelection(current, current.documentViewport);
+        return;
+      }
+
+      if (ctrl && key === "v" && !isEditing) {
+        const current = stateRef.current;
+        if (!hasClipboardContent() || !current.documentViewport || !current.fileType) return;
+        const targetScreen = viewerBridge.cursor ?? viewerBridge.getVisibleCenter?.();
+        if (!targetScreen) return;
+        event.preventDefault();
+        const pasted = buildPaste({
+          viewport: current.documentViewport,
+          zoom: current.zoom,
+          scale: current.scale,
+          fileType: current.fileType,
+          targetScreen,
+        });
+        if (pasted) dispatch({ type: "PASTE_ANNOTATIONS", ...pasted });
         return;
       }
 

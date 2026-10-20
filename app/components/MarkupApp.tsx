@@ -14,6 +14,8 @@ import { saveTabProject } from "@/app/utils/projectSave";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 
+const NON_TEXT_INPUTS = new Set(["color", "checkbox", "radio", "range", "button", "file"]);
+
 function MarkupShell() {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -54,6 +56,12 @@ function MarkupShell() {
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.tagName === "SELECT";
+      // Copy/paste only yields to real text fields; a focused colour picker or select keeps focus after use.
+      const isTextEntry =
+        target.isContentEditable ||
+        target.tagName === "TEXTAREA" ||
+        (target.tagName === "INPUT" &&
+          !NON_TEXT_INPUTS.has((target as HTMLInputElement).type));
 
       if (closeDialogOpen) {
         if (event.key === "Escape") dispatch({ type: "CANCEL_CLOSE_TAB" });
@@ -88,16 +96,17 @@ function MarkupShell() {
         return;
       }
 
-      if (ctrl && key === "c" && !isEditing) {
+      if (ctrl && key === "c" && !isTextEntry) {
         const current = stateRef.current;
         if (current.selectedIds.length === 0 || !current.documentViewport) return;
-        if (window.getSelection()?.toString()) return;
+        // Markups are selected, so a stray page text highlight is accidental.
+        window.getSelection()?.removeAllRanges();
         event.preventDefault();
         copySelection(current, current.documentViewport);
         return;
       }
 
-      if (ctrl && key === "v" && !isEditing) {
+      if (ctrl && key === "v" && !isTextEntry) {
         const current = stateRef.current;
         if (!hasClipboardContent() || !current.documentViewport || !current.fileType) return;
         const targetScreen = viewerBridge.cursor ?? viewerBridge.getVisibleCenter?.();

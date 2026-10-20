@@ -25,7 +25,7 @@ interface InlineDimensionLineProps {
   showHandles?: boolean;
   isEditing?: boolean;
   interactive?: boolean;
-  onSelect?: (shiftKey?: boolean) => void;
+  onSelect?: (additive?: boolean) => void;
   onStartEdit?: () => void;
   onCommit?: (value: number) => void;
   onCancel?: () => void;
@@ -69,7 +69,7 @@ export function InlineDimensionLine({
     if (showHandles && onBodyPointerDown) {
       onBodyPointerDown(event);
     } else {
-      onSelect?.(event.shiftKey);
+      onSelect?.(event.shiftKey || event.ctrlKey || event.metaKey);
     }
   };
 
@@ -138,7 +138,7 @@ export function InlineDimensionLine({
             isEditing={isEditing}
             inline
             clickable={interactive && !showHandles}
-            onSelect={() => onSelect?.(false)}
+            onSelect={(additive) => onSelect?.(additive)}
             onStartEdit={() => onStartEdit?.()}
             onCommit={(value) => onCommit?.(value)}
             onCancel={() => onCancel?.()}

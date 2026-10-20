@@ -32,7 +32,7 @@ interface DimensionLabelProps {
   isEditing: boolean;
   inline?: boolean;
   clickable?: boolean;
-  onSelect: () => void;
+  onSelect: (additive?: boolean) => void;
   onStartEdit: () => void;
   onCommit: (value: number) => void;
   onCancel: () => void;
@@ -87,9 +87,10 @@ export function DimensionLabel({
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
     if (clickable && !showHandles) {
       event.stopPropagation();
-      onSelect();
+      onSelect(additive);
       return;
     }
 
@@ -98,8 +99,8 @@ export function DimensionLabel({
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     dragStartedRef.current = false;
 
-    if (!isSelected) {
-      onSelect();
+    if (!isSelected || additive) {
+      onSelect(additive);
       return;
     }
 

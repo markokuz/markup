@@ -77,8 +77,9 @@ export function NoteAnnotation({
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     dragStartedRef.current = false;
 
-    if (!isSelected) {
-      onSelect(note.id, event.shiftKey);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    if (!isSelected || additive) {
+      onSelect(note.id, additive);
       return;
     }
 

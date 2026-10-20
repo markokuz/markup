@@ -619,7 +619,7 @@ export function StatusBar() {
 
         {state.tool === "select" && state.selectedIds.length === 0 && (
           <span className="text-text-muted">
-            Drag to select · Shift+click to toggle · click a label to edit dimensions
+            Drag to select · Ctrl+click to toggle · click a label to edit dimensions
           </span>
         )}
       </div>

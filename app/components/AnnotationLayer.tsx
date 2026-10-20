@@ -77,8 +77,8 @@ export function AnnotationLayer({
   const dragRef = useRef<DragMode | null>(null);
 
   const handleSelect = useCallback(
-    (id: string, shiftKey: boolean) => {
-      if (shiftKey) {
+    (id: string, additive: boolean) => {
+      if (additive) {
         const isSelected = state.selectedIds.includes(id);
         dispatch({
           type: "SET_SELECTION",
@@ -115,6 +115,7 @@ export function AnnotationLayer({
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       if (state.tool === "select") {
+        const additive = event.shiftKey || event.ctrlKey || event.metaKey;
         const hitId = hitTestAnnotations(
           local,
           state.measurements,
@@ -126,7 +127,7 @@ export function AnnotationLayer({
         );
 
         if (hitId) {
-          handleSelect(hitId, event.shiftKey);
+          handleSelect(hitId, additive);
           return;
         }
 
@@ -135,9 +136,9 @@ export function AnnotationLayer({
           type: "marquee",
           startScreen: local,
           currentScreen: local,
-          additive: event.shiftKey,
+          additive,
         };
-        if (!event.shiftKey) {
+        if (!additive) {
           dispatch({ type: "SET_SELECTION", ids: [] });
         }
         dispatch({
@@ -577,7 +578,7 @@ export function AnnotationLayer({
         state.editingDimension.id === measurement.id &&
         state.editingDimension.field === "length"
       }
-      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onSelect={(id, additive) => handleSelect(id, additive)}
       onEndpointPointerDown={onEndpointPointerDown}
       onBodyPointerDown={onBodyPointerDown}
       onLabelDragStart={onLabelDragStart}
@@ -608,7 +609,7 @@ export function AnnotationLayer({
               : null
           : null
       }
-      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onSelect={(id, additive) => handleSelect(id, additive)}
       onBodyPointerDown={onRectBodyPointerDown}
       onCornerPointerDown={onRectCornerPointerDown}
       onWidthLabelDragStart={onWidthLabelDragStart}
@@ -630,7 +631,7 @@ export function AnnotationLayer({
       isSelectMode={state.tool === "select"}
       showHandles={showEditHandles && singleSelectedId === note.id}
       isEditing={state.editingNoteId === note.id}
-      onSelect={(id, shiftKey) => handleSelect(id, shiftKey)}
+      onSelect={(id, additive) => handleSelect(id, additive)}
       onUpdateText={handleUpdateNoteText}
       onStartEdit={handleStartEditNote}
       onEndEdit={handleEndEditNote}

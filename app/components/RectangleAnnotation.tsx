@@ -250,7 +250,7 @@ export function RectangleAnnotation({
   const handleEdgePointerDown = (event: React.PointerEvent) => {
     if (!isSelectMode && !showHandles) return;
     event.stopPropagation();
-    onSelect(rectangle.id, event.shiftKey);
+    onSelect(rectangle.id, event.shiftKey || event.ctrlKey || event.metaKey);
     if (showHandles) {
       onBodyPointerDown(rectangle.id, event);
     }
@@ -347,7 +347,7 @@ export function RectangleAnnotation({
             isEditing={editingField === "width"}
             inline
             clickable={isSelectMode && !showHandles}
-            onSelect={() => onSelect(rectangle.id, false)}
+            onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
             onStartEdit={() => onStartEditWidth(rectangle.id)}
             onCommit={(value) => onCommitWidth(rectangle.id, value)}
             onCancel={onCancelEdit}
@@ -371,7 +371,7 @@ export function RectangleAnnotation({
             isEditing={editingField === "height"}
             inline
             clickable={isSelectMode && !showHandles}
-            onSelect={() => onSelect(rectangle.id, false)}
+            onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
             onStartEdit={() => onStartEditHeight(rectangle.id)}
             onCommit={(value) => onCommitHeight(rectangle.id, value)}
             onCancel={onCancelEdit}

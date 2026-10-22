@@ -6,6 +6,8 @@ const MAX_DIM = 180;
 
 interface MinimapProps {
   sourceCanvas: HTMLCanvasElement | null;
+  /** Changes whenever the source canvas pixels are redrawn. */
+  renderVersion: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   viewportWidth: number;
   viewportHeight: number;
@@ -14,6 +16,7 @@ interface MinimapProps {
 
 export function Minimap({
   sourceCanvas,
+  renderVersion,
   scrollRef,
   viewportWidth,
   viewportHeight,
@@ -45,7 +48,7 @@ export function Minimap({
     } catch {
       // ignore transient draw errors
     }
-  }, [sourceCanvas, mmWidth, mmHeight, scale, viewportWidth, viewportHeight]);
+  }, [sourceCanvas, renderVersion, mmWidth, mmHeight, scale, viewportWidth, viewportHeight]);
 
   // Re-render the viewport box on scroll.
   useEffect(() => {

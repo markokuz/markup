@@ -6,6 +6,7 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
+import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
 import { openDroppedFile } from "@/app/utils/openFile";
 import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
@@ -37,7 +38,16 @@ export function PdfViewer() {
     legacyRotationFixPending,
   } = useAppState();
   const dispatch = useAppDispatch();
-  const { canvasRef, canvasElement, viewport, naturalSize, loading, error } = useDocument(
+  const {
+    canvasRef,
+    canvasElement,
+    viewport,
+    naturalSize,
+    loading,
+    error,
+    renderVersion,
+    baseSharp,
+  } = useDocument(
     fileBytes,
     fileType,
     fileName,
@@ -457,10 +467,16 @@ export function PdfViewer() {
             }
           >
             <canvas ref={canvasRef} className="block max-w-none bg-white" />
-            {loading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/80 text-sm text-text-secondary">
-                Rendering…
-              </div>
+            {fileType === "pdf" && fileBytes && viewport && (
+              <PdfDetailLayer
+                bytes={fileBytes}
+                zoom={zoom}
+                rotation={rotation}
+                viewportWidth={viewport.width}
+                viewportHeight={viewport.height}
+                baseSharp={baseSharp}
+                scrollRef={scrollRef}
+              />
             )}
             {error && (
               <div className="absolute inset-0 flex items-center justify-center bg-red-50/90 p-4 text-sm text-red-700">
@@ -485,9 +501,16 @@ export function PdfViewer() {
           </div>
         </div>
       </div>
+      {loading && (
+        // A badge, not a cover: the visible area paints long before the full page.
+        <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-secondary shadow">
+          Rendering…
+        </div>
+      )}
       {showMinimap && viewport && (
         <Minimap
           sourceCanvas={canvasElement}
+          renderVersion={renderVersion}
           scrollRef={scrollRef}
           viewportWidth={viewport.width}
           viewportHeight={viewport.height}

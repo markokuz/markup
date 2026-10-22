@@ -30,4 +30,9 @@ copyFile(
 
 copyDir(path.join(pdfjsRoot, "wasm"), path.join(root, "public", "pdfjs", "wasm"));
 
-console.log("Copied pdf.js worker and wasm assets to public/");
+copyFile(
+  path.join(root, "node_modules", "@embedpdf", "pdfium", "dist", "pdfium.wasm"),
+  path.join(root, "public", "pdfium", "pdfium.wasm"),
+);
+
+console.log("Copied pdf.js worker, pdf.js wasm and pdfium.wasm to public/");

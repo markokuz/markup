@@ -18,7 +18,7 @@ import { SettingsButton } from "@/app/components/SettingsDialog";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
-import { saveTabProject, type ProjectSaveMode } from "@/app/utils/projectSave";
+import { saveTabWithFeedback, type ProjectSaveMode } from "@/app/utils/projectSave";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
@@ -71,12 +71,7 @@ export function Toolbar() {
     setSaveMenuOpen(false);
     const tab = getActiveTabFromAppState(state);
     if (!tab) return;
-    try {
-      await saveTabProject(tab, state.displayUnit, saveMode, dispatch);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save project.";
-      window.alert(message);
-    }
+    await saveTabWithFeedback(tab, state.displayUnit, saveMode, dispatch);
   };
 
   const handleSave = async (saveMode: ExportSaveMode = "download") => {
@@ -244,15 +239,28 @@ export function Toolbar() {
           ))}
         </div>
 
-        <button
-          type="button"
-          title="Undo (Ctrl+Z)"
-          disabled={!state.fileBytes || state.history.length === 0}
-          onClick={() => dispatch({ type: "UNDO" })}
-          className="btn-secondary disabled:opacity-40"
-        >
-          Undo
-        </button>
+        <div className="flex rounded-lg border border-border bg-surface-muted p-0.5">
+          <button
+            type="button"
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            disabled={!state.fileBytes || state.history.length === 0}
+            onClick={() => dispatch({ type: "UNDO" })}
+            className="rounded-md px-2.5 py-1.5 text-text-secondary transition hover:bg-surface hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <HistoryArrow direction="back" />
+          </button>
+          <button
+            type="button"
+            title="Redo (Ctrl+Y)"
+            aria-label="Redo"
+            disabled={!state.fileBytes || state.future.length === 0}
+            onClick={() => dispatch({ type: "REDO" })}
+            className="rounded-md px-2.5 py-1.5 text-text-secondary transition hover:bg-surface hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <HistoryArrow direction="forward" />
+          </button>
+        </div>
 
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center rounded-lg border border-border bg-surface">
@@ -628,5 +636,26 @@ export function StatusBar() {
         )}
       </div>
     </footer>
+  );
+}
+
+/** Curved undo/redo arrow; "forward" is the mirror image. */
+function HistoryArrow({ direction }: { direction: "back" | "forward" }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={direction === "forward" ? { transform: "scaleX(-1)" } : undefined}
+    >
+      <path d="M8 4L4 8l4 4" />
+      <path d="M4 8h8a4.5 4.5 0 010 9H9" />
+    </svg>
   );
 }

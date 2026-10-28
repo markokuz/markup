@@ -2,6 +2,7 @@ import type { Dispatch } from "react";
 import type { AppAction } from "@/app/types";
 import { detectDocumentType } from "@/app/utils/fileTypes";
 import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
+import { putSession, type SessionEntry } from "@/app/utils/sessionStore";
 
 type WindowWithOpenFilePicker = Window & {
   showOpenFilePicker?: (options?: {
@@ -49,8 +50,12 @@ export async function openDocumentFile(
   try {
     if (isProjectFile(file)) {
       const project = await readProjectFile(file);
+      const tabId = crypto.randomUUID();
+      // Keep the file handle so Ctrl+S after a reload still targets this .mkup.
+      void putSession({ id: tabId, fileName: file.name, project: file, handle, savedAt: Date.now() });
       dispatch({
         type: "LOAD_PROJECT",
+        tabId,
         bytes: project.bytes,
         fileName: project.fileName,
         fileType: project.fileType,
@@ -136,4 +141,35 @@ export async function openDroppedFile(
     dispatch,
     handle && handle.kind === "file" ? (handle as FileSystemFileHandle) : null,
   );
+}
+
+/** Reopen a browser backup in its original tab id, with its linked file handle. */
+export async function restoreSession(
+  entry: SessionEntry,
+  dispatch: Dispatch<AppAction>,
+): Promise<void> {
+  try {
+    const project = await readProjectFile(new File([entry.project], entry.fileName));
+    dispatch({
+      type: "LOAD_PROJECT",
+      tabId: entry.id,
+      bytes: project.bytes,
+      fileName: project.fileName,
+      fileType: project.fileType,
+      mimeType: project.mimeType,
+      scale: project.scale,
+      measurements: project.measurements,
+      rectangles: project.rectangles,
+      notes: project.notes,
+      shapes: project.shapes,
+      displayUnit: project.displayUnit,
+      zoom: project.zoom,
+      rotation: project.rotation,
+      legacyRotatedImage: project.legacyRotatedImage,
+      handle: entry.handle,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not restore this file.";
+    window.alert(message);
+  }
 }

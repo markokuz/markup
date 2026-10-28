@@ -131,6 +131,8 @@ export interface DocumentTab {
   calibrateDialogOpen: boolean;
   pendingCalibrationLine: PendingCalibrationLine | null;
   history: UndoSnapshot[];
+  /** Undone states, newest last; cleared by any new edit. */
+  future: UndoSnapshot[];
   documentViewport: DocumentViewport | null;
   /** Annotations or scale changed since the tab was opened or last saved. */
   dirty: boolean;
@@ -214,6 +216,8 @@ export type AppAction =
       rotation: DocumentRotation;
       handle?: FileSystemFileHandle | null;
       legacyRotatedImage?: boolean;
+      /** Reuse this tab id (restoring a browser backup keeps its session entry). */
+      tabId?: string;
     }
   | { type: "SWITCH_TAB"; tabId: string }
   | { type: "CLOSE_TAB"; tabId: string }
@@ -261,6 +265,7 @@ export type AppAction =
   | { type: "CLEAR_ALL" }
   | { type: "RECORD_UNDO" }
   | { type: "UNDO" }
+  | { type: "REDO" }
   | { type: "SET_DOCUMENT_VIEWPORT"; viewport: DocumentViewport | null }
   | { type: "TOGGLE_LOUPE" }
   | { type: "SET_MINIMAP_HIDDEN"; hidden: boolean }

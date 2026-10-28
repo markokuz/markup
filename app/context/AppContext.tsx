@@ -4,7 +4,9 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useReducer,
+  useRef,
   type Dispatch,
   type ReactNode,
 } from "react";
@@ -22,7 +24,8 @@ import {
   saveSettings,
   type AppSettings,
 } from "@/app/utils/settings";
-import { appendHistory } from "@/app/utils/history";
+import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
+import { deleteSession } from "@/app/utils/sessionStore";
 import {
   loadAutoOrientPortrait,
   loadConfirmCloseUnsaved,
@@ -132,12 +135,15 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       };
     }
     case "LOAD_PROJECT": {
-      const base = createDocumentTab({
-        bytes: action.bytes,
-        fileName: action.fileName,
-        fileType: action.fileType,
-        mimeType: action.mimeType,
-      });
+      const base = createDocumentTab(
+        {
+          bytes: action.bytes,
+          fileName: action.fileName,
+          fileType: action.fileType,
+          mimeType: action.mimeType,
+        },
+        action.tabId,
+      );
       const tab = {
         ...base,
         scale: action.scale,
@@ -492,6 +498,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         return {
           ...tab,
           history: tab.history.slice(0, -1),
+          future: [...tab.future, createUndoSnapshot(tab)],
           measurements: snapshot.measurements,
           rectangles: snapshot.rectangles,
           notes: snapshot.notes,
@@ -502,6 +509,27 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           pendingMarquee: null,
           editingDimension: null,
           editingNoteId: null,
+        };
+      });
+    case "REDO":
+      return updateActiveTab(state, (tab) => {
+        if (tab.future.length === 0) return tab;
+        const snapshot = tab.future[tab.future.length - 1];
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          future: tab.future.slice(0, -1),
+          measurements: snapshot.measurements,
+          rectangles: snapshot.rectangles,
+          notes: snapshot.notes,
+          shapes: snapshot.shapes,
+          scale: snapshot.scale,
+          selectedIds: snapshot.selectedIds,
+          pendingPoint: null,
+          pendingMarquee: null,
+          editingDimension: null,
+          editingNoteId: null,
+          drawingShapeId: null,
         };
       });
     case "SET_DOCUMENT_VIEWPORT":
@@ -610,8 +638,22 @@ function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
   return changed ? { ...next, tabs } : next;
 }
 
+/** Any new undo step (an edit, not undo/redo itself) makes the redo stack stale. */
+function clearStaleRedo(prev: TabsState, next: TabsState, action: AppAction): TabsState {
+  if (action.type === "UNDO" || action.type === "REDO" || prev.tabs === next.tabs) return next;
+  const prevById = new Map(prev.tabs.map((tab) => [tab.id, tab]));
+  let changed = false;
+  const tabs = next.tabs.map((tab) => {
+    const before = prevById.get(tab.id);
+    if (!before || tab.future.length === 0 || tab.history === before.history) return tab;
+    changed = true;
+    return { ...tab, future: [] };
+  });
+  return changed ? { ...next, tabs } : next;
+}
+
 function appReducer(state: TabsState, action: AppAction): TabsState {
-  const next = tabsReducer(state, action);
+  const next = clearStaleRedo(state, tabsReducer(state, action), action);
   // Migrating an old project's coordinates isn't a user edit.
   if (action.type === "FIX_LEGACY_ROTATION") return next;
   return trackDirtyTabs(state, next);
@@ -691,6 +733,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveSettings(tabsState.settings);
   }, [tabsState.settings]);
+
+  // A closed tab's browser backup is no longer wanted. Layout effect so the delete
+  // is queued before the start screen (a child, whose effects run first) lists backups.
+  const openTabIdsRef = useRef<string[]>([]);
+  useLayoutEffect(() => {
+    const ids = tabsState.tabs.map((tab) => tab.id);
+    for (const id of openTabIdsRef.current) {
+      if (!ids.includes(id)) void deleteSession(id);
+    }
+    openTabIdsRef.current = ids;
+  }, [tabsState.tabs]);
 
   useEffect(() => {
     saveAutoOrientPortrait(tabsState.autoOrientPortrait);

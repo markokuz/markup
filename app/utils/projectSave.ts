@@ -5,7 +5,13 @@ import {
   getProjectFileName,
   persistProjectBlob,
 } from "@/app/utils/projectFile";
-import { supportsSaveFilePicker, writeBlobToHandle } from "@/app/utils/saveFilePicker";
+import {
+  SavePermissionError,
+  supportsSaveFilePicker,
+  writeBlobToHandle,
+} from "@/app/utils/saveFilePicker";
+import { showSaveStatus } from "@/app/utils/saveStatus";
+import { putSession } from "@/app/utils/sessionStore";
 
 /**
  * - "linked": overwrite the tab's linked .mkup (Ctrl+S); without a link, behaves
@@ -32,14 +38,18 @@ type SavableTab = Pick<
   | "projectHandle"
 >;
 
-/** Save a tab as a .mkup project. Returns true when the file was written. */
+/**
+ * Save a tab as a .mkup project. Returns the written file's name, or null when the
+ * user cancelled. Always refreshes the browser backup first, so declining Chrome's
+ * file-permission prompt (SavePermissionError) still keeps the work.
+ */
 export async function saveTabProject(
   tab: SavableTab,
   displayUnit: Unit,
   mode: ProjectSaveMode,
   dispatch: Dispatch<AppAction>,
-): Promise<boolean> {
-  if (!tab.fileBytes || !tab.fileName || !tab.fileType) return false;
+): Promise<string | null> {
+  if (!tab.fileBytes || !tab.fileName || !tab.fileType) return null;
 
   const blob = buildProjectBlob({
     fileName: tab.fileName,
@@ -56,24 +66,62 @@ export async function saveTabProject(
     rotation: tab.rotation,
   });
 
+  const backup = (handle: FileSystemFileHandle | null) =>
+    putSession({
+      id: tab.id,
+      fileName: handle?.name ?? getProjectFileName(tab.fileName!),
+      project: blob,
+      handle,
+      savedAt: Date.now(),
+    });
+  await backup(tab.projectHandle);
+
   if (mode === "linked" && tab.projectHandle) {
     await writeBlobToHandle(tab.projectHandle, blob);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id });
-    return true;
+    return tab.projectHandle.name;
   }
 
   const persistMode =
     mode === "download" || !supportsSaveFilePicker() ? "download" : "choose-location";
-  const result = await persistProjectBlob(
-    blob,
-    tab.projectHandle?.name ?? getProjectFileName(tab.fileName),
-    persistMode,
-  );
-  if (!result.saved) return false;
+  const fileName = tab.projectHandle?.name ?? getProjectFileName(tab.fileName);
+  const result = await persistProjectBlob(blob, fileName, persistMode);
+  if (!result.saved) return null;
 
   if (result.handle) {
     dispatch({ type: "SET_PROJECT_HANDLE", tabId: tab.id, handle: result.handle });
+    await backup(result.handle);
   }
   dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id });
-  return true;
+  return result.handle?.name ?? fileName;
+}
+
+/** saveTabProject plus the save toast: Saving… → Saved / cancelled / browser-only / error. */
+export async function saveTabWithFeedback(
+  tab: SavableTab,
+  displayUnit: Unit,
+  mode: ProjectSaveMode,
+  dispatch: Dispatch<AppAction>,
+): Promise<boolean> {
+  showSaveStatus("saving", "Saving…");
+  try {
+    const savedName = await saveTabProject(tab, displayUnit, mode, dispatch);
+    if (!savedName) {
+      showSaveStatus("info", "Save cancelled");
+      return false;
+    }
+    showSaveStatus("success", "Saved");
+    return true;
+  } catch (error) {
+    if (error instanceof SavePermissionError) {
+      showSaveStatus(
+        "warning",
+        `Saved in this browser. Allow file access to also update ${error.fileName}.`,
+      );
+    } else {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      showSaveStatus("error", `Couldn't save: ${message}`);
+    }
+    return false;
+  }
 }

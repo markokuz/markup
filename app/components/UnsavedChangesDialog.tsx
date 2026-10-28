@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { saveTabProject } from "@/app/utils/projectSave";
+import { saveTabWithFeedback } from "@/app/utils/projectSave";
 
 export function UnsavedChangesDialog() {
   const { tabs, pendingCloseTabId, displayUnit } = useAppState();
@@ -36,13 +36,11 @@ export function UnsavedChangesDialog() {
     if (!tab.fileBytes || !tab.fileName || !tab.fileType) return;
     setSaving(true);
     try {
-      const saved = await saveTabProject(tab, displayUnit, "linked", dispatch);
+      // Only close once the file itself was written; a browser-only backup isn't enough.
+      const saved = await saveTabWithFeedback(tab, displayUnit, "linked", dispatch);
       if (!saved) return;
       applyDontAskAgain();
       dispatch({ type: "CLOSE_TAB", tabId: tab.id });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save project.";
-      window.alert(message);
     } finally {
       setSaving(false);
     }

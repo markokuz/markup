@@ -113,7 +113,12 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
       const start = countStartAt(s);
       rows.push({
         ...base,
-        display: start === 1 || n === 0 ? String(n) : `${n} (#${start}–${start + n - 1})`,
+        display:
+          start === 1 || n === 0
+            ? String(n)
+            : n === 1
+              ? `1 (#${start})`
+              : `${n} (#${start}–${start + n - 1})`,
         count: n,
         startAt: start,
       });

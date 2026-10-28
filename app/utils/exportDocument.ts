@@ -584,7 +584,7 @@ function drawNoteCardOnPdf(
 }
 
 /** Screen-px sizes used on canvas, divided by zoom so exports match the editor. */
-const SHAPE_PX = { cloudArc: 14, countRadius: 9, countFont: 10, countLabelDx: 52, countLabelDy: 18 };
+const SHAPE_PX = { cloudArc: 14, countRadius: 9, countFont: 10 };
 
 function shapeColor(shape: ShapeAnnotation): string {
   return shape.color ?? DEFAULT_ANNOTATION_COLOR;
@@ -685,14 +685,6 @@ function drawShapesOnCanvas(
         context.fill();
         drawRotatedLabelOnCanvas(context, p, String(countStartAt(shape) + i), textAngle, SHAPE_PX.countFont * k, "#ffffff");
       });
-      const last = shape.points[shape.points.length - 1];
-      if (last && label) {
-        const at = {
-          x: last.x + right.x * SHAPE_PX.countLabelDx * k - down.x * SHAPE_PX.countLabelDy * k,
-          y: last.y + right.y * SHAPE_PX.countLabelDx * k - down.y * SHAPE_PX.countLabelDy * k,
-        };
-        drawPillLabelOnCanvas(context, at, label, textAngle, style.fontSize, color);
-      }
     } else if (shape.kind === "cloud" && shape.points.length >= 2) {
       const corners = cloudOutline(shape.points);
       // Scallops meet at cusps; the default miter join turns those into spikes.
@@ -764,14 +756,6 @@ function drawShapesOnPdf(
         page.drawCircle({ x: p.x, y: p.y, size: SHAPE_PX.countRadius * k, color });
         drawRotatedLabelOnPdf(page, p, String(countStartAt(shape) + i), textAngle, SHAPE_PX.countFont * k, font, rgb(1, 1, 1));
       });
-      const last = shape.points[shape.points.length - 1];
-      if (last && label) {
-        const at = {
-          x: last.x + right.x * SHAPE_PX.countLabelDx * k - down.x * SHAPE_PX.countLabelDy * k,
-          y: last.y + right.y * SHAPE_PX.countLabelDx * k - down.y * SHAPE_PX.countLabelDy * k,
-        };
-        drawPillLabelOnPdf(page, at, label, upDir, style.fontSize, font, color);
-      }
     } else if (shape.kind === "cloud" && shape.points.length >= 2) {
       const corners = cloudOutline(shape.points).map(flip);
       // Scallops meet at cusps; the default miter join turns those into spikes.

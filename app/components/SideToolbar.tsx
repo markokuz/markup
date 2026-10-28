@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import type { CloudMode, DrawMode, ToolMode } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 
@@ -45,6 +45,52 @@ const RECT_MODES: ModeOption<DrawMode>[] = [
   { id: "plain", label: "Plain", hint: "Plain markup box, no measurements" },
 ];
 
+/**
+ * Text box for the first count number. A controlled type="number" input keeps a
+ * typed leading zero ("055"), so this edits a digits-only draft instead.
+ */
+function CountStartInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  const [lastValue, setLastValue] = useState(value);
+  // Follow outside changes, e.g. the reset to 1 when the Count tool is reopened.
+  if (value !== lastValue) {
+    setLastValue(value);
+    setDraft(String(value));
+  }
+
+  return (
+    <label
+      className="flex flex-col items-center gap-0.5 text-[9px] font-medium text-text-secondary"
+      title="Number for the first item in a new count. Resets to 1 when you reopen the Count tool."
+    >
+      Start #
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft}
+        onFocus={(event) => event.target.select()}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+          setDraft(digits);
+          if (digits) {
+            const n = parseInt(digits, 10);
+            setLastValue(n);
+            onChange(n);
+          }
+        }}
+        onBlur={() => {
+          if (!draft) {
+            setDraft("1");
+            setLastValue(1);
+            onChange(1);
+          }
+        }}
+        className="w-full rounded border border-border bg-surface px-0.5 py-0.5 text-center text-[11px] text-text-primary"
+      />
+    </label>
+  );
+}
+
 /** Small stacked toggle shown under the active tool for its sub-options. */
 function ModeToggle<T extends string>({
   options,
@@ -82,6 +128,10 @@ export function SideToolbar() {
   const dispatch = useAppDispatch();
 
   if (!state.fileBytes) return null;
+
+  const countInProgress = state.shapes.some(
+    (s) => s.id === state.drawingShapeId && s.kind === "count",
+  );
 
   return (
     <aside className="flex w-14 shrink-0 flex-col gap-1 border-r border-border bg-surface p-2">
@@ -126,21 +176,21 @@ export function SideToolbar() {
             />
           )}
           {tool.id === "count" && state.tool === "count" && (
-            <label
-              className="flex flex-col items-center gap-0.5 rounded-lg bg-surface-muted p-1 text-[9px] font-medium text-text-secondary"
-              title="Number for the first item in a new count. Resets to 1 when you reopen the Count tool."
-            >
-              Start #
-              <input
-                type="number"
-                min={0}
+            <div className="flex flex-col gap-1 rounded-lg bg-surface-muted p-1">
+              <CountStartInput
                 value={state.countStart}
-                onChange={(event) =>
-                  dispatch({ type: "SET_COUNT_START", start: Number(event.target.value) || 0 })
-                }
-                className="w-full rounded border border-border bg-surface px-0.5 py-0.5 text-center text-[11px] text-text-primary"
+                onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
               />
-            </label>
+              <button
+                type="button"
+                title="Finish this count and start a new one on your next click (or press Enter)"
+                disabled={!countInProgress}
+                onClick={() => dispatch({ type: "FINISH_SHAPE" })}
+                className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
+              >
+                New
+              </button>
+            </div>
           )}
         </Fragment>
       ))}

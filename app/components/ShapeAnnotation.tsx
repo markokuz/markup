@@ -162,7 +162,6 @@ export function ShapeAnnotation({
   }
 
   if (shape.kind === "count") {
-    const last = pts[pts.length - 1];
     const start = countStartAt(shape);
     return (
       <g pointerEvents="none">
@@ -186,9 +185,6 @@ export function ShapeAnnotation({
             </text>
           </g>
         ))}
-        {last && label && (
-          <ShapeLabel at={{ x: last.x + 52, y: last.y - 18 }} text={label} color={color} />
-        )}
       </g>
     );
   }

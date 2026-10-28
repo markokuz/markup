@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DropIcon } from "@/app/components/DropIcon";
 import { MarkupsPanel } from "@/app/components/MarkupsPanel";
+import { SaveToast } from "@/app/components/SaveToast";
 import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
@@ -13,7 +14,8 @@ import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
 import { buildPaste, copySelection, hasClipboardContent } from "@/app/utils/clipboard";
 import { openDroppedFile } from "@/app/utils/openFile";
-import { saveTabProject } from "@/app/utils/projectSave";
+import { saveTabWithFeedback } from "@/app/utils/projectSave";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 import { toolForHotkey } from "@/app/utils/settings";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { viewerBridge } from "@/app/utils/viewerBridge";
@@ -36,6 +38,42 @@ function MarkupShell() {
   const zoom = state.zoom;
   const hasSelection = state.selectedIds.length > 0;
   const closeDialogOpen = state.pendingCloseTabId !== null;
+
+  // Ctrl+S runs in the capture phase so it wins even inside fields (note text,
+  // dimension edits, dialogs) that stop key events from reaching the app.
+  useEffect(() => {
+    const handleSaveKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "s") {
+        return;
+      }
+      // Always block the browser's own "Save page" dialog.
+      event.preventDefault();
+      const tab = getActiveTabFromAppState(stateRef.current);
+      if (!tab) {
+        showSaveStatus("info", "Nothing to save yet — open a file first");
+        return;
+      }
+      if (savingRef.current) return;
+      // Commit an in-progress dimension/note edit (they save on blur) first.
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) {
+        target.blur();
+      }
+      savingRef.current = true;
+      showSaveStatus("saving", "Saving…");
+      // Let the blur's state update land before reading the tab.
+      setTimeout(() => {
+        const latest = getActiveTabFromAppState(stateRef.current) ?? tab;
+        void saveTabWithFeedback(latest, stateRef.current.displayUnit, "linked", dispatch).finally(
+          () => {
+            savingRef.current = false;
+          },
+        );
+      }, 0);
+    };
+    window.addEventListener("keydown", handleSaveKey, { capture: true });
+    return () => window.removeEventListener("keydown", handleSaveKey, { capture: true });
+  }, [dispatch]);
 
   useEffect(() => {
     const ARROW_KEYS: Record<string, { x: number; y: number }> = {
@@ -75,31 +113,6 @@ function MarkupShell() {
 
       const ctrl = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
-
-      if (ctrl && key === "s" && !event.shiftKey) {
-        // Always block the browser's "Save page" dialog.
-        event.preventDefault();
-        const current = stateRef.current;
-        const tab = getActiveTabFromAppState(current);
-        if (!tab || savingRef.current) return;
-        // Commit an in-progress dimension/note edit (they save on blur) first.
-        if (isEditing) target.blur();
-        savingRef.current = true;
-        // Let the blur's state update land before reading the tab.
-        setTimeout(() => {
-          const latest = getActiveTabFromAppState(stateRef.current) ?? tab;
-          saveTabProject(latest, stateRef.current.displayUnit, "linked", dispatch)
-            .catch((error: unknown) => {
-              const message =
-                error instanceof Error ? error.message : "Failed to save project.";
-              window.alert(message);
-            })
-            .finally(() => {
-              savingRef.current = false;
-            });
-        }, 0);
-        return;
-      }
 
       if (ctrl && key === "c" && !isTextEntry) {
         const current = stateRef.current;
@@ -152,6 +165,16 @@ function MarkupShell() {
       ) {
         event.preventDefault();
         dispatch({ type: "UNDO" });
+      }
+
+      if (
+        ctrl &&
+        !isEditing &&
+        (key === "y" || (key === "z" && event.shiftKey))
+      ) {
+        event.preventDefault();
+        dispatch({ type: "REDO" });
+        return;
       }
 
       if (
@@ -260,6 +283,7 @@ function MarkupShell() {
       </div>
       <StatusBar />
       <CalibrateDialog />
+      <SaveToast />
       <UnsavedChangesDialog />
     </div>
   );

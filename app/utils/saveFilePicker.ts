@@ -65,7 +65,15 @@ type PermissionedFileHandle = FileSystemFileHandle & {
   requestPermission?: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
 };
 
-/** Overwrite an existing file handle, asking for write access if needed. */
+/** The user declined Chrome's "allow this site to edit the file" prompt. */
+export class SavePermissionError extends Error {
+  constructor(readonly fileName: string) {
+    super(`Permission to save "${fileName}" was denied.`);
+    this.name = "SavePermissionError";
+  }
+}
+
+/** Overwrite an existing file handle, asking for write access only if it isn't granted yet. */
 export async function writeBlobToHandle(
   handle: FileSystemFileHandle,
   blob: Blob,
@@ -78,7 +86,7 @@ export async function writeBlobToHandle(
       permission = await permissioned.requestPermission(descriptor);
     }
     if (permission !== "granted") {
-      throw new Error(`Permission to save "${handle.name}" was denied.`);
+      throw new SavePermissionError(handle.name);
     }
   }
 

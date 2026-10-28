@@ -21,13 +21,12 @@ export function getAreaMetrics(
   };
 }
 
-/** On-canvas label: area + perimeter for areas, running total for counts. */
+/** On-canvas label: area + perimeter for areas (counts show only their numbered dots). */
 export function getShapeLabel(
   shape: ShapeAnnotation,
   scale: Scale | null,
   unit: Unit,
 ): string | null {
-  if (shape.kind === "count") return `Count: ${shape.points.length}`;
   const metrics = getAreaMetrics(shape, scale, unit);
   if (!metrics) return null;
   return `${formatArea(metrics.area, unit)} · P ${formatDistance(metrics.perimeter, unit)}`;

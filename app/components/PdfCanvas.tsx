@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DropIcon } from "@/app/components/DropIcon";
+import { RestoreSessions } from "@/app/components/RestoreSessions";
 import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
@@ -430,6 +431,7 @@ export function PdfViewer() {
             add measurements, or drag and drop a file anywhere on the page.
           </p>
         </div>
+        <RestoreSessions />
       </div>
     );
   }

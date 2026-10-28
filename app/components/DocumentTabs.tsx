@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
@@ -8,26 +8,9 @@ import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
 import { pruneTabScroll } from "@/app/utils/tabScroll";
 
 export function DocumentTabs() {
-  const { tabs, activeTabId, confirmCloseUnsaved, snapLines, autoOrientPortrait } =
-    useAppState();
+  const { tabs, activeTabId } = useAppState();
   const dispatch = useAppDispatch();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!settingsRef.current?.contains(event.target as Node)) {
-        setSettingsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [settingsOpen]);
-
   useEffect(() => {
     pruneTabScroll(tabs.map((tab) => tab.id));
   }, [tabs]);
@@ -114,89 +97,6 @@ export function DocumentTabs() {
         >
           +
         </button>
-      </div>
-      <div ref={settingsRef} className="relative shrink-0">
-        <button
-          type="button"
-          className="rounded p-1.5 text-text-muted transition hover:bg-surface-muted hover:text-text-primary"
-          aria-label="Settings"
-          aria-expanded={settingsOpen}
-          aria-haspopup="dialog"
-          title="Settings"
-          onClick={() => setSettingsOpen((open) => !open)}
-        >
-          <svg
-            aria-hidden
-            viewBox="0 0 16 16"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          >
-            <path d="M2.5 4.5h11M2.5 11.5h11" />
-            <circle cx="6" cy="4.5" r="1.75" fill="var(--surface)" />
-            <circle cx="10" cy="11.5" r="1.75" fill="var(--surface)" />
-          </svg>
-        </button>
-        {settingsOpen && (
-          <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-surface p-3 shadow-lg">
-            <label className="flex items-start gap-2 text-sm text-text-primary">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={confirmCloseUnsaved}
-                onChange={(event) =>
-                  dispatch({
-                    type: "SET_CONFIRM_CLOSE_UNSAVED",
-                    enabled: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                Ask before closing tabs with unsaved changes
-                <span className="mt-0.5 block text-xs text-text-muted">
-                  Also warns before leaving or reloading the page.
-                </span>
-              </span>
-            </label>
-            <label className="mt-3 flex items-start gap-2 text-sm text-text-primary">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={snapLines}
-                onChange={(event) =>
-                  dispatch({ type: "SET_SNAP_LINES", enabled: event.target.checked })
-                }
-              />
-              <span>
-                Snap lines to horizontal / vertical
-                <span className="mt-0.5 block text-xs text-text-muted">
-                  Lines within 5° of straight snap flat or plumb.
-                </span>
-              </span>
-            </label>
-            <label className="mt-3 flex items-start gap-2 text-sm text-text-primary">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={autoOrientPortrait}
-                onChange={(event) =>
-                  dispatch({
-                    type: "SET_AUTO_ORIENT_PORTRAIT",
-                    enabled: event.target.checked,
-                  })
-                }
-              />
-              <span>
-                Open portrait pages rotated to 270°
-                <span className="mt-0.5 block text-xs text-text-muted">
-                  For sheets scanned sideways. Applies to newly opened files.
-                </span>
-              </span>
-            </label>
-          </div>
-        )}
       </div>
       <input
         ref={fileInputRef}

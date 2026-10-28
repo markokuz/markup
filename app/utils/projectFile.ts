@@ -4,6 +4,7 @@ import type {
   Measurement,
   NoteAnnotation,
   RectMeasurement,
+  ShapeAnnotation,
   Scale,
   Unit,
 } from "@/app/types";
@@ -31,6 +32,8 @@ export interface ProjectFilePayload {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  /** Absent in projects saved before area/count/cloud/callout existed. */
+  shapes?: ShapeAnnotation[];
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
@@ -45,6 +48,7 @@ export interface LoadedProject {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
@@ -119,6 +123,7 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     measurements: payload.measurements,
     rectangles: payload.rectangles,
     notes: payload.notes,
+    shapes: payload.shapes ?? [],
     displayUnit: payload.displayUnit,
     zoom: payload.zoom,
     rotation: payload.rotation,

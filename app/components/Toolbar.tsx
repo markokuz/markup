@@ -13,6 +13,8 @@ import {
   supportsSaveFilePicker,
   type ExportSaveMode,
 } from "@/app/utils/exportDocument";
+import { ColorWheel } from "@/app/components/ColorWheel";
+import { SettingsButton } from "@/app/components/SettingsDialog";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
@@ -99,6 +101,7 @@ export function Toolbar() {
               state.measurements,
               state.rectangles,
               state.notes,
+              state.shapes,
               state.scale,
               state.displayUnit,
               state.zoom,
@@ -111,6 +114,7 @@ export function Toolbar() {
               state.measurements,
               state.rectangles,
               state.notes,
+              state.shapes,
               state.scale,
               state.displayUnit,
               state.zoom,
@@ -161,7 +165,8 @@ export function Toolbar() {
   const annotationCount =
     state.measurements.filter((m) => !m.isCalibration).length +
     state.rectangles.length +
-    state.notes.length;
+    state.notes.length +
+    state.shapes.length;
 
   const saveLabel =
     state.fileType === "image" ? "Save PNG" : "Save PDF";
@@ -420,6 +425,7 @@ export function Toolbar() {
               </div>
             )}
           </div>
+          <SettingsButton />
         </div>
       </div>
     </header>
@@ -461,6 +467,7 @@ export function StatusBar() {
     ...state.measurements.filter((m) => colorableIds.includes(m.id)),
     ...state.rectangles.filter((r) => colorableIds.includes(r.id)),
     ...state.notes.filter((n) => colorableIds.includes(n.id)),
+    ...state.shapes.filter((sh) => colorableIds.includes(sh.id)),
   ];
   const sharedColor =
     selectedAnnotations.length > 0 &&
@@ -472,13 +479,13 @@ export function StatusBar() {
       ? (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR)
       : null;
 
-  const applyColor = (color: string) => {
+  const applyColor = (color: string, recordUndo = true) => {
     if (colorableIds.length === 0) return;
-    dispatch({ type: "SET_ANNOTATION_COLOR", ids: colorableIds, color });
+    dispatch({ type: "SET_ANNOTATION_COLOR", ids: colorableIds, color, recordUndo });
   };
 
   const selectedLineLabel =
-    selectedLine && state.scale && !selectedLine.isCalibration
+    selectedLine && state.scale && !selectedLine.isCalibration && !selectedLine.plain
       ? formatDistance(
           convertUnits(
             docDistance(selectedLine.start, selectedLine.end) *
@@ -491,7 +498,7 @@ export function StatusBar() {
       : null;
 
   const selectedRectLabel =
-    selectedRect && state.scale
+    selectedRect && state.scale && !selectedRect.plain
       ? `${formatDistance(
           convertUnits(
             getRectHorizontalDocLength(selectedRect, state.rotation) *
@@ -514,7 +521,7 @@ export function StatusBar() {
   const lineCount = state.measurements.filter((m) => !m.isCalibration).length;
   const rectCount = state.rectangles.length;
   const noteCount = state.notes.length;
-  const totalCount = lineCount + rectCount + noteCount;
+  const totalCount = lineCount + rectCount + noteCount + state.shapes.length;
 
   return (
     <footer className="relative z-20 flex flex-wrap items-center gap-4 border-t border-border bg-surface px-4 py-2 text-sm">
@@ -562,12 +569,9 @@ export function StatusBar() {
                   style={{ backgroundColor: color }}
                 />
               ))}
-              <input
-                type="color"
+              <ColorWheel
                 value={sharedColor ?? DEFAULT_ANNOTATION_COLOR}
-                onChange={(event) => applyColor(event.target.value)}
-                className="h-6 w-8 cursor-pointer rounded border border-border bg-surface"
-                title="Custom color"
+                onChange={(color, recordUndo) => applyColor(color, recordUndo)}
               />
             </div>
           </div>

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DropIcon } from "@/app/components/DropIcon";
+import { MarkupsPanel } from "@/app/components/MarkupsPanel";
 import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
@@ -10,7 +12,9 @@ import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
 import { buildPaste, copySelection, hasClipboardContent } from "@/app/utils/clipboard";
+import { openDroppedFile } from "@/app/utils/openFile";
 import { saveTabProject } from "@/app/utils/projectSave";
+import { toolForHotkey } from "@/app/utils/settings";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 
@@ -19,6 +23,7 @@ const NON_TEXT_INPUTS = new Set(["color", "checkbox", "radio", "range", "button"
 function MarkupShell() {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const [draggingFile, setDraggingFile] = useState(false);
   const nudgingRef = useRef(false);
   const savingRef = useRef(false);
   // Latest state for shortcut handlers without re-binding listeners on every change.
@@ -123,7 +128,14 @@ function MarkupShell() {
         return;
       }
 
+      if (event.key === "Enter" && !isEditing && stateRef.current.drawingShapeId) {
+        event.preventDefault();
+        dispatch({ type: "FINISH_SHAPE" });
+        return;
+      }
+
       if (event.key === "Escape") {
+        dispatch({ type: "FINISH_SHAPE" });
         dispatch({ type: "SET_PENDING_POINT", point: null });
         dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });
         dispatch({ type: "CLEAR_EDITING_DIMENSION" });
@@ -150,6 +162,22 @@ function MarkupShell() {
       ) {
         event.preventDefault();
         dispatch({ type: "TOGGLE_LOUPE" });
+      }
+
+      if (
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !isEditing &&
+        !target.isContentEditable &&
+        stateRef.current.fileBytes
+      ) {
+        const hotkeyTool = toolForHotkey(stateRef.current.settings.hotkeys, key);
+        if (hotkeyTool) {
+          event.preventDefault();
+          dispatch({ type: "SET_TOOL", tool: hotkeyTool });
+          return;
+        }
       }
 
       if (
@@ -197,13 +225,38 @@ function MarkupShell() {
   ]);
 
   return (
-    <div className="flex h-screen flex-col bg-background text-text-primary">
+    <div
+      className="flex h-screen flex-col bg-background text-text-primary"
+      // Whole window is a drop target so a stray drop never navigates the browser to the file.
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer.types.includes("Files")) setDraggingFile(true);
+      }}
+      onDragLeave={(e) => {
+        // dragleave also fires when moving between children; only clear when leaving the window.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingFile(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDraggingFile(false);
+        void openDroppedFile(e.dataTransfer, dispatch);
+      }}
+    >
+      {draggingFile && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border-4 border-dashed border-accent text-accent">
+            <DropIcon className="h-16 w-16" />
+            <p className="text-xl font-semibold">Drop to open</p>
+          </div>
+        </div>
+      )}
       <Toolbar />
       <DocumentTabs />
       <ScaleBanner />
       <div className="flex min-h-0 flex-1">
         <SideToolbar />
         <PdfViewer key={state.activeTabId ?? "empty"} />
+        <MarkupsPanel />
       </div>
       <StatusBar />
       <CalibrateDialog />

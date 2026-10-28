@@ -12,9 +12,16 @@ import {
   initialTabsState,
   type AppAction,
   type AppState,
+  type DocumentTab,
   type Point2D,
   type TabsState,
 } from "@/app/types";
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  type AppSettings,
+} from "@/app/utils/settings";
 import { appendHistory } from "@/app/utils/history";
 import {
   loadAutoOrientPortrait,
@@ -37,12 +44,24 @@ function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): st
   return selectedIds.filter((id) => !removed.has(id));
 }
 
+/** Ends the in-progress area/count; an area with fewer than 3 vertices is discarded. */
+function finishDrawingShape(tab: DocumentTab): DocumentTab {
+  if (!tab.drawingShapeId) return tab;
+  const shape = tab.shapes.find((s) => s.id === tab.drawingShapeId);
+  const incomplete = shape?.kind === "area" && shape.points.length < 3;
+  return {
+    ...tab,
+    drawingShapeId: null,
+    shapes: incomplete ? tab.shapes.filter((s) => s.id !== shape.id) : tab.shapes,
+  };
+}
+
 function tabsReducer(state: TabsState, action: AppAction): TabsState {
   switch (action.type) {
     case "SET_TOOL":
       return {
         ...updateActiveTab(state, (tab) => ({
-          ...tab,
+          ...finishDrawingShape(tab),
           pendingPoint: null,
           pendingMarquee: null,
           editingDimension: null,
@@ -50,7 +69,52 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           selectedIds: action.tool === "select" ? tab.selectedIds : [],
         })),
         tool: action.tool,
+        countStart: action.tool === "count" ? 1 : state.countStart,
       };
+    case "SET_CLOUD_MODE":
+      return { ...state, cloudMode: action.mode };
+    case "SET_LINE_MODE":
+      return { ...state, lineMode: action.mode };
+    case "SET_RECT_MODE":
+      return { ...state, rectMode: action.mode };
+    case "UPDATE_SETTINGS":
+      return { ...state, settings: { ...state.settings, ...action.patch } };
+    case "SET_TOOL_COLOR":
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          toolColors: { ...state.settings.toolColors, [action.tool]: action.color },
+        },
+      };
+    case "SET_HOTKEY": {
+      // A key belongs to one tool: assigning it here takes it away from any other.
+      const hotkeys = Object.fromEntries(
+        Object.entries(state.settings.hotkeys).map(([tool, key]) => [
+          tool,
+          tool === action.tool ? action.key : key === action.key ? "" : key,
+        ]),
+      ) as AppSettings["hotkeys"];
+      return { ...state, settings: { ...state.settings, hotkeys } };
+    }
+    case "RESET_SETTINGS":
+      return { ...state, settings: DEFAULT_SETTINGS };
+    case "SET_COUNT_START":
+      return { ...state, countStart: Math.max(0, Math.floor(action.start)) };
+    case "SET_ANNOTATION_LABEL":
+      return updateActiveTab(state, (tab) => {
+        const label = action.label.trim() || undefined;
+        const rename = <T extends { id: string; label?: string }>(a: T): T =>
+          a.id === action.id ? { ...a, label } : a;
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          measurements: tab.measurements.map(rename),
+          rectangles: tab.rectangles.map(rename),
+          notes: tab.notes.map(rename),
+          shapes: tab.shapes.map(rename),
+        };
+      });
     case "SET_DISPLAY_UNIT":
       return { ...state, displayUnit: action.unit };
     case "LOAD_FILE": {
@@ -80,6 +144,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         measurements: action.measurements,
         rectangles: action.rectangles,
         notes: action.notes,
+        shapes: action.shapes,
         zoom: action.zoom,
         rotation: action.rotation,
         projectHandle: action.handle ?? null,
@@ -221,6 +286,47 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
         editingNoteId: tab.editingNoteId === action.id ? null : tab.editingNoteId,
       }));
+    case "ADD_SHAPE": {
+      const { shape } = action;
+      const next = updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        shapes: [...tab.shapes, shape],
+        pendingPoint: null,
+        drawingShapeId: action.drawing ? shape.id : null,
+        ...(shape.kind === "callout"
+          ? { selectedIds: [shape.id], editingNoteId: shape.id }
+          : {}),
+      }));
+      // Callouts open straight into text editing, like notes.
+      return shape.kind === "callout" ? { ...next, tool: "select" } : next;
+    }
+    case "APPEND_SHAPE_POINT":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        shapes: tab.shapes.map((s) =>
+          s.id === action.id ? { ...s, points: [...s.points, action.point] } : s,
+        ),
+      }));
+    case "FINISH_SHAPE":
+      return updateActiveTab(state, finishDrawingShape);
+    case "UPDATE_SHAPE":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        shapes: tab.shapes.map((s) =>
+          s.id === action.id ? { ...s, ...action.updates } : s,
+        ),
+      }));
+    case "DELETE_SHAPE":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        shapes: tab.shapes.filter((s) => s.id !== action.id),
+        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
+        editingNoteId: tab.editingNoteId === action.id ? null : tab.editingNoteId,
+        drawingShapeId: tab.drawingShapeId === action.id ? null : tab.drawingShapeId,
+      }));
     case "SET_SELECTION":
       return updateActiveTab(state, (tab) => ({
         ...tab,
@@ -262,6 +368,11 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
               ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
               : n,
           ),
+          shapes: tab.shapes.map((s) =>
+            selected.has(s.id)
+              ? { ...s, points: s.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) }
+              : s,
+          ),
         };
       });
     case "DELETE_SELECTED":
@@ -277,6 +388,9 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           ),
           rectangles: tab.rectangles.filter((r) => !selected.has(r.id)),
           notes: tab.notes.filter((n) => !selected.has(n.id)),
+          shapes: tab.shapes.filter((s) => !selected.has(s.id)),
+          drawingShapeId:
+            tab.drawingShapeId && selected.has(tab.drawingShapeId) ? null : tab.drawingShapeId,
           selectedIds: [],
           editingDimension: null,
           editingNoteId: null,
@@ -287,7 +401,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         const targetIds = new Set(action.ids);
         return {
           ...tab,
-          history: appendHistory(tab),
+          // A colour-wheel drag sends many updates; only its first one records undo.
+          history: action.recordUndo === false ? tab.history : appendHistory(tab),
           measurements: tab.measurements.map((m) =>
             targetIds.has(m.id) && !m.isCalibration
               ? { ...m, color: action.color }
@@ -298,6 +413,9 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           ),
           notes: tab.notes.map((n) =>
             targetIds.has(n.id) ? { ...n, color: action.color } : n,
+          ),
+          shapes: tab.shapes.map((s) =>
+            targetIds.has(s.id) ? { ...s, color: action.color } : s,
           ),
         };
       });
@@ -352,6 +470,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         measurements: [],
         rectangles: [],
         notes: [],
+        shapes: [],
+        drawingShapeId: null,
         selectedIds: [],
         pendingPoint: null,
         pendingMarquee: null,
@@ -375,6 +495,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           measurements: snapshot.measurements,
           rectangles: snapshot.rectangles,
           notes: snapshot.notes,
+          shapes: snapshot.shapes,
           scale: snapshot.scale,
           selectedIds: snapshot.selectedIds,
           pendingPoint: null,
@@ -431,6 +552,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
             bottomRight: move(r.bottomRight),
           })),
           notes: tab.notes.map((n) => ({ ...n, position: move(n.position) })),
+          shapes: tab.shapes.map((s) => ({ ...s, points: s.points.map(move) })),
         };
       });
     case "PASTE_ANNOTATIONS": {
@@ -438,6 +560,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...action.measurements.map((m) => m.id),
         ...action.rectangles.map((r) => r.id),
         ...action.notes.map((n) => n.id),
+        ...action.shapes.map((s) => s.id),
       ];
       if (pastedIds.length === 0) return state;
       return {
@@ -447,6 +570,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           measurements: [...tab.measurements, ...action.measurements],
           rectangles: [...tab.rectangles, ...action.rectangles],
           notes: [...tab.notes, ...action.notes],
+          shapes: [...tab.shapes, ...action.shapes],
           selectedIds: pastedIds,
           pendingPoint: null,
           pendingMarquee: null,
@@ -474,6 +598,7 @@ function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
       tab.measurements !== before.measurements ||
       tab.rectangles !== before.rectangles ||
       tab.notes !== before.notes ||
+      tab.shapes !== before.shapes ||
       tab.scale !== before.scale
     ) {
       changed = true;
@@ -493,11 +618,14 @@ function appReducer(state: TabsState, action: AppAction): TabsState {
 }
 
 function initTabsState(state: TabsState): TabsState {
+  const settings = loadSettings();
   return {
     ...state,
     confirmCloseUnsaved: loadConfirmCloseUnsaved(),
     snapLines: loadSnapLines(),
     autoOrientPortrait: loadAutoOrientPortrait(),
+    settings,
+    displayUnit: settings.defaultUnit,
   };
 }
 
@@ -516,6 +644,11 @@ function mergeActiveTabView(state: TabsState): AppState {
       pendingCloseTabId: state.pendingCloseTabId,
       snapLines: state.snapLines,
       autoOrientPortrait: state.autoOrientPortrait,
+      cloudMode: state.cloudMode,
+      countStart: state.countStart,
+      lineMode: state.lineMode,
+      rectMode: state.rectMode,
+      settings: state.settings,
     };
   }
 
@@ -532,6 +665,11 @@ function mergeActiveTabView(state: TabsState): AppState {
     pendingCloseTabId: state.pendingCloseTabId,
     snapLines: state.snapLines,
     autoOrientPortrait: state.autoOrientPortrait,
+    cloudMode: state.cloudMode,
+    countStart: state.countStart,
+    lineMode: state.lineMode,
+    rectMode: state.rectMode,
+    settings: state.settings,
   };
 }
 
@@ -549,6 +687,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveSnapLines(tabsState.snapLines);
   }, [tabsState.snapLines]);
+
+  useEffect(() => {
+    saveSettings(tabsState.settings);
+  }, [tabsState.settings]);
 
   useEffect(() => {
     saveAutoOrientPortrait(tabsState.autoOrientPortrait);

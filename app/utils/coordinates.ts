@@ -263,16 +263,21 @@ export function snapScreenPointToAxis(
   anchor: Point2D,
   point: Point2D,
   thresholdDeg = 5,
+  stepDeg = 90,
 ): Point2D {
   const dx = point.x - anchor.x;
   const dy = point.y - anchor.y;
   if (dx === 0 && dy === 0) return point;
-  const angle = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-  const fromHorizontal = Math.min(angle, 180 - angle);
-  const fromVertical = Math.abs(90 - angle);
-  if (fromHorizontal <= thresholdDeg) return { x: point.x, y: anchor.y };
-  if (fromVertical <= thresholdDeg) return { x: anchor.x, y: point.y };
-  return point;
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const snapped = Math.round(angle / stepDeg) * stepDeg;
+  if (Math.abs(angle - snapped) > thresholdDeg) return point;
+  if (snapped % 180 === 0) return { x: point.x, y: anchor.y };
+  if (snapped % 90 === 0) return { x: anchor.x, y: point.y };
+  // Diagonal: project onto the snapped direction so the length is kept.
+  const rad = (snapped * Math.PI) / 180;
+  const dir = { x: Math.cos(rad), y: Math.sin(rad) };
+  const along = dx * dir.x + dy * dir.y;
+  return { x: anchor.x + dir.x * along, y: anchor.y + dir.y * along };
 }
 
 export interface InlineLineLayout {

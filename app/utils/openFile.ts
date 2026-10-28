@@ -59,6 +59,7 @@ export async function openDocumentFile(
         measurements: project.measurements,
         rectangles: project.rectangles,
         notes: project.notes,
+        shapes: project.shapes,
         displayUnit: project.displayUnit,
         zoom: project.zoom,
         rotation: project.rotation,

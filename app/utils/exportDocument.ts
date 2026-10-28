@@ -1,4 +1,15 @@
-import { PDFDocument, rgb, StandardFonts, degrees, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  rgb,
+  StandardFonts,
+  degrees,
+  LineJoinStyle,
+  popGraphicsState,
+  pushGraphicsState,
+  setLineJoin,
+  type PDFFont,
+  type PDFPage,
+} from "pdf-lib";
 import type {
   DocumentType,
   Measurement,
@@ -6,6 +17,7 @@ import type {
   Point2D,
   RectMeasurement,
   Scale,
+  ShapeAnnotation,
   Unit,
 } from "@/app/types";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -27,6 +39,9 @@ import {
   getRectDocWidth,
 } from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
+import { getScreenAxes, NOTE_CARD, wrapNoteText } from "@/app/utils/noteLayout";
+import { cloudOutline, cloudPath, polygonCentroid } from "@/app/utils/geometry";
+import { CALLOUT_LEADER_OFFSET, countStartAt, getShapeLabel } from "@/app/utils/shapeMetrics";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 export type ExportSaveMode = "download" | "choose-location";
@@ -159,6 +174,7 @@ function fillArrowOnCanvas(
   arrowHalfWidth: number,
   color: string,
 ) {
+  if (arrowLen <= 0) return;
   const { tip, dir } = arrow;
   const perp = { x: -dir.y, y: dir.x };
   const baseX = tip.x - dir.x * arrowLen;
@@ -225,6 +241,7 @@ function fillArrowOnPdf(
   arrowHalfWidth: number,
   color: ReturnType<typeof rgb>,
 ) {
+  if (arrowLen <= 0) return;
   const { tip, dir } = arrow;
   const perp = { x: -dir.y, y: dir.x };
   const baseX = tip.x - dir.x * arrowLen;
@@ -342,7 +359,7 @@ function drawMeasurementOnCanvas(
 ) {
   const color = getLineColor(measurement);
   const label =
-    scale ? getMeasurementLabel(measurement, scale, displayUnit) : null;
+    scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
   drawInlineLineOnCanvas(
     context,
@@ -352,7 +369,7 @@ function drawMeasurementOnCanvas(
     style.lineWidth,
     label,
     style.fontSize,
-    style.arrowLen,
+    measurement.plain ? 0 : style.arrowLen,
     style.arrowHalfWidth,
     upDir,
   );
@@ -382,9 +399,11 @@ function drawRectangleOnCanvas(
   const docWidth = getRectDocWidth(rectangle);
   const docHeightValue = getRectDocHeight(rectangle);
   const widthLabel =
-    scale && docWidth > 0 ? getRectDimensionLabel(docWidth, scale, displayUnit) : null;
+    scale && docWidth > 0 && !rectangle.plain
+      ? getRectDimensionLabel(docWidth, scale, displayUnit)
+      : null;
   const heightLabel =
-    scale && docHeightValue > 0
+    scale && docHeightValue > 0 && !rectangle.plain
       ? getRectDimensionLabel(docHeightValue, scale, displayUnit)
       : null;
 
@@ -434,58 +453,357 @@ function drawRectangleOnCanvas(
   }
 }
 
-function drawNoteOnCanvas(
-  context: CanvasRenderingContext2D,
-  note: NoteAnnotation,
-  style: ExportStyle,
-) {
-  const color = getNoteColor(note);
-  const fontSize = style.fontSize;
-  context.font = `500 ${fontSize}px Helvetica, Arial, sans-serif`;
-  const textWidth = Math.max(context.measureText(note.text || " ").width + 16, 48);
-  const textHeight = fontSize + 12;
-
-  context.fillStyle = "rgba(15, 23, 42, 0.55)";
-  context.strokeStyle = color;
-  context.lineWidth = 1;
-  context.fillRect(note.position.x, note.position.y, textWidth, textHeight);
-  context.strokeRect(note.position.x, note.position.y, textWidth, textHeight);
-
-  context.fillStyle = color;
-  context.textBaseline = "top";
-  context.fillText(note.text, note.position.x + 8, note.position.y + 6);
+interface NoteCardLayout {
+  lines: string[];
+  width: number;
+  height: number;
+  fontSize: number;
+  lineHeight: number;
+  padX: number;
+  padY: number;
+  accentWidth: number;
 }
 
-function drawNoteOnPdf(
+function layoutNoteCard(
+  text: string,
+  zoom: number,
+  measureAtSize: (s: string, size: number) => number,
+): NoteCardLayout {
+  const k = 1 / Math.max(zoom, 0.0001);
+  const fontSize = NOTE_CARD.fontSize * k;
+  const padX = NOTE_CARD.padX * k;
+  const accentWidth = NOTE_CARD.accentWidth * k;
+  const measure = (s: string) => measureAtSize(s, fontSize);
+  const lines = wrapNoteText(text, measure, NOTE_CARD.maxTextWidth * k);
+  const textWidth = Math.max(...lines.map(measure));
+  return {
+    lines,
+    width: Math.max(textWidth + padX * 2 + accentWidth, NOTE_CARD.minWidth * k),
+    height: lines.length * NOTE_CARD.lineHeight * k + NOTE_CARD.padY * 2 * k,
+    fontSize,
+    lineHeight: NOTE_CARD.lineHeight * k,
+    padX,
+    padY: NOTE_CARD.padY * k,
+    accentWidth,
+  };
+}
+
+/** Draws a note card whose top-left sits at `anchor`, aligned to the screen view. */
+function drawNoteCardOnCanvas(
+  context: CanvasRenderingContext2D,
+  anchor: Point2D,
+  text: string,
+  color: string,
+  zoom: number,
+  upDir: Point2D,
+) {
+  const font = (size: number) => `${size}px Helvetica, Arial, sans-serif`;
+  const layout = layoutNoteCard(text, zoom, (s, size) => {
+    context.font = font(size);
+    return context.measureText(s).width;
+  });
+  const { right } = getScreenAxes(upDir, false);
+
+  context.save();
+  context.translate(anchor.x, anchor.y);
+  context.rotate(Math.atan2(right.y, right.x));
+  context.fillStyle = "rgba(255, 255, 255, 0.96)";
+  context.fillRect(0, 0, layout.width, layout.height);
+  context.strokeStyle = `${color}99`;
+  context.lineWidth = layout.fontSize / 13;
+  context.strokeRect(0, 0, layout.width, layout.height);
+  context.fillStyle = color;
+  context.fillRect(0, 0, layout.accentWidth, layout.height);
+
+  context.font = font(layout.fontSize);
+  context.fillStyle = NOTE_CARD.textColor;
+  context.textBaseline = "middle";
+  layout.lines.forEach((line, i) => {
+    context.fillText(
+      line,
+      layout.accentWidth + layout.padX,
+      layout.padY + (i + 0.5) * layout.lineHeight,
+    );
+  });
+  context.restore();
+}
+
+function drawNoteCardOnPdf(
   page: PDFPage,
-  note: NoteAnnotation,
-  style: ExportStyle,
+  anchor: Point2D,
+  text: string,
+  color: string,
+  zoom: number,
+  upDir: Point2D,
   font: PDFFont,
 ) {
-  const colorHex = hexToRgb(getNoteColor(note));
-  const color = rgb(colorHex.r, colorHex.g, colorHex.b);
-  const fontSize = style.fontSize;
-  const textWidth = Math.max(font.widthOfTextAtSize(note.text || " ", fontSize) + 16, 48);
-  const textHeight = fontSize + 12;
+  const layout = layoutNoteCard(text, zoom, (s, size) => font.widthOfTextAtSize(s, size));
+  const { right, down } = getScreenAxes(upDir, true);
+  const rotate = degrees((Math.atan2(right.y, right.x) * 180) / Math.PI);
+  const at = (dx: number, dy: number) => ({
+    x: anchor.x + right.x * dx + down.x * dy,
+    y: anchor.y + right.y * dx + down.y * dy,
+  });
+  const { r, g, b } = hexToRgb(color);
+  const accent = rgb(r, g, b);
+  // pdf-lib rotates rectangles and text about their bottom-left corner / baseline start.
+  const bottomLeft = at(0, layout.height);
 
   page.drawRectangle({
-    x: note.position.x,
-    y: note.position.y,
-    width: textWidth,
-    height: textHeight,
-    color: rgb(0.06, 0.09, 0.16),
-    opacity: 0.55,
-    borderColor: color,
-    borderWidth: 1,
+    ...bottomLeft,
+    width: layout.width,
+    height: layout.height,
+    rotate,
+    color: rgb(1, 1, 1),
+    opacity: 0.96,
+    borderColor: accent,
+    borderOpacity: 0.6,
+    borderWidth: layout.fontSize / 13,
+  });
+  page.drawRectangle({
+    ...bottomLeft,
+    width: layout.accentWidth,
+    height: layout.height,
+    rotate,
+    color: accent,
   });
 
-  page.drawText(note.text, {
-    x: note.position.x + 8,
-    y: note.position.y + 6,
-    size: fontSize,
-    font,
-    color,
+  const { r: tr, g: tg, b: tb } = hexToRgb(NOTE_CARD.textColor);
+  layout.lines.forEach((line, i) => {
+    if (!line) return;
+    // Baseline sits ~0.35em below the line's vertical centre.
+    const baseline = layout.padY + (i + 0.5) * layout.lineHeight + layout.fontSize * 0.35;
+    page.drawText(line, {
+      ...at(layout.accentWidth + layout.padX, baseline),
+      size: layout.fontSize,
+      font,
+      color: rgb(tr, tg, tb),
+      rotate,
+    });
   });
+}
+
+/** Screen-px sizes used on canvas, divided by zoom so exports match the editor. */
+const SHAPE_PX = { cloudArc: 14, countRadius: 9, countFont: 10, countLabelDx: 52, countLabelDy: 18 };
+
+function shapeColor(shape: ShapeAnnotation): string {
+  return shape.color ?? DEFAULT_ANNOTATION_COLOR;
+}
+
+/** White pill with dark text, matching ShapeLabel on screen. */
+function drawPillLabelOnCanvas(
+  context: CanvasRenderingContext2D,
+  center: Point2D,
+  label: string,
+  angleDeg: number,
+  fontSize: number,
+  color: string,
+) {
+  context.save();
+  context.translate(center.x, center.y);
+  context.rotate((angleDeg * Math.PI) / 180);
+  context.font = `600 ${fontSize}px Helvetica, Arial, sans-serif`;
+  const width = context.measureText(label).width + fontSize * 1.2;
+  const height = fontSize * 1.8;
+  context.beginPath();
+  context.roundRect(-width / 2, -height / 2, width, height, height / 2);
+  context.fillStyle = "rgba(255, 255, 255, 0.95)";
+  context.fill();
+  context.strokeStyle = color;
+  context.lineWidth = fontSize / 12;
+  context.stroke();
+  context.fillStyle = NOTE_CARD.textColor;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, 0, 0);
+  context.restore();
+}
+
+function drawPillLabelOnPdf(
+  page: PDFPage,
+  center: Point2D,
+  label: string,
+  upDir: Point2D,
+  fontSize: number,
+  font: PDFFont,
+  color: ReturnType<typeof rgb>,
+) {
+  const { right, down } = getScreenAxes(upDir, true);
+  const angleDeg = (Math.atan2(right.y, right.x) * 180) / Math.PI;
+  const width = font.widthOfTextAtSize(label, fontSize) + fontSize * 1.2;
+  const height = fontSize * 1.8;
+  // pdf-lib rotates rectangles about their bottom-left corner.
+  page.drawRectangle({
+    x: center.x - (right.x * width) / 2 + (down.x * height) / 2,
+    y: center.y - (right.y * width) / 2 + (down.y * height) / 2,
+    width,
+    height,
+    rotate: degrees(angleDeg),
+    color: rgb(1, 1, 1),
+    opacity: 0.95,
+    borderColor: color,
+    borderWidth: fontSize / 12,
+  });
+  const { r, g, b } = hexToRgb(NOTE_CARD.textColor);
+  drawRotatedLabelOnPdf(page, center, label, angleDeg, fontSize, font, rgb(r, g, b));
+}
+
+function drawShapesOnCanvas(
+  context: CanvasRenderingContext2D,
+  shapes: ShapeAnnotation[],
+  scale: Scale | null,
+  displayUnit: Unit,
+  style: ExportStyle,
+  zoom: number,
+  upDir: Point2D,
+) {
+  const k = 1 / Math.max(zoom, 0.0001);
+  const { right, down } = getScreenAxes(upDir, false);
+  const textAngle = (Math.atan2(right.y, right.x) * 180) / Math.PI;
+
+  for (const shape of shapes) {
+    const color = shapeColor(shape);
+    const label = getShapeLabel(shape, scale, displayUnit);
+    context.strokeStyle = color;
+    context.lineWidth = style.borderWidth;
+
+    if (shape.kind === "area" && shape.points.length >= 3) {
+      const path = new Path2D();
+      shape.points.forEach((p, i) => (i === 0 ? path.moveTo(p.x, p.y) : path.lineTo(p.x, p.y)));
+      path.closePath();
+      context.fillStyle = `${color}2e`;
+      context.fill(path);
+      context.stroke(path);
+      if (label) {
+        drawPillLabelOnCanvas(context, polygonCentroid(shape.points), label, textAngle, style.fontSize, color);
+      }
+    } else if (shape.kind === "count") {
+      shape.points.forEach((p, i) => {
+        context.beginPath();
+        context.arc(p.x, p.y, SHAPE_PX.countRadius * k, 0, Math.PI * 2);
+        context.fillStyle = color;
+        context.fill();
+        drawRotatedLabelOnCanvas(context, p, String(countStartAt(shape) + i), textAngle, SHAPE_PX.countFont * k, "#ffffff");
+      });
+      const last = shape.points[shape.points.length - 1];
+      if (last && label) {
+        const at = {
+          x: last.x + right.x * SHAPE_PX.countLabelDx * k - down.x * SHAPE_PX.countLabelDy * k,
+          y: last.y + right.y * SHAPE_PX.countLabelDx * k - down.y * SHAPE_PX.countLabelDy * k,
+        };
+        drawPillLabelOnCanvas(context, at, label, textAngle, style.fontSize, color);
+      }
+    } else if (shape.kind === "cloud" && shape.points.length >= 2) {
+      const corners = cloudOutline(shape.points);
+      // Scallops meet at cusps; the default miter join turns those into spikes.
+      const cloud = new Path2D(cloudPath(corners, SHAPE_PX.cloudArc * k));
+      context.save();
+      context.fillStyle = `${color}1f`;
+      context.fill(cloud);
+      context.lineJoin = "round";
+      context.stroke(cloud);
+      context.restore();
+    } else if (shape.kind === "callout" && shape.points.length === 2) {
+      const [tip, anchor] = shape.points;
+      const end = {
+        x: anchor.x + down.x * CALLOUT_LEADER_OFFSET.y * k,
+        y: anchor.y + down.y * CALLOUT_LEADER_OFFSET.y * k,
+      };
+      const len = Math.hypot(tip.x - end.x, tip.y - end.y) || 1;
+      drawDocLineSegment(context, end, tip);
+      fillArrowOnCanvas(
+        context,
+        { tip, dir: { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len } },
+        style.arrowLen,
+        style.arrowHalfWidth,
+        color,
+      );
+      drawNoteCardOnCanvas(context, anchor, shape.text ?? "", color, zoom, upDir);
+    }
+  }
+}
+
+function drawShapesOnPdf(
+  page: PDFPage,
+  shapes: ShapeAnnotation[],
+  scale: Scale | null,
+  displayUnit: Unit,
+  style: ExportStyle,
+  zoom: number,
+  upDir: Point2D,
+  font: PDFFont,
+) {
+  const k = 1 / Math.max(zoom, 0.0001);
+  const { right, down } = getScreenAxes(upDir, true);
+  const textAngle = (Math.atan2(right.y, right.x) * 180) / Math.PI;
+  // drawSvgPath maps path (px, py) to PDF (px, -py); flip y so paths use absolute PDF coords.
+  const flip = (p: Point2D) => ({ x: p.x, y: -p.y });
+
+  for (const shape of shapes) {
+    const { r, g, b } = hexToRgb(shapeColor(shape));
+    const color = rgb(r, g, b);
+    const label = getShapeLabel(shape, scale, displayUnit);
+
+    if (shape.kind === "area" && shape.points.length >= 3) {
+      const path =
+        shape.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${-p.y}`).join(" ") + " Z";
+      page.drawSvgPath(path, {
+        x: 0,
+        y: 0,
+        color,
+        opacity: 0.18,
+        borderColor: color,
+        borderWidth: style.borderWidth,
+        borderOpacity: 1,
+      });
+      if (label) {
+        drawPillLabelOnPdf(page, polygonCentroid(shape.points), label, upDir, style.fontSize, font, color);
+      }
+    } else if (shape.kind === "count") {
+      shape.points.forEach((p, i) => {
+        page.drawCircle({ x: p.x, y: p.y, size: SHAPE_PX.countRadius * k, color });
+        drawRotatedLabelOnPdf(page, p, String(countStartAt(shape) + i), textAngle, SHAPE_PX.countFont * k, font, rgb(1, 1, 1));
+      });
+      const last = shape.points[shape.points.length - 1];
+      if (last && label) {
+        const at = {
+          x: last.x + right.x * SHAPE_PX.countLabelDx * k - down.x * SHAPE_PX.countLabelDy * k,
+          y: last.y + right.y * SHAPE_PX.countLabelDx * k - down.y * SHAPE_PX.countLabelDy * k,
+        };
+        drawPillLabelOnPdf(page, at, label, upDir, style.fontSize, font, color);
+      }
+    } else if (shape.kind === "cloud" && shape.points.length >= 2) {
+      const corners = cloudOutline(shape.points).map(flip);
+      // Scallops meet at cusps; the default miter join turns those into spikes.
+      page.pushOperators(pushGraphicsState(), setLineJoin(LineJoinStyle.Round));
+      page.drawSvgPath(cloudPath(corners, SHAPE_PX.cloudArc * k), {
+        x: 0,
+        y: 0,
+        color,
+        opacity: 0.12,
+        borderColor: color,
+        borderWidth: style.borderWidth,
+        borderOpacity: 1,
+      });
+      page.pushOperators(popGraphicsState());
+    } else if (shape.kind === "callout" && shape.points.length === 2) {
+      const [tip, anchor] = shape.points;
+      const end = {
+        x: anchor.x + down.x * CALLOUT_LEADER_OFFSET.y * k,
+        y: anchor.y + down.y * CALLOUT_LEADER_OFFSET.y * k,
+      };
+      const len = Math.hypot(tip.x - end.x, tip.y - end.y) || 1;
+      page.drawLine({ start: end, end: tip, thickness: style.borderWidth, color });
+      fillArrowOnPdf(
+        page,
+        { tip, dir: { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len } },
+        style.arrowLen,
+        style.arrowHalfWidth,
+        color,
+      );
+      drawNoteCardOnPdf(page, anchor, shape.text ?? "", shapeColor(shape), zoom, upDir, font);
+    }
+  }
 }
 
 export async function buildMarkedUpPdfBlob(
@@ -493,6 +811,7 @@ export async function buildMarkedUpPdfBlob(
   measurements: Measurement[],
   rectangles: RectMeasurement[],
   notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
   zoom: number,
@@ -506,7 +825,8 @@ export async function buildMarkedUpPdfBlob(
   for (const measurement of getExportMeasurements(measurements)) {
     const { r, g, b } = hexToRgb(getLineColor(measurement));
     const color = rgb(r, g, b);
-    const label = scale ? getMeasurementLabel(measurement, scale, displayUnit) : null;
+    const label =
+      scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
     drawInlineLineOnPdf(
       page,
@@ -517,7 +837,7 @@ export async function buildMarkedUpPdfBlob(
       label,
       style.fontSize,
       font,
-      style.arrowLen,
+      measurement.plain ? 0 : style.arrowLen,
       style.arrowHalfWidth,
       screenUpDoc,
     );
@@ -539,9 +859,11 @@ export async function buildMarkedUpPdfBlob(
     const docWidth = getRectDocWidth(rectangle);
     const docHeightValue = getRectDocHeight(rectangle);
     const widthLabel =
-      scale && docWidth > 0 ? getRectDimensionLabel(docWidth, scale, displayUnit) : null;
+      scale && docWidth > 0 && !rectangle.plain
+        ? getRectDimensionLabel(docWidth, scale, displayUnit)
+        : null;
     const heightLabel =
-      scale && docHeightValue > 0
+      scale && docHeightValue > 0 && !rectangle.plain
         ? getRectDimensionLabel(docHeightValue, scale, displayUnit)
         : null;
 
@@ -613,8 +935,10 @@ export async function buildMarkedUpPdfBlob(
     }
   }
 
+  drawShapesOnPdf(page, shapes, scale, displayUnit, style, zoom, screenUpDoc, font);
+
   for (const note of notes) {
-    drawNoteOnPdf(page, note, style, font);
+    drawNoteCardOnPdf(page, note.position, note.text, getNoteColor(note), zoom, screenUpDoc, font);
   }
 
   const output = await pdfDoc.save();
@@ -628,6 +952,7 @@ export async function buildMarkedUpImageBlob(
   measurements: Measurement[],
   rectangles: RectMeasurement[],
   notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
   zoom: number,
@@ -653,8 +978,10 @@ export async function buildMarkedUpImageBlob(
     drawRectangleOnCanvas(context, rectangle, scale, displayUnit, style);
   }
 
+  drawShapesOnCanvas(context, shapes, scale, displayUnit, style, zoom, screenUpDoc);
+
   for (const note of notes) {
-    drawNoteOnCanvas(context, note, style);
+    drawNoteCardOnCanvas(context, note.position, note.text, getNoteColor(note), zoom, screenUpDoc);
   }
 
   const blob = await new Promise<Blob | null>((resolve) => {
@@ -676,7 +1003,7 @@ export function getMarkedUpExportFileName(
   return fileType === "pdf" ? `marked-up-${base}.pdf` : `marked-up-${base}.png`;
 }
 
-function downloadBlob(blob: Blob, fileName: string) {
+export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -716,6 +1043,7 @@ export async function exportMarkedUpDocument(
   measurements: Measurement[],
   rectangles: RectMeasurement[],
   notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
   zoom: number,
@@ -729,6 +1057,7 @@ export async function exportMarkedUpDocument(
           measurements,
           rectangles,
           notes,
+          shapes,
           scale,
           displayUnit,
           zoom,
@@ -741,6 +1070,7 @@ export async function exportMarkedUpDocument(
           measurements,
           rectangles,
           notes,
+          shapes,
           scale,
           displayUnit,
           zoom,

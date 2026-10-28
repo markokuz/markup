@@ -5,12 +5,15 @@ import type { NoteAnnotation as NoteAnnotationType } from "@/app/types";
 import { toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
+import { NOTE_CARD } from "@/app/utils/noteLayout";
 
 const FOREIGN_OBJECT_WIDTH = 320;
 const FOREIGN_OBJECT_HEIGHT = 120;
 
 interface NoteAnnotationProps {
   note: NoteAnnotationType;
+  /** Shown when the text is empty. */
+  placeholder?: string;
   viewport: DocumentViewport;
   isSelected: boolean;
   isSelectMode: boolean;
@@ -25,6 +28,7 @@ interface NoteAnnotationProps {
 
 export function NoteAnnotation({
   note,
+  placeholder = "Note",
   viewport,
   isSelected,
   isSelectMode,
@@ -45,7 +49,19 @@ export function NoteAnnotation({
   const interactive = isEditing || isSelectMode;
   const selectionGlow = isSelected
     ? `0 0 0 3px ${SELECTION_ACCENT}66`
-    : undefined;
+    : "0 1px 3px rgba(15, 23, 42, 0.18)";
+  // Comment-card look; metrics shared with the PDF/PNG export via NOTE_CARD.
+  const cardStyle: React.CSSProperties = {
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    border: `1px solid ${color}99`,
+    borderLeft: `${NOTE_CARD.accentWidth}px solid ${color}`,
+    color: NOTE_CARD.textColor,
+    fontSize: NOTE_CARD.fontSize,
+    lineHeight: `${NOTE_CARD.lineHeight}px`,
+    padding: `${NOTE_CARD.padY}px ${NOTE_CARD.padX}px`,
+    maxWidth: NOTE_CARD.maxTextWidth + NOTE_CARD.padX * 2 + NOTE_CARD.accentWidth,
+    minWidth: NOTE_CARD.minWidth,
+  };
 
   useEffect(() => {
     if (!isEditing) return;
@@ -121,24 +137,30 @@ export function NoteAnnotation({
       height={FOREIGN_OBJECT_HEIGHT}
       style={{ overflow: "visible", pointerEvents: interactive ? "all" : "none" }}
     >
-      <div className="inline-block max-w-[min(40vw,320px)]">
+      <div className="inline-block">
         {isEditing ? (
           <textarea
             ref={textareaRef}
             autoFocus
             defaultValue={note.text}
             rows={1}
-            className="block w-fit min-w-[4rem] resize-none rounded border px-2 py-1 font-sans text-sm outline-none"
-            style={{
-              backgroundColor: "rgba(15, 23, 42, 0.55)",
-              borderColor: color,
-              color,
-            }}
+            className="block resize-none rounded-md font-sans outline-none"
+            style={
+              {
+                ...cardStyle,
+                boxShadow: `0 0 0 3px ${color}33`,
+                // Auto-sized to its content, so a scroll bar is never needed.
+                overflow: "hidden",
+                // Grow with the text like the display card instead of a fixed textarea width.
+                fieldSizing: "content",
+              } as React.CSSProperties
+            }
             onPointerDown={(event) => event.stopPropagation()}
             onInput={(event) => {
               const target = event.target as HTMLTextAreaElement;
               target.style.height = "auto";
-              target.style.height = `${target.scrollHeight}px`;
+              // border-box sizing: add the borders, or the last line is clipped.
+              target.style.height = `${target.scrollHeight + target.offsetHeight - target.clientHeight}px`;
               onUpdateText(note.id, target.value);
             }}
             onKeyDown={(event) => {
@@ -156,13 +178,10 @@ export function NoteAnnotation({
           />
         ) : (
           <div
-            className="rounded border px-2 py-1 font-sans text-sm whitespace-pre-wrap break-words"
+            className="rounded-md font-sans whitespace-pre-wrap break-words"
             style={{
-              backgroundColor: "rgba(15, 23, 42, 0.55)",
-              borderColor: color,
-              color,
+              ...cardStyle,
               width: "fit-content",
-              minWidth: "3rem",
               cursor: isSelectMode ? "pointer" : "default",
               boxShadow: selectionGlow,
             }}
@@ -170,7 +189,7 @@ export function NoteAnnotation({
             onPointerMove={handleDisplayPointerMove}
             onPointerUp={handleDisplayPointerUp}
           >
-            {note.text || "Note"}
+            {note.text || placeholder}
           </div>
         )}
       </div>

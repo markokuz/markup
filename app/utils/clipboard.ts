@@ -5,6 +5,7 @@ import type {
   Point2D,
   RectMeasurement,
   Scale,
+  ShapeAnnotation,
 } from "@/app/types";
 import {
   defaultScreenLabelOffsetDoc,
@@ -22,9 +23,10 @@ import { toMeters } from "@/app/utils/units";
  * That lets a paste land the same way up in any tab, whatever its file type.
  */
 interface MarkupClipboard {
-  lines: { start: Point2D; end: Point2D; color?: string }[];
-  rects: { cornerA: Point2D; cornerB: Point2D; color?: string }[];
-  notes: { position: Point2D; text: string; color?: string }[];
+  lines: { start: Point2D; end: Point2D; color?: string; label?: string }[];
+  rects: { cornerA: Point2D; cornerB: Point2D; color?: string; label?: string }[];
+  notes: { position: Point2D; text: string; color?: string; label?: string }[];
+  shapes: Omit<ShapeAnnotation, "id">[];
   /** Centre of the copied group's bounding box. */
   center: Point2D;
   /** Real-world metres per unit in the source tab (null if uncalibrated). */
@@ -46,6 +48,7 @@ interface CopySource {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
   selectedIds: string[];
   scale: Scale | null;
   zoom: number;
@@ -62,22 +65,27 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
 
   const lines = source.measurements
     .filter((m) => selected.has(m.id) && !m.isCalibration)
-    .map((m) => ({ start: toView(m.start), end: toView(m.end), color: m.color }));
+    .map((m) => ({ start: toView(m.start), end: toView(m.end), color: m.color, label: m.label }));
   const rects = source.rectangles
     .filter((r) => selected.has(r.id))
     .map((r) => ({
       cornerA: toView(r.topLeft),
       cornerB: toView(r.bottomRight),
       color: r.color,
+      label: r.label,
     }));
   const notes = source.notes
     .filter((n) => selected.has(n.id))
-    .map((n) => ({ position: toView(n.position), text: n.text, color: n.color }));
+    .map((n) => ({ position: toView(n.position), text: n.text, color: n.color, label: n.label }));
+  const shapes = source.shapes
+    .filter((s) => selected.has(s.id))
+    .map(({ id: _id, ...s }) => ({ ...s, points: s.points.map(toView) }));
 
   const points = [
     ...lines.flatMap((l) => [l.start, l.end]),
     ...rects.flatMap((r) => [r.cornerA, r.cornerB]),
     ...notes.map((n) => n.position),
+    ...shapes.flatMap((s) => s.points),
   ];
   if (points.length === 0) return 0;
 
@@ -87,13 +95,14 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
     lines,
     rects,
     notes,
+    shapes,
     center: midpoint(
       { x: Math.min(...xs), y: Math.min(...ys) },
       { x: Math.max(...xs), y: Math.max(...ys) },
     ),
     metersPerUnit: metersPerDocUnit(source.scale),
   };
-  return lines.length + rects.length + notes.length;
+  return lines.length + rects.length + notes.length + shapes.length;
 }
 
 interface PasteTarget {
@@ -113,6 +122,7 @@ export function buildPaste(target: PasteTarget): {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
 } | null {
   if (!clipboard) return null;
   const clip = clipboard;
@@ -137,6 +147,7 @@ export function buildPaste(target: PasteTarget): {
       end,
       labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
       ...(line.color ? { color: line.color } : {}),
+      ...(line.label ? { label: line.label } : {}),
     };
   });
 
@@ -148,6 +159,7 @@ export function buildPaste(target: PasteTarget): {
       widthLabelOffset: { x: 0, y: 0 },
       heightLabelOffset: { x: 0, y: 0 },
       ...(rect.color ? { color: rect.color } : {}),
+      ...(rect.label ? { label: rect.label } : {}),
     };
     return {
       ...base,
@@ -169,7 +181,14 @@ export function buildPaste(target: PasteTarget): {
     position: toDoc(note.position),
     text: note.text,
     ...(note.color ? { color: note.color } : {}),
+    ...(note.label ? { label: note.label } : {}),
   }));
 
-  return { measurements, rectangles, notes };
+  const shapes: ShapeAnnotation[] = clip.shapes.map((shape) => ({
+    ...shape,
+    id: crypto.randomUUID(),
+    points: shape.points.map(toDoc),
+  }));
+
+  return { measurements, rectangles, notes, shapes };
 }

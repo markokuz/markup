@@ -26,6 +26,7 @@ type SavableTab = Pick<
   | "measurements"
   | "rectangles"
   | "notes"
+  | "shapes"
   | "zoom"
   | "rotation"
   | "projectHandle"
@@ -49,6 +50,7 @@ export async function saveTabProject(
     measurements: tab.measurements,
     rectangles: tab.rectangles,
     notes: tab.notes,
+    shapes: tab.shapes,
     displayUnit,
     zoom: tab.zoom,
     rotation: tab.rotation,

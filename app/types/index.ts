@@ -1,4 +1,5 @@
 import type { DocumentViewport } from "@/app/utils/documentViewport";
+import { DEFAULT_SETTINGS, type AppSettings, type ColorTool } from "@/app/utils/settings";
 
 export type ToolMode =
   | "calibrate"
@@ -6,7 +7,11 @@ export type ToolMode =
   | "rectangle"
   | "select"
   | "pan"
-  | "note";
+  | "note"
+  | "area"
+  | "count"
+  | "cloud"
+  | "callout";
 
 export type Unit = "ft" | "in" | "m" | "mm";
 
@@ -26,6 +31,10 @@ export interface Measurement {
   labelOffset: Point2D;
   isCalibration?: boolean;
   color?: string;
+  /** User-given name shown in the Markups list (e.g. "Kitchen"). */
+  label?: string;
+  /** Drawn as a plain markup line: no dimension label or arrowheads. */
+  plain?: boolean;
 }
 
 export interface RectMeasurement {
@@ -35,6 +44,9 @@ export interface RectMeasurement {
   widthLabelOffset: Point2D;
   heightLabelOffset: Point2D;
   color?: string;
+  label?: string;
+  /** Drawn as a plain markup box: no dimension labels. */
+  plain?: boolean;
 }
 
 export interface NoteAnnotation {
@@ -42,7 +54,28 @@ export interface NoteAnnotation {
   position: Point2D;
   text: string;
   color?: string;
+  label?: string;
 }
+
+export type ShapeKind = "area" | "count" | "cloud" | "callout";
+
+/** Generic multi-point markup: area polygon, count group, revision cloud or callout. */
+export interface ShapeAnnotation {
+  id: string;
+  kind: ShapeKind;
+  /** area: vertices · count: markers · cloud: two corners · callout: [arrow tip, text anchor] */
+  points: Point2D[];
+  /** Callout text. */
+  text?: string;
+  color?: string;
+  label?: string;
+  /** Count only: number of the first marker (defaults to 1). */
+  startAt?: number;
+}
+
+export type CloudMode = "rect" | "freehand";
+/** Line and Rect tools: dimensioned measurement or plain markup. */
+export type DrawMode = "measure" | "plain";
 
 export interface Scale {
   unitsPerPdfPoint: number;
@@ -69,6 +102,7 @@ export interface UndoSnapshot {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
   scale: Scale | null;
   selectedIds: string[];
 }
@@ -84,6 +118,9 @@ export interface DocumentTab {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
+  /** Area polygon or count group still receiving clicks. */
+  drawingShapeId: string | null;
   selectedIds: string[];
   pendingPoint: Point2D | null;
   pendingMarquee: PendingMarquee | null;
@@ -123,6 +160,13 @@ export interface TabsState {
   snapLines: boolean;
   /** Open portrait pages rotated to 270°. */
   autoOrientPortrait: boolean;
+  /** Cloud tool: drag a rectangle or draw a freehand outline. */
+  cloudMode: CloudMode;
+  /** First marker number for new count groups; resets to 1 when the Count tool is picked. */
+  countStart: number;
+  lineMode: DrawMode;
+  rectMode: DrawMode;
+  settings: AppSettings;
 }
 
 /** Merged view of the active tab plus global settings (returned by useAppState). */
@@ -137,6 +181,11 @@ export type AppState = Omit<DocumentTab, "id"> & {
   pendingCloseTabId: string | null;
   snapLines: boolean;
   autoOrientPortrait: boolean;
+  cloudMode: CloudMode;
+  countStart: number;
+  lineMode: DrawMode;
+  rectMode: DrawMode;
+  settings: AppSettings;
 };
 
 export type AppAction =
@@ -159,6 +208,7 @@ export type AppAction =
       measurements: Measurement[];
       rectangles: RectMeasurement[];
       notes: NoteAnnotation[];
+      shapes: ShapeAnnotation[];
       displayUnit: Unit;
       zoom: number;
       rotation: DocumentRotation;
@@ -184,10 +234,24 @@ export type AppAction =
   | { type: "ADD_NOTE"; note: NoteAnnotation }
   | { type: "UPDATE_NOTE"; id: string; updates: Partial<NoteAnnotation> }
   | { type: "DELETE_NOTE"; id: string }
+  | { type: "ADD_SHAPE"; shape: ShapeAnnotation; drawing?: boolean }
+  | { type: "APPEND_SHAPE_POINT"; id: string; point: Point2D }
+  | { type: "FINISH_SHAPE" }
+  | { type: "UPDATE_SHAPE"; id: string; updates: Partial<ShapeAnnotation> }
+  | { type: "DELETE_SHAPE"; id: string }
   | { type: "SET_SELECTION"; ids: string[] }
   | { type: "NUDGE_SELECTED"; dx: number; dy: number; recordUndo: boolean }
   | { type: "DELETE_SELECTED" }
-  | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string }
+  | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string; recordUndo?: boolean }
+  | { type: "SET_ANNOTATION_LABEL"; id: string; label: string }
+  | { type: "SET_CLOUD_MODE"; mode: CloudMode }
+  | { type: "SET_LINE_MODE"; mode: DrawMode }
+  | { type: "SET_RECT_MODE"; mode: DrawMode }
+  | { type: "UPDATE_SETTINGS"; patch: Partial<AppSettings> }
+  | { type: "SET_TOOL_COLOR"; tool: ColorTool; color: string }
+  | { type: "SET_HOTKEY"; tool: ToolMode; key: string }
+  | { type: "RESET_SETTINGS" }
+  | { type: "SET_COUNT_START"; start: number }
   | { type: "SET_EDITING_DIMENSION"; editing: EditingDimension | null }
   | { type: "CLEAR_EDITING_DIMENSION" }
   | { type: "SET_EDITING_NOTE"; id: string | null }
@@ -210,6 +274,7 @@ export type AppAction =
       measurements: Measurement[];
       rectangles: RectMeasurement[];
       notes: NoteAnnotation[];
+      shapes: ShapeAnnotation[];
     };
 
 export const initialTabsState: TabsState = {
@@ -223,4 +288,9 @@ export const initialTabsState: TabsState = {
   pendingCloseTabId: null,
   snapLines: true,
   autoOrientPortrait: true,
+  cloudMode: "rect",
+  countStart: 1,
+  lineMode: "measure",
+  rectMode: "measure",
+  settings: DEFAULT_SETTINGS,
 };

@@ -36,6 +36,8 @@ interface InlineDimensionLineProps {
     event: React.PointerEvent,
   ) => void;
   showEndpointHandles?: boolean;
+  /** False for plain markup lines: no arrowheads. */
+  showArrows?: boolean;
 }
 
 export function InlineDimensionLine({
@@ -59,9 +61,10 @@ export function InlineDimensionLine({
   onBodyPointerDown,
   onEndpointPointerDown,
   showEndpointHandles = false,
+  showArrows = true,
 }: InlineDimensionLineProps) {
   const labelWidth = estimateLabelWidth(label);
-  const layout = computeDimensionLayout(start, end, labelWidth, ARROW_LEN);
+  const layout = computeDimensionLayout(start, end, labelWidth, showArrows ? ARROW_LEN : 0);
 
   const handleLinePointerDown = (event: React.PointerEvent) => {
     if (!interactive) return;
@@ -73,12 +76,14 @@ export function InlineDimensionLine({
     }
   };
 
-  const lineSegments = layout.showGap
-    ? [
-        [layout.segment1Start, layout.segment1End] as const,
-        [layout.segment2Start, layout.segment2End] as const,
-      ]
-    : [[layout.fullStart, layout.fullEnd] as const];
+  // No label ("—"): draw one unbroken line instead of leaving a gap for text.
+  const lineSegments =
+    layout.showGap && label !== "—"
+      ? [
+          [layout.segment1Start, layout.segment1End] as const,
+          [layout.segment2Start, layout.segment2End] as const,
+        ]
+      : [[layout.fullStart, layout.fullEnd] as const];
 
   return (
     <g>
@@ -112,16 +117,20 @@ export function InlineDimensionLine({
           onPointerDown={handleLinePointerDown}
         />
       ))}
-      <polygon
-        points={arrowPolygonPoints(layout.arrowStart, ARROW_LEN, ARROW_HALF_WIDTH)}
-        fill={color}
-        style={{ pointerEvents: "none" }}
-      />
-      <polygon
-        points={arrowPolygonPoints(layout.arrowEnd, ARROW_LEN, ARROW_HALF_WIDTH)}
-        fill={color}
-        style={{ pointerEvents: "none" }}
-      />
+      {showArrows && (
+        <>
+          <polygon
+            points={arrowPolygonPoints(layout.arrowStart, ARROW_LEN, ARROW_HALF_WIDTH)}
+            fill={color}
+            style={{ pointerEvents: "none" }}
+          />
+          <polygon
+            points={arrowPolygonPoints(layout.arrowEnd, ARROW_LEN, ARROW_HALF_WIDTH)}
+            fill={color}
+            style={{ pointerEvents: "none" }}
+          />
+        </>
+      )}
       {label !== "—" && (
         <g
           transform={`rotate(${layout.angleDeg}, ${layout.labelCenter.x}, ${layout.labelCenter.y})`}

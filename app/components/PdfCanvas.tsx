@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { DropIcon } from "@/app/components/DropIcon";
 import type { Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
@@ -8,7 +9,6 @@ import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
 import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
-import { openDroppedFile } from "@/app/utils/openFile";
 import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
@@ -391,14 +391,6 @@ export function PdfViewer() {
     };
   }, [fileBytes, beginPan, endPan]);
 
-  const handleDrop = useCallback(
-    async (event: React.DragEvent) => {
-      event.preventDefault();
-      await openDroppedFile(event.dataTransfer, dispatch);
-    },
-    [dispatch],
-  );
-
   const handlePanPointerDown = (event: React.PointerEvent) => {
     if (tool !== "pan" || event.button !== 0 || !scrollRef.current) return;
     beginPan(event.clientX, event.clientY);
@@ -429,14 +421,13 @@ export function PdfViewer() {
     return (
       <div
         className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={handleDrop}
       >
-        <div className="rounded-2xl border border-dashed border-border bg-surface p-12 shadow-sm">
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-surface p-12 shadow-sm">
+          <DropIcon className="mb-4 h-12 w-12 text-text-secondary" />
           <p className="text-lg font-medium text-text-primary">No file loaded</p>
           <p className="mt-2 max-w-sm text-sm text-text-secondary">
             Upload a PDF, TIF, or photo (PNG, JPG, etc.) to calibrate scale and
-            add measurements.
+            add measurements, or drag and drop a file anywhere on the page.
           </p>
         </div>
       </div>
@@ -448,8 +439,6 @@ export function PdfViewer() {
       <div
         ref={scrollRef}
         className="h-full w-full overflow-auto bg-canvas-bg p-6"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={handleDrop}
         style={{ cursor: panCursor }}
         onPointerDown={handlePanPointerDown}
         onPointerMove={handlePanPointerMove}

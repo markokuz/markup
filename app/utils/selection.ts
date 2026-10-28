@@ -5,6 +5,7 @@ import type {
   Point2D,
   RectMeasurement,
   Scale,
+  ShapeAnnotation,
   Unit,
 } from "@/app/types";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -16,6 +17,7 @@ import {
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
+import { cloudOutline } from "@/app/utils/geometry";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
 export function screenRectFromPoints(a: Point2D, b: Point2D): ScreenRect {
@@ -155,10 +157,48 @@ function rectangleMatchesMarquee(
   );
 }
 
+/** Screen-space outline segments of a shape (closed for area and cloud). */
+function shapeScreenSegments(
+  shape: ShapeAnnotation,
+  viewport: DocumentViewport,
+): [Point2D, Point2D][] {
+  const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
+  if (shape.kind === "count") return shape.points.map((p) => [toScreen(p), toScreen(p)]);
+  const pts = (shape.kind === "cloud" ? cloudOutline(shape.points) : shape.points).map(toScreen);
+  const closed = shape.kind === "area" || shape.kind === "cloud";
+  const segments: [Point2D, Point2D][] = [];
+  for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) {
+    segments.push([pts[i], pts[(i + 1) % pts.length]]);
+  }
+  return segments;
+}
+
+function calloutTextRect(shape: ShapeAnnotation, viewport: DocumentViewport): ScreenRect | null {
+  if (shape.kind !== "callout" || shape.points.length < 2) return null;
+  const pos = toScreenPoint(viewport, shape.points[1].x, shape.points[1].y);
+  return { x: pos.x, y: pos.y, width: estimateLabelWidth(shape.text || "Callout"), height: 28 };
+}
+
+function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    if (
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 export function findAnnotationsInMarquee(
   measurements: Measurement[],
   rectangles: RectMeasurement[],
   notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
   viewport: DocumentViewport,
   marquee: PendingMarquee,
   mode: MarqueeSelectionMode = "intersect",
@@ -207,6 +247,19 @@ export function findAnnotationsInMarquee(
     }
   }
 
+  for (const shape of shapes) {
+    const segments = shapeScreenSegments(shape, viewport);
+    const textRect = calloutTextRect(shape, viewport);
+    const selected =
+      mode === "contain"
+        ? segments.every(([a, b]) => pointInRect(a, selectionRect) && pointInRect(b, selectionRect))
+        : segments.some(([a, b]) => segmentIntersectsRect(a, b, selectionRect)) ||
+          (textRect !== null && rectsIntersect(textRect, selectionRect));
+    if (segments.length > 0 && selected) {
+      ids.push(shape.id);
+    }
+  }
+
   return ids;
 }
 
@@ -218,6 +271,7 @@ export function hitTestAnnotations(
   measurements: Measurement[],
   rectangles: RectMeasurement[],
   notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
   viewport: DocumentViewport,
   scale: Scale | null,
   displayUnit: Unit,
@@ -254,7 +308,7 @@ export function hitTestAnnotations(
       });
     }
 
-    if (scale) {
+    if (scale && !measurement.plain) {
       const label =
         formatDistanceLabel(measurement, scale, displayUnit) ?? "—";
       const labelWidth = estimateLabelWidth(label);
@@ -298,6 +352,35 @@ export function hitTestAnnotations(
         id: rectangle.id,
         area: bounds.width * bounds.height,
         dist: Math.hypot(point.x - mid.x, point.y - mid.y),
+      });
+    }
+  }
+
+  for (const shape of shapes) {
+    const segments = shapeScreenSegments(shape, viewport);
+    if (segments.length === 0) continue;
+    const points = segments.map(([a]) => a);
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const boundsArea = Math.max(
+      (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)),
+      24 * 24,
+    );
+    const centre = {
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      y: (Math.min(...ys) + Math.max(...ys)) / 2,
+    };
+    const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= LINE_HIT_SLOP);
+    const insideArea =
+      shape.kind === "area" && points.length >= 3 && pointInPolygon(point, points);
+    const textRect = calloutTextRect(shape, viewport);
+    const onText = textRect !== null && pointInRect(point, textRect);
+    if (nearEdge || insideArea || onText) {
+      candidates.push({
+        id: shape.id,
+        // Filled areas are big targets; let edges of smaller markups on top win.
+        area: insideArea && !nearEdge ? boundsArea * 4 : boundsArea,
+        dist: Math.hypot(point.x - centre.x, point.y - centre.y),
       });
     }
   }

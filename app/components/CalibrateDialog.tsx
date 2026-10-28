@@ -7,10 +7,13 @@ import { defaultScreenLabelOffsetDoc, midpoint, pdfDistance } from "@/app/utils/
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
-  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport } = useAppState();
+  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport, settings } =
+    useAppState();
   const dispatch = useAppDispatch();
   const [value, setValue] = useState("");
-  const [unit, setUnit] = useState<Unit>("ft");
+  // Follows the default-unit setting until the user picks a unit here.
+  const [pickedUnit, setUnit] = useState<Unit | null>(null);
+  const unit = pickedUnit ?? settings.defaultUnit;
   const [error, setError] = useState("");
 
   if (!calibrateDialogOpen || !pendingCalibrationLine) return null;

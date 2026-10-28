@@ -145,6 +145,7 @@ export function MeasurementLine({
       isEditing={isEditingLength}
       interactive={interactive}
       showEndpointHandles={showHandles && isSelected}
+      showArrows={!measurement.plain}
       onSelect={(additive) => onSelect(measurement.id, additive ?? false)}
       onBodyPointerDown={(event) => {
         onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);

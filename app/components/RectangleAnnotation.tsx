@@ -1,6 +1,6 @@
 "use client";
 
-import type { DocumentType, RectMeasurement, Scale, Unit } from "@/app/types";
+import type { DocumentType, Point2D, RectMeasurement, Scale, Unit } from "@/app/types";
 import {
   computeInlineEdgeSegments,
   estimateLabelWidth,
@@ -36,6 +36,11 @@ function getDisplayDistance(
 }
 
 type RectCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
+/** An unlabelled edge drawn as one unbroken segment (no gap for text). */
+function fullEdge(a: Point2D, b: Point2D): ReturnType<typeof computeInlineEdgeSegments> {
+  return { ...computeInlineEdgeSegments(a, b, 0), segment1Start: a, segment1End: b, showGap: false };
+}
 
 interface RectangleAnnotationProps {
   rectangle: RectMeasurement;
@@ -282,7 +287,7 @@ export function RectangleAnnotation({
             "top",
           )
         : renderEdgeSegment(
-            computeInlineEdgeSegments(topLeft, topRight, 0),
+            fullEdge(topLeft, topRight),
             color,
             strokeWidth,
             isSelectMode,
@@ -323,7 +328,7 @@ export function RectangleAnnotation({
             "left",
           )
         : renderEdgeSegment(
-            computeInlineEdgeSegments(topLeft, bottomLeft, 0),
+            fullEdge(topLeft, bottomLeft),
             color,
             strokeWidth,
             isSelectMode,

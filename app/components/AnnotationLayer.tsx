@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { Point2D } from "@/app/types";
+import type { Point2D, ShapeAnnotation as ShapeAnnotationType } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
   computeDocOffsetFromScreen,
@@ -36,6 +36,14 @@ import {
 } from "@/app/components/RectangleAnnotation";
 import { MeasurementLine } from "@/app/components/MeasurementLine";
 import { NoteAnnotation } from "@/app/components/NoteAnnotation";
+import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
+import {
+  boxCorners,
+  cloudPath,
+  simplifyPath,
+  smoothClosedPath,
+} from "@/app/utils/geometry";
+import { CLOSE_AREA_PX } from "@/app/utils/shapeMetrics";
 import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
@@ -57,10 +65,16 @@ type DragMode =
   | { type: "rectWidthLabel"; id: string }
   | { type: "marquee"; startScreen: Point2D; currentScreen: Point2D; additive: boolean }
   | { type: "rectHeightLabel"; id: string }
-  | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D };
+  | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D }
+  | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[] }
+  | { type: "freehand"; points: Point2D[] };
 
 const MIN_RECT_SIZE = 5;
 const MIN_MARQUEE_SIZE = 4;
+/** Freehand clouds: sample spacing, jitter tolerance and minimum size, in screen px. */
+const FREEHAND_STEP_PX = 3;
+const FREEHAND_SIMPLIFY_PX = 4;
+const MIN_FREEHAND_SIZE = 12;
 
 function createId() {
   return crypto.randomUUID();
@@ -74,6 +88,8 @@ export function AnnotationLayer({
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
+  /** Screen points of the freehand cloud being drawn. */
+  const [freehandStroke, setFreehandStroke] = useState<Point2D[] | null>(null);
   const dragRef = useRef<DragMode | null>(null);
 
   const handleSelect = useCallback(
@@ -98,10 +114,29 @@ export function AnnotationLayer({
     (anchorDoc: Point2D | null, local: Point2D): Point2D => {
       if (!state.snapLines || !anchorDoc) return toDocPoint(viewport, local.x, local.y);
       const anchorScreen = toScreenPoint(viewport, anchorDoc.x, anchorDoc.y);
-      const snapped = snapScreenPointToAxis(anchorScreen, local);
+      const snapped = snapScreenPointToAxis(
+        anchorScreen,
+        local,
+        state.settings.snapToleranceDeg,
+        state.settings.snapStepDeg,
+      );
       return toDocPoint(viewport, snapped.x, snapped.y);
     },
-    [state.snapLines, viewport],
+    [state.settings.snapStepDeg, state.settings.snapToleranceDeg, state.snapLines, viewport],
+  );
+
+  const startShapeDrag = useCallback(
+    (shape: ShapeAnnotationType, originPdf: Point2D, event: React.PointerEvent) => {
+      dispatch({ type: "RECORD_UNDO" });
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragRef.current = {
+        type: "shapeBody",
+        id: shape.id,
+        originPdf,
+        points: shape.points.map((p) => ({ ...p })),
+      };
+    },
+    [dispatch],
   );
 
   const handlePointerDown = useCallback(
@@ -121,6 +156,7 @@ export function AnnotationLayer({
           state.measurements,
           state.rectangles,
           state.notes,
+          state.shapes,
           viewport,
           state.scale,
           state.displayUnit,
@@ -128,6 +164,9 @@ export function AnnotationLayer({
 
         if (hitId) {
           handleSelect(hitId, additive);
+          const shape = state.shapes.find((s) => s.id === hitId);
+          // Shapes have no per-part handles: press and drag moves the whole markup.
+          if (shape && !additive) startShapeDrag(shape, pdfPoint, event);
           return;
         }
 
@@ -157,12 +196,85 @@ export function AnnotationLayer({
             id: createId(),
             position: pdfPoint,
             text: "",
+            color: state.settings.toolColors.note,
           },
         });
         return;
       }
 
-      if (state.tool === "rectangle" && state.scale) {
+      if (state.tool === "area" || state.tool === "count") {
+        const drawing = state.shapes.find(
+          (s) => s.id === state.drawingShapeId && s.kind === state.tool,
+        );
+        if (!drawing) {
+          dispatch({
+            type: "ADD_SHAPE",
+            shape: {
+              id: createId(),
+              kind: state.tool,
+              points: [pdfPoint],
+              color: state.settings.toolColors[state.tool],
+              ...(state.tool === "count" && state.countStart !== 1
+                ? { startAt: state.countStart }
+                : {}),
+            },
+            drawing: true,
+          });
+          setPreviewEnd(pdfPoint);
+          return;
+        }
+        if (drawing.kind === "area") {
+          const first = toScreenPoint(viewport, drawing.points[0].x, drawing.points[0].y);
+          const closesOnFirst =
+            drawing.points.length >= 3 &&
+            Math.hypot(local.x - first.x, local.y - first.y) <= CLOSE_AREA_PX;
+          // Second press of a double-click finishes without adding a duplicate vertex.
+          if (closesOnFirst || event.detail >= 2) {
+            dispatch({ type: "FINISH_SHAPE" });
+            setPreviewEnd(null);
+            return;
+          }
+        }
+        dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: pdfPoint });
+        return;
+      }
+
+      if (state.tool === "cloud" && state.cloudMode === "freehand") {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragRef.current = { type: "freehand", points: [local] };
+        setFreehandStroke([local]);
+        return;
+      }
+
+      if (state.tool === "cloud" || state.tool === "callout") {
+        if (!state.pendingPoint) {
+          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
+          setPreviewEnd(pdfPoint);
+          return;
+        }
+        const start = state.pendingPoint;
+        const a = toScreenPoint(viewport, start.x, start.y);
+        if (Math.hypot(local.x - a.x, local.y - a.y) < MIN_RECT_SIZE) {
+          dispatch({ type: "SET_PENDING_POINT", point: null });
+        } else {
+          event.preventDefault();
+          dispatch({
+            type: "ADD_SHAPE",
+            shape: {
+              id: createId(),
+              kind: state.tool,
+              points: [start, pdfPoint],
+              color: state.settings.toolColors[state.tool],
+              ...(state.tool === "callout" ? { text: "" } : {}),
+            },
+          });
+        }
+        setPreviewEnd(null);
+        return;
+      }
+
+      const plainRect = state.rectMode === "plain";
+      if (state.tool === "rectangle" && (state.scale || plainRect)) {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
           setPreviewEnd(pdfPoint);
@@ -179,6 +291,8 @@ export function AnnotationLayer({
               ...normalized,
               widthLabelOffset: { x: 0, y: 0 },
               heightLabelOffset: { x: 0, y: 0 },
+              color: state.settings.toolColors.rectangle,
+              ...(plainRect ? { plain: true } : {}),
             };
             const widthAnchorDoc = getRectWidthLabelAnchorDoc(
               rectangle,
@@ -220,7 +334,7 @@ export function AnnotationLayer({
               type: "OPEN_CALIBRATE_DIALOG",
               line: { start, end },
             });
-          } else if (state.scale) {
+          } else if (state.scale || state.lineMode === "plain") {
             const anchorDoc = midpoint(start, end);
             dispatch({
               type: "ADD_MEASUREMENT",
@@ -229,6 +343,8 @@ export function AnnotationLayer({
                 start,
                 end,
                 labelOffset: defaultScreenLabelOffsetDoc(viewport, anchorDoc),
+                color: state.settings.toolColors.measure,
+                ...(state.lineMode === "plain" ? { plain: true } : {}),
               },
             });
           } else {
@@ -242,6 +358,7 @@ export function AnnotationLayer({
       dispatch,
       handleSelect,
       overlayRef,
+      startShapeDrag,
       snapToLine,
       state.displayUnit,
       state.fileType,
@@ -250,6 +367,13 @@ export function AnnotationLayer({
       state.pendingPoint,
       state.rectangles,
       state.scale,
+      state.shapes,
+      state.drawingShapeId,
+      state.cloudMode,
+      state.countStart,
+      state.lineMode,
+      state.rectMode,
+      state.settings.toolColors,
       state.tool,
       viewport,
     ],
@@ -267,6 +391,15 @@ export function AnnotationLayer({
 
       if (dragRef.current) {
         const drag = dragRef.current;
+
+        if (drag.type === "freehand") {
+          const last = drag.points[drag.points.length - 1];
+          if (Math.hypot(local.x - last.x, local.y - last.y) >= FREEHAND_STEP_PX) {
+            drag.points.push(local);
+            setFreehandStroke([...drag.points]);
+          }
+          return;
+        }
 
         if (drag.type === "marquee") {
           dragRef.current = { ...drag, currentScreen: local };
@@ -359,6 +492,14 @@ export function AnnotationLayer({
               heightLabelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
             },
           });
+        } else if (drag.type === "shapeBody") {
+          const dx = pdfPoint.x - drag.originPdf.x;
+          const dy = pdfPoint.y - drag.originPdf.y;
+          dispatch({
+            type: "UPDATE_SHAPE",
+            id: drag.id,
+            updates: { points: drag.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) },
+          });
         } else if (drag.type === "noteBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
           const dy = pdfPoint.y - drag.originPdf.y;
@@ -382,13 +523,37 @@ export function AnnotationLayer({
             ? snapToLine(state.pendingPoint, local)
             : pdfPoint,
         );
+      } else if (state.drawingShapeId) {
+        setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, onCursorMove, overlayRef, snapToLine, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.tool, viewport],
+    [dispatch, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
     const drag = dragRef.current;
+
+    if (drag?.type === "freehand") {
+      setFreehandStroke(null);
+      const xs = drag.points.map((p) => p.x);
+      const ys = drag.points.map((p) => p.y);
+      const bigEnough =
+        Math.max(...xs) - Math.min(...xs) >= MIN_FREEHAND_SIZE ||
+        Math.max(...ys) - Math.min(...ys) >= MIN_FREEHAND_SIZE;
+      // Strip hand jitter, then round the corners so the scallops follow a smooth outline.
+      const outline = smoothClosedPath(simplifyPath(drag.points, FREEHAND_SIMPLIFY_PX), 2);
+      if (bigEnough && outline.length >= 3) {
+        dispatch({
+          type: "ADD_SHAPE",
+          shape: {
+            id: createId(),
+            kind: "cloud",
+            points: outline.map((p) => toDocPoint(viewport, p.x, p.y)),
+            color: state.settings.toolColors.cloud,
+          },
+        });
+      }
+    }
 
     if (drag?.type === "marquee") {
       const marquee = { start: drag.startScreen, current: drag.currentScreen };
@@ -406,6 +571,7 @@ export function AnnotationLayer({
           state.measurements,
           state.rectangles,
           state.notes,
+          state.shapes,
           viewport,
           marquee,
         );
@@ -421,7 +587,7 @@ export function AnnotationLayer({
     }
 
     dragRef.current = null;
-  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, viewport]);
+  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, state.settings.toolColors.cloud, state.shapes, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -564,7 +730,7 @@ export function AnnotationLayer({
       key={measurement.id}
       measurement={measurement}
       viewport={viewport}
-      scale={state.scale}
+      scale={measurement.plain ? null : state.scale}
       displayUnit={state.displayUnit}
       isSelected={state.selectedIds.includes(measurement.id)}
       isSelectMode={state.tool === "select"}
@@ -594,7 +760,7 @@ export function AnnotationLayer({
       rectangle={rectangle}
       viewport={viewport}
       fileType={state.fileType ?? "image"}
-      scale={state.scale}
+      scale={rectangle.plain ? null : state.scale}
       displayUnit={state.displayUnit}
       isSelected={state.selectedIds.includes(rectangle.id)}
       isSelectMode={state.tool === "select"}
@@ -639,9 +805,51 @@ export function AnnotationLayer({
     />
   );
 
+  const renderShape = (shape: ShapeAnnotationType) => (
+    <ShapeAnnotation
+      key={shape.id}
+      shape={shape}
+      viewport={viewport}
+      scale={state.scale}
+      displayUnit={state.displayUnit}
+      isSelected={state.selectedIds.includes(shape.id)}
+      isDrawing={state.drawingShapeId === shape.id}
+      cursorDoc={state.drawingShapeId === shape.id ? previewEnd : null}
+    />
+  );
+
+  // Callout text reuses the note card so editing and styling match notes exactly.
+  const renderCalloutCard = (shape: ShapeAnnotationType) =>
+    shape.points.length === 2 ? (
+      <NoteAnnotation
+        key={`${shape.id}-card`}
+        note={{ id: shape.id, position: shape.points[1], text: shape.text ?? "", color: shape.color }}
+        placeholder="Callout"
+        viewport={viewport}
+        isSelected={state.selectedIds.includes(shape.id)}
+        isSelectMode={state.tool === "select"}
+        showHandles={showEditHandles && singleSelectedId === shape.id}
+        isEditing={state.editingNoteId === shape.id}
+        onSelect={(id, additive) => handleSelect(id, additive)}
+        onUpdateText={(id, text) => dispatch({ type: "UPDATE_SHAPE", id, updates: { text } })}
+        onStartEdit={handleStartEditNote}
+        onEndEdit={handleEndEditNote}
+        onBodyPointerDown={(_id, event) => {
+          const overlay = overlayRef.current;
+          if (!overlay) return;
+          const local = getLocalCoords(overlay, event.clientX, event.clientY);
+          startShapeDrag(shape, toDocPoint(viewport, local.x, local.y), event);
+        }}
+      />
+    ) : null;
+
   const selectedSet = new Set(state.selectedIds);
-  const unselectedMeasurements = state.measurements.filter((m) => !selectedSet.has(m.id));
-  const selectedMeasurements = state.measurements.filter((m) => selectedSet.has(m.id));
+  const callouts = state.shapes.filter((s) => s.kind === "callout");
+  const visibleMeasurements = state.settings.showCalibrationLine
+    ? state.measurements
+    : state.measurements.filter((m) => !m.isCalibration);
+  const unselectedMeasurements = visibleMeasurements.filter((m) => !selectedSet.has(m.id));
+  const selectedMeasurements = visibleMeasurements.filter((m) => selectedSet.has(m.id));
   const unselectedRectangles = state.rectangles.filter((r) => !selectedSet.has(r.id));
   const selectedRectangles = state.rectangles.filter((r) => selectedSet.has(r.id));
   const unselectedNotes = state.notes.filter((n) => !selectedSet.has(n.id));
@@ -731,6 +939,19 @@ export function AnnotationLayer({
       ? toScreenRect(viewport, state.pendingPoint, previewEnd)
       : null;
 
+  const cloudPreview =
+    state.tool === "cloud" && state.pendingPoint && previewEnd
+      ? cloudPath(
+          boxCorners(state.pendingPoint, previewEnd).map((p) => toScreenPoint(viewport, p.x, p.y)),
+          14,
+        )
+      : null;
+
+  const freehandPreview =
+    freehandStroke && freehandStroke.length > 1
+      ? freehandStroke.map((p) => `${p.x},${p.y}`).join(" ")
+      : null;
+
   const marqueePreview = state.pendingMarquee
     ? screenRectFromPoints(state.pendingMarquee.start, state.pendingMarquee.current)
     : null;
@@ -757,12 +978,15 @@ export function AnnotationLayer({
       }}
     >
       <g id={ANNOTATION_ROOT_ID}>
+        {state.shapes.filter((s) => !selectedSet.has(s.id)).map(renderShape)}
+        {state.shapes.filter((s) => selectedSet.has(s.id)).map(renderShape)}
         {unselectedRectangles.map(renderRectangle)}
         {unselectedNotes.map(renderNote)}
         {unselectedMeasurements.map(renderMeasurement)}
         {selectedRectangles.map(renderRectangle)}
         {selectedNotes.map(renderNote)}
         {selectedMeasurements.map(renderMeasurement)}
+        {callouts.map(renderCalloutCard)}
         {marqueePreview && (
           <rect
             x={marqueePreview.x}
@@ -779,6 +1003,7 @@ export function AnnotationLayer({
         {previewStart &&
           previewEndScreen &&
           state.tool === "measure" &&
+          state.lineMode === "measure" &&
           state.scale &&
           state.pendingPoint &&
           previewEnd && (
@@ -799,7 +1024,7 @@ export function AnnotationLayer({
         {previewStart &&
           previewEndScreen &&
           (state.tool === "calibrate" ||
-            (state.tool === "measure" && !state.scale)) && (
+            (state.tool === "measure" && (!state.scale || state.lineMode === "plain"))) && (
             <line
               x1={previewStart.x}
               y1={previewStart.y}
@@ -811,6 +1036,39 @@ export function AnnotationLayer({
               pointerEvents="none"
             />
           )}
+        {freehandPreview && (
+          <polyline
+            points={freehandPreview}
+            fill="none"
+            stroke={state.settings.toolColors.cloud}
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            strokeLinecap="round"
+            pointerEvents="none"
+          />
+        )}
+        {cloudPreview && (
+          <path
+            d={cloudPreview}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        )}
+        {previewStart && previewEndScreen && state.tool === "callout" && (
+          <line
+            x1={previewStart.x}
+            y1={previewStart.y}
+            x2={previewEndScreen.x}
+            y2={previewEndScreen.y}
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        )}
         {rectPreview && (
           <rect
             x={rectPreview.x}

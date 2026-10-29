@@ -37,6 +37,7 @@ export const SHAPE_KIND_LABELS: Record<ShapeAnnotation["kind"], string> = {
   count: "Count",
   cloud: "Cloud",
   callout: "Callout",
+  image: "Snapshot",
 };
 
 /** Clicking within this many screen px of an area's first vertex closes it. */

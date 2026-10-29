@@ -50,7 +50,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
   const { scale, displayUnit: unit } = source;
   const k = scale ? convertUnits(scale.unitsPerPdfPoint, scale.calibrationUnit, unit) : null;
   const dist = (v: number) => formatDistance(v, unit);
-  const colorOf = (a: { color?: string }) => a.color ?? DEFAULT_ANNOTATION_COLOR;
+  const colorOf = (a: { color?: string }) => a.color || DEFAULT_ANNOTATION_COLOR;
   const rows: MarkupRow[] = [];
 
   for (const m of source.measurements) {

@@ -477,6 +477,9 @@ export function StatusBar() {
     ...state.notes.filter((n) => colorableIds.includes(n.id)),
     ...state.shapes.filter((sh) => colorableIds.includes(sh.id)),
   ];
+  const selectedSnapshotIds = state.shapes
+    .filter((sh) => sh.kind === "image" && colorableIds.includes(sh.id))
+    .map((sh) => sh.id);
   const sharedColor =
     selectedAnnotations.length > 0 &&
     selectedAnnotations.every(
@@ -581,6 +584,19 @@ export function StatusBar() {
                 value={sharedColor ?? DEFAULT_ANNOTATION_COLOR}
                 onChange={(color, recordUndo) => applyColor(color, recordUndo)}
               />
+              {selectedSnapshotIds.length > 0 && (
+                <button
+                  type="button"
+                  title="Show the snapshot in its original colours"
+                  onClick={() =>
+                    // "" clears the tint; only snapshots treat an empty colour as "original".
+                    dispatch({ type: "SET_ANNOTATION_COLOR", ids: selectedSnapshotIds, color: "" })
+                  }
+                  className="ml-1 rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+                >
+                  Original
+                </button>
+              )}
             </div>
           </div>
         )}

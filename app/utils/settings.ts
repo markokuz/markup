@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     calibrate: "b",
     select: "v",
     pan: "h",
+    snapshot: "g",
   },
   defaultUnit: "ft",
   snapStepDeg: 90,

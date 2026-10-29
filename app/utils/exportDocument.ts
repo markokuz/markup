@@ -4,6 +4,8 @@ import {
   StandardFonts,
   degrees,
   LineJoinStyle,
+  concatTransformationMatrix,
+  drawObject,
   popGraphicsState,
   pushGraphicsState,
   setLineJoin,
@@ -648,6 +650,69 @@ function drawPillLabelOnPdf(
   drawRotatedLabelOnPdf(page, center, label, angleDeg, fontSize, font, rgb(r, g, b));
 }
 
+/** Snapshot markups: images whose points are their TL, TR, BR, BL corners in doc space. */
+function getSnapshots(shapes: ShapeAnnotation[]) {
+  return shapes.filter(
+    (s): s is ShapeAnnotation & { image: string } =>
+      s.kind === "image" && !!s.image && s.points.length === 4,
+  );
+}
+
+/** The snapshot's pixels, with its linework recoloured when the user picked a colour. */
+async function loadSnapshotImage(shape: { image: string; color?: string }) {
+  const image = new Image();
+  image.src = shape.image;
+  await image.decode();
+  if (!shape.color) return image;
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d");
+  if (!context) return image;
+  context.drawImage(image, 0, 0);
+  // Keep each pixel's alpha (the linework), replace its colour.
+  context.globalCompositeOperation = "source-in";
+  context.fillStyle = shape.color;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+async function drawSnapshotsOnCanvas(context: CanvasRenderingContext2D, shapes: ShapeAnnotation[]) {
+  for (const shape of getSnapshots(shapes)) {
+    const image = await loadSnapshotImage(shape);
+    const [tl, tr, , bl] = shape.points;
+    context.save();
+    // Unit square mapped onto the corners, so any 90° turn from a cross-tab paste is kept.
+    context.transform(tr.x - tl.x, tr.y - tl.y, bl.x - tl.x, bl.y - tl.y, tl.x, tl.y);
+    context.drawImage(image, 0, 0, 1, 1);
+    context.restore();
+  }
+}
+
+async function drawSnapshotsOnPdf(pdfDoc: PDFDocument, page: PDFPage, shapes: ShapeAnnotation[]) {
+  const embedded = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
+  for (const shape of getSnapshots(shapes)) {
+    const key = `${shape.color ?? ""}|${shape.image}`;
+    let image = embedded.get(key);
+    if (!image) {
+      const source = await loadSnapshotImage(shape);
+      image = await pdfDoc.embedPng(
+        source instanceof HTMLCanvasElement ? source.toDataURL("image/png") : shape.image,
+      );
+      embedded.set(key, image);
+    }
+    const name = page.node.newXObject("Image", image.ref);
+    const [tl, tr, , bl] = shape.points;
+    // PDF images fill the unit square from their bottom-left corner, y-up.
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(tr.x - tl.x, tr.y - tl.y, tl.x - bl.x, tl.y - bl.y, bl.x, bl.y),
+      drawObject(name),
+      popGraphicsState(),
+    );
+  }
+}
+
 function drawShapesOnCanvas(
   context: CanvasRenderingContext2D,
   shapes: ShapeAnnotation[],
@@ -805,6 +870,7 @@ export async function buildMarkedUpPdfBlob(
   const page = pdfDoc.getPage(0);
   const style = getExportStyle(zoom);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  await drawSnapshotsOnPdf(pdfDoc, page, shapes);
 
   for (const measurement of getExportMeasurements(measurements)) {
     const { r, g, b } = hexToRgb(getLineColor(measurement));
@@ -951,6 +1017,7 @@ export async function buildMarkedUpImageBlob(
   if (!context) return null;
 
   source.draw(context, source.width, source.height);
+  await drawSnapshotsOnCanvas(context, shapes);
 
   const style = getExportStyle(zoom);
 

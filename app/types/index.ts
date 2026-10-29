@@ -11,7 +11,8 @@ export type ToolMode =
   | "area"
   | "count"
   | "cloud"
-  | "callout";
+  | "callout"
+  | "snapshot";
 
 export type Unit = "ft" | "in" | "m" | "mm";
 
@@ -57,7 +58,7 @@ export interface NoteAnnotation {
   label?: string;
 }
 
-export type ShapeKind = "area" | "count" | "cloud" | "callout";
+export type ShapeKind = "area" | "count" | "cloud" | "callout" | "image";
 
 /** Generic multi-point markup: area polygon, count group, revision cloud or callout. */
 export interface ShapeAnnotation {
@@ -71,6 +72,8 @@ export interface ShapeAnnotation {
   label?: string;
   /** Count only: number of the first marker (defaults to 1). */
   startAt?: number;
+  /** Image (snapshot) only: PNG data URL; points are its TL, TR, BR, BL corners. */
+  image?: string;
 }
 
 export type CloudMode = "rect" | "freehand";

@@ -165,7 +165,7 @@ function shapeScreenSegments(
   const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
   if (shape.kind === "count") return shape.points.map((p) => [toScreen(p), toScreen(p)]);
   const pts = (shape.kind === "cloud" ? cloudOutline(shape.points) : shape.points).map(toScreen);
-  const closed = shape.kind === "area" || shape.kind === "cloud";
+  const closed = shape.kind === "area" || shape.kind === "cloud" || shape.kind === "image";
   const segments: [Point2D, Point2D][] = [];
   for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) {
     segments.push([pts[i], pts[(i + 1) % pts.length]]);
@@ -372,7 +372,9 @@ export function hitTestAnnotations(
     };
     const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= LINE_HIT_SLOP);
     const insideArea =
-      shape.kind === "area" && points.length >= 3 && pointInPolygon(point, points);
+      (shape.kind === "area" || shape.kind === "image") &&
+      points.length >= 3 &&
+      pointInPolygon(point, points);
     const textRect = calloutTextRect(shape, viewport);
     const onText = textRect !== null && pointInRect(point, textRect);
     if (nearEdge || insideArea || onText) {

@@ -20,6 +20,11 @@ const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "cloud", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
   { id: "callout", label: "Callout", hint: "Click the point to call out, then where the text goes" },
   { id: "note", label: "Note", hint: "Click to add a text note" },
+  {
+    id: "snapshot",
+    label: "Snap",
+    hint: "Click two corners to copy that part of the drawing, background removed. Paste with Ctrl+V",
+  },
   { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
@@ -301,6 +306,18 @@ function ToolIcon({ tool }: { tool: ToolMode }) {
           <rect x="8" y="3" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <line x1="8" y1="7" x2="3.5" y2="16" stroke="currentColor" strokeWidth="1.5" />
           <path d="M2 18 L3 13.5 L6 15.5 Z" fill="currentColor" />
+        </svg>
+      );
+    case "snapshot":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M3 7a1.5 1.5 0 011.5-1.5h2L8 3.5h4l1.5 2h2A1.5 1.5 0 0117 7v8a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 15z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <circle cx="10" cy="11" r="3" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       );
     default:

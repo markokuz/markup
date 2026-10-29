@@ -199,6 +199,45 @@ export function ShapeAnnotation({
     );
   }
 
+  if (shape.kind === "image" && shape.image && pts.length === 4) {
+    // Image at its real on-screen size, with a transform that only rotates (TL, TR, BR, BL
+    // corners). A 1×1 image scaled up by the transform renders blank in some Chrome setups.
+    const [tl, tr, , bl] = pts;
+    const w = Math.hypot(tr.x - tl.x, tr.y - tl.y) || 1;
+    const h = Math.hypot(bl.x - tl.x, bl.y - tl.y) || 1;
+    const matrix = `matrix(${(tr.x - tl.x) / w} ${(tr.y - tl.y) / w} ${(bl.x - tl.x) / h} ${(bl.y - tl.y) / h} ${tl.x} ${tl.y})`;
+    const filterId = `snapshot-tint-${shape.id}`;
+    return (
+      <g pointerEvents="none">
+        {shape.color && (
+          <filter id={filterId} colorInterpolationFilters="sRGB">
+            <feFlood floodColor={shape.color} />
+            <feComposite in2="SourceAlpha" operator="in" />
+          </filter>
+        )}
+        <image
+          href={shape.image}
+          x={0}
+          y={0}
+          width={w}
+          height={h}
+          preserveAspectRatio="none"
+          transform={matrix}
+          filter={shape.color ? `url(#${filterId})` : undefined}
+        />
+        {isSelected && (
+          <polygon
+            points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke={SELECTION_ACCENT}
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+          />
+        )}
+      </g>
+    );
+  }
+
   if (shape.kind === "callout" && pts.length === 2) {
     const tip = pts[0];
     const end = {

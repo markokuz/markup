@@ -49,6 +49,9 @@ import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
+import { copySelection } from "@/app/utils/clipboard";
+import { showSaveStatus } from "@/app/utils/saveStatus";
+import { captureSnapshot } from "@/app/utils/snapshot";
 
 interface AnnotationLayerProps {
   viewport: DocumentViewport;
@@ -137,6 +140,49 @@ export function AnnotationLayer({
       };
     },
     [dispatch],
+  );
+
+  /** Capture the boxed area and put it on the clipboard for Ctrl+V (Bluebeam-style Snapshot). */
+  const takeSnapshot = useCallback(
+    async (cornerA: Point2D, cornerB: Point2D) => {
+      if (!state.fileBytes || !state.fileType) return;
+      const a = toScreenPoint(viewport, cornerA.x, cornerA.y);
+      const b = toScreenPoint(viewport, cornerB.x, cornerB.y);
+      if (Math.abs(a.x - b.x) < MIN_RECT_SIZE || Math.abs(a.y - b.y) < MIN_RECT_SIZE) return;
+      showSaveStatus("saving", "Copying snapshot…");
+      try {
+        const snapshot = await captureSnapshot(
+          {
+            fileType: state.fileType,
+            fileBytes: state.fileBytes,
+            fileName: state.fileName ?? "",
+            mimeType: state.fileMimeType ?? "",
+            docHeight: viewport.docHeight,
+          },
+          cornerA,
+          cornerB,
+        );
+        if (!snapshot) return;
+        const shape: ShapeAnnotationType = { id: createId(), kind: "image", ...snapshot };
+        copySelection(
+          {
+            measurements: [],
+            rectangles: [],
+            notes: [],
+            shapes: [shape],
+            selectedIds: [shape.id],
+            scale: state.scale,
+            zoom: state.zoom,
+          },
+          viewport,
+        );
+        showSaveStatus("success", "Snapshot copied — Ctrl+V to paste");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        showSaveStatus("error", `Couldn't copy snapshot: ${message}`);
+      }
+    },
+    [state.fileBytes, state.fileMimeType, state.fileName, state.fileType, state.scale, state.zoom, viewport],
   );
 
   const handlePointerDown = useCallback(
@@ -243,6 +289,19 @@ export function AnnotationLayer({
         event.currentTarget.setPointerCapture(event.pointerId);
         dragRef.current = { type: "freehand", points: [local] };
         setFreehandStroke([local]);
+        return;
+      }
+
+      if (state.tool === "snapshot") {
+        if (!state.pendingPoint) {
+          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
+          setPreviewEnd(pdfPoint);
+          return;
+        }
+        const start = state.pendingPoint;
+        dispatch({ type: "SET_PENDING_POINT", point: null });
+        setPreviewEnd(null);
+        void takeSnapshot(start, pdfPoint);
         return;
       }
 
@@ -360,6 +419,7 @@ export function AnnotationLayer({
       overlayRef,
       startShapeDrag,
       snapToLine,
+      takeSnapshot,
       state.displayUnit,
       state.fileType,
       state.measurements,
@@ -935,7 +995,7 @@ export function AnnotationLayer({
     : null;
 
   const rectPreview =
-    state.tool === "rectangle" && state.pendingPoint && previewEnd
+    (state.tool === "rectangle" || state.tool === "snapshot") && state.pendingPoint && previewEnd
       ? toScreenRect(viewport, state.pendingPoint, previewEnd)
       : null;
 
@@ -978,8 +1038,10 @@ export function AnnotationLayer({
       }}
     >
       <g id={ANNOTATION_ROOT_ID}>
-        {state.shapes.filter((s) => !selectedSet.has(s.id)).map(renderShape)}
-        {state.shapes.filter((s) => selectedSet.has(s.id)).map(renderShape)}
+        {/* Snapshots sit under every other markup, like the drawing they came from. */}
+        {state.shapes.filter((s) => s.kind === "image").map(renderShape)}
+        {state.shapes.filter((s) => s.kind !== "image" && !selectedSet.has(s.id)).map(renderShape)}
+        {state.shapes.filter((s) => s.kind !== "image" && selectedSet.has(s.id)).map(renderShape)}
         {unselectedRectangles.map(renderRectangle)}
         {unselectedNotes.map(renderNote)}
         {unselectedMeasurements.map(renderMeasurement)}

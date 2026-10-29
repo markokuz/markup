@@ -270,7 +270,8 @@ export function useDocument(
         createPdfViewport(
           pdfViewport.width,
           pdfViewport.height,
-          page.getViewport({ scale: 1 }).height,
+          // page.view is the crop box; drawings often start away from (0,0).
+          { x: page.view[0], y: page.view[3] },
           (x, y) => pdfViewport.convertToPdfPoint(x, y) as [number, number],
           (x, y) => pdfViewport.convertToViewportPoint(x, y) as [number, number],
         ),

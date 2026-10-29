@@ -13,8 +13,8 @@ interface SnapshotSource {
   fileBytes: Uint8Array;
   fileName: string;
   mimeType: string;
-  /** PDF page height in points (doc space is y-up for PDFs). */
-  docHeight: number;
+  /** Doc-space top-left of the unrotated page (doc space is y-up for PDFs). */
+  docOrigin: { x: number; y: number };
 }
 
 /**
@@ -47,9 +47,9 @@ export async function captureSnapshot(
       {
         rotation: 0,
         scale,
-        x: Math.round(minX * scale),
+        x: Math.round((minX - source.docOrigin.x) * scale),
         // Render space is y-down from the page top; PDF doc space is y-up.
-        y: Math.round((source.docHeight - maxY) * scale),
+        y: Math.round((source.docOrigin.y - maxY) * scale),
         width: canvas.width,
         height: canvas.height,
       },

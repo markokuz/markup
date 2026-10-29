@@ -157,7 +157,7 @@ export function AnnotationLayer({
             fileBytes: state.fileBytes,
             fileName: state.fileName ?? "",
             mimeType: state.fileMimeType ?? "",
-            docHeight: viewport.docHeight,
+            docOrigin: viewport.docOrigin,
           },
           cornerA,
           cornerB,

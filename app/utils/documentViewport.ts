@@ -5,7 +5,8 @@ export type DocumentType = "pdf" | "image";
 export interface DocumentViewport {
   width: number;
   height: number;
-  docHeight: number;
+  /** Doc-space point at the top-left of the unrotated page (PDF y-up, so y is the top edge). */
+  docOrigin: { x: number; y: number };
   convertToDocPoint(viewX: number, viewY: number): { x: number; y: number };
   convertToViewportPoint(docX: number, docY: number): { x: number; y: number };
 }
@@ -79,7 +80,7 @@ export function createImageViewport(
   return {
     width: (swapped ? naturalHeight : naturalWidth) * zoom,
     height: (swapped ? naturalWidth : naturalHeight) * zoom,
-    docHeight: naturalHeight,
+    docOrigin: { x: 0, y: 0 },
     convertToDocPoint(viewX, viewY) {
       return docPointFromViewUnzoomed(
         viewX,
@@ -106,14 +107,14 @@ export function createImageViewport(
 export function createPdfViewport(
   width: number,
   height: number,
-  docHeight: number,
+  docOrigin: { x: number; y: number },
   convertToPdfPoint: (x: number, y: number) => [number, number],
   convertToViewportPoint: (x: number, y: number) => [number, number],
 ): DocumentViewport {
   return {
     width,
     height,
-    docHeight,
+    docOrigin,
     convertToDocPoint(viewX, viewY) {
       const [x, y] = convertToPdfPoint(viewX, viewY);
       return { x, y };

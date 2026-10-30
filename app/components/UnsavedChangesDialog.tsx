@@ -37,7 +37,7 @@ export function UnsavedChangesDialog() {
     setSaving(true);
     try {
       // Only close once the file itself was written; a browser-only backup isn't enough.
-      const saved = await saveTabWithFeedback(tab, displayUnit, "linked", dispatch);
+      const saved = await saveTabWithFeedback(tab, displayUnit, "in-place", dispatch);
       if (!saved) return;
       applyDontAskAgain();
       dispatch({ type: "CLOSE_TAB", tabId: tab.id });

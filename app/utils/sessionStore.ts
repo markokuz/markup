@@ -4,6 +4,8 @@
 // reload can restore the work and Ctrl+S keeps writing to the same file (Chrome
 // can then offer "Allow on every visit" for it). Every call fails soft.
 
+import { createDbOpener, done } from "@/app/utils/idb";
+
 const DB_NAME = "markup-session";
 const STORE = "tabs";
 
@@ -16,30 +18,9 @@ export interface SessionEntry {
   savedAt: number;
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDb() {
-  dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE, { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  dbPromise.catch(() => {
-    dbPromise = null;
-  });
-  return dbPromise;
-}
-
-function done(transaction: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
-}
+const openDb = createDbOpener(DB_NAME, (db) => {
+  db.createObjectStore(STORE, { keyPath: "id" });
+});
 
 export async function putSession(entry: SessionEntry): Promise<boolean> {
   try {

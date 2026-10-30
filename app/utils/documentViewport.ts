@@ -69,6 +69,13 @@ function viewPointFromDocUnzoomed(
   return { x: viewX * zoom, y: viewY * zoom };
 }
 
+/** Screen px per doc unit (same along both axes). */
+export function viewportZoom(viewport: DocumentViewport): number {
+  const a = viewport.convertToViewportPoint(0, 0);
+  const b = viewport.convertToViewportPoint(1, 0);
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
 export function createImageViewport(
   naturalWidth: number,
   naturalHeight: number,

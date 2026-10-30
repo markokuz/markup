@@ -5,7 +5,15 @@ import type { Point2D, Scale, ShapeAnnotation as ShapeAnnotationType, Unit } fro
 import { arrowPolygonPoints, toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
+import { viewportZoom } from "@/app/utils/documentViewport";
 import { cloudOutline, cloudPath, polygonCentroid } from "@/app/utils/geometry";
+import {
+  TEXT_DEFAULT_SIZE,
+  TEXT_FONT_FAMILY,
+  TEXT_LINE_HEIGHT,
+  textLines,
+  textScreenBox,
+} from "@/app/utils/noteLayout";
 import {
   CALLOUT_LEADER_OFFSET,
   CLOSE_AREA_PX,
@@ -25,6 +33,8 @@ interface ShapeAnnotationProps {
   isSelected: boolean;
   /** Area still being drawn: shows an open outline plus a rubber band to the cursor. */
   isDrawing: boolean;
+  /** Text being edited: the editor draws it instead. */
+  hidden?: boolean;
   cursorDoc: Point2D | null;
 }
 
@@ -82,12 +92,50 @@ export function ShapeAnnotation({
   isSelected,
   isDrawing,
   cursorDoc,
+  hidden,
 }: ShapeAnnotationProps) {
   const color = getAnnotationColor(shape);
   const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
   const pts = shape.points.map(toScreen);
   const strokeWidth = isSelected ? 2.5 : 2;
   const label = getShapeLabel(shape, scale, displayUnit);
+
+  if (shape.kind === "text" && pts.length >= 1) {
+    if (hidden) return null;
+    const px = (shape.fontSize ?? TEXT_DEFAULT_SIZE) * viewportZoom(viewport);
+    const box = textScreenBox(shape, viewport);
+    return (
+      <g pointerEvents="none" transform={`rotate(${shape.rotation ?? 0} ${box.x} ${box.y})`}>
+        {isSelected && (
+          <rect
+            x={box.x - 3}
+            y={box.y - 3}
+            width={box.width + 6}
+            height={box.height + 6}
+            fill="none"
+            stroke={SELECTION_ACCENT}
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+          />
+        )}
+        <text
+          fill={color}
+          fontSize={px}
+          fontFamily={TEXT_FONT_FAMILY}
+          fontWeight={shape.bold ? 700 : 400}
+          fontStyle={shape.italic ? "italic" : "normal"}
+          dominantBaseline="hanging"
+          style={{ whiteSpace: "pre" }}
+        >
+          {textLines(shape.text).map((line, i) => (
+            <tspan key={i} x={box.x} y={box.y + i * px * TEXT_LINE_HEIGHT + px * (TEXT_LINE_HEIGHT - 1) / 2}>
+              {line || " "}
+            </tspan>
+          ))}
+        </text>
+      </g>
+    );
+  }
 
   if (shape.kind === "area") {
     const ptsAttr = pts.map((p) => `${p.x},${p.y}`).join(" ");

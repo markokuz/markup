@@ -8,14 +8,10 @@ export function createUndoSnapshot(
     "measurements" | "rectangles" | "notes" | "shapes" | "scale" | "selectedIds"
   >,
 ): UndoSnapshot {
-  return {
-    measurements: structuredClone(tab.measurements),
-    rectangles: structuredClone(tab.rectangles),
-    notes: structuredClone(tab.notes),
-    shapes: structuredClone(tab.shapes),
-    scale: tab.scale ? { ...tab.scale } : null,
-    selectedIds: [...tab.selectedIds],
-  };
+  // Reducers never mutate state in place, so sharing references is safe, and
+  // cloning would copy every snapshot image (MBs each) into all 50 steps.
+  const { measurements, rectangles, notes, shapes, scale, selectedIds } = tab;
+  return { measurements, rectangles, notes, shapes, scale, selectedIds };
 }
 
 export function appendHistory(tab: DocumentTab): UndoSnapshot[] {

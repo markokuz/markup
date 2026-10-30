@@ -17,7 +17,37 @@ import {
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
-import { cloudOutline } from "@/app/utils/geometry";
+import { cloudOutline, rotateAround, rotatedBoxCorners } from "@/app/utils/geometry";
+import { noteCardSize, textScreenBox } from "@/app/utils/noteLayout";
+
+/** Screen corners (TL, TR, BR, BL) of a note card, turned with the note. */
+export function noteScreenCorners(note: NoteAnnotation, viewport: DocumentViewport): Point2D[] {
+  const pos = toScreenPoint(viewport, note.position.x, note.position.y);
+  const { width, height } = noteCardSize(note.text, note.width);
+  return rotatedBoxCorners(pos, width, height, note.rotation ?? 0);
+}
+
+/** Screen corners of a rectangle, turned about its centre. */
+export function rectScreenCorners(rectangle: RectMeasurement, viewport: DocumentViewport): Point2D[] {
+  const r = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
+  const centre = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  return [
+    { x: r.x, y: r.y },
+    { x: r.x + r.width, y: r.y },
+    { x: r.x + r.width, y: r.y + r.height },
+    { x: r.x, y: r.y + r.height },
+  ].map((p) => rotateAround(p, centre, rectangle.rotation ?? 0));
+}
+
+/** Screen corners of a free-text box, turned about its anchor. */
+export function textScreenCorners(shape: ShapeAnnotation, viewport: DocumentViewport): Point2D[] {
+  const { x, y, width, height } = textScreenBox(shape, viewport);
+  return rotatedBoxCorners({ x, y }, width, height, shape.rotation ?? 0);
+}
+
+function closedSegments(points: Point2D[]): [Point2D, Point2D][] {
+  return points.map((p, i) => [p, points[(i + 1) % points.length]]);
+}
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
 export function screenRectFromPoints(a: Point2D, b: Point2D): ScreenRect {
@@ -163,6 +193,7 @@ function shapeScreenSegments(
   viewport: DocumentViewport,
 ): [Point2D, Point2D][] {
   const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
+  if (shape.kind === "text") return closedSegments(textScreenCorners(shape, viewport));
   if (shape.kind === "count") return shape.points.map((p) => [toScreen(p), toScreen(p)]);
   const pts = (shape.kind === "cloud" ? cloudOutline(shape.points) : shape.points).map(toScreen);
   const closed = shape.kind === "area" || shape.kind === "cloud" || shape.kind === "image";
@@ -219,32 +250,25 @@ export function findAnnotationsInMarquee(
     }
   }
 
+  const outlineMatches = (corners: Point2D[]) =>
+    mode === "contain"
+      ? corners.every((p) => pointInRect(p, selectionRect))
+      : closedSegments(corners).some(([a, b]) => segmentIntersectsRect(a, b, selectionRect)) ||
+        pointInPolygon(selectionRect, corners);
+
   for (const rectangle of rectangles) {
-    const bounds = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
-    if (rectangleMatchesMarquee(bounds, selectionRect, mode)) {
-      ids.push(rectangle.id);
-    }
+    const matches = rectangle.rotation
+      ? outlineMatches(rectScreenCorners(rectangle, viewport))
+      : rectangleMatchesMarquee(
+          toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight),
+          selectionRect,
+          mode,
+        );
+    if (matches) ids.push(rectangle.id);
   }
 
   for (const note of notes) {
-    const pos = toScreenPoint(viewport, note.position.x, note.position.y);
-    const labelWidth = estimateLabelWidth(note.text || "Note");
-    const noteRect: ScreenRect = {
-      x: pos.x,
-      y: pos.y,
-      width: labelWidth,
-      height: 28,
-    };
-    const selected =
-      mode === "contain"
-        ? noteRect.x >= selectionRect.x &&
-          noteRect.y >= selectionRect.y &&
-          noteRect.x + noteRect.width <= selectionRect.x + selectionRect.width &&
-          noteRect.y + noteRect.height <= selectionRect.y + selectionRect.height
-        : rectsIntersect(noteRect, selectionRect);
-    if (selected) {
-      ids.push(note.id);
-    }
+    if (outlineMatches(noteScreenCorners(note, viewport))) ids.push(note.id);
   }
 
   for (const shape of shapes) {
@@ -281,14 +305,14 @@ export function hitTestAnnotations(
   const candidates: HitCandidate[] = [];
 
   for (const note of notes) {
-    const pos = toScreenPoint(viewport, note.position.x, note.position.y);
-    const labelWidth = estimateLabelWidth(note.text || "Note");
-    const rect: ScreenRect = { x: pos.x, y: pos.y, width: labelWidth, height: 28 };
-    if (pointInRect(point, rect)) {
+    const corners = noteScreenCorners(note, viewport);
+    if (pointInPolygon(point, corners)) {
+      const { width, height } = noteCardSize(note.text, note.width);
+      const centre = { x: (corners[0].x + corners[2].x) / 2, y: (corners[0].y + corners[2].y) / 2 };
       candidates.push({
         id: note.id,
-        area: labelWidth * 28,
-        dist: Math.hypot(point.x - (rect.x + rect.width / 2), point.y - (rect.y + rect.height / 2)),
+        area: width * height,
+        dist: Math.hypot(point.x - centre.x, point.y - centre.y),
       });
     }
   }
@@ -331,27 +355,26 @@ export function hitTestAnnotations(
 
   for (const rectangle of rectangles) {
     const bounds = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
+    const centreOf = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    // Test in the rectangle's own (unturned) frame.
+    const p = rectangle.rotation ? rotateAround(point, centreOf, -rectangle.rotation) : point;
     const onStroke =
-      (point.x >= bounds.x - LINE_HIT_SLOP &&
-        point.x <= bounds.x + bounds.width + LINE_HIT_SLOP &&
-        point.y >= bounds.y - LINE_HIT_SLOP &&
-        point.y <= bounds.y + bounds.height + LINE_HIT_SLOP) &&
+      (p.x >= bounds.x - LINE_HIT_SLOP &&
+        p.x <= bounds.x + bounds.width + LINE_HIT_SLOP &&
+        p.y >= bounds.y - LINE_HIT_SLOP &&
+        p.y <= bounds.y + bounds.height + LINE_HIT_SLOP) &&
       !(
-        point.x > bounds.x + LINE_HIT_SLOP &&
-        point.x < bounds.x + bounds.width - LINE_HIT_SLOP &&
-        point.y > bounds.y + LINE_HIT_SLOP &&
-        point.y < bounds.y + bounds.height - LINE_HIT_SLOP
+        p.x > bounds.x + LINE_HIT_SLOP &&
+        p.x < bounds.x + bounds.width - LINE_HIT_SLOP &&
+        p.y > bounds.y + LINE_HIT_SLOP &&
+        p.y < bounds.y + bounds.height - LINE_HIT_SLOP
       );
 
     if (onStroke) {
-      const mid = {
-        x: bounds.x + bounds.width / 2,
-        y: bounds.y + bounds.height / 2,
-      };
       candidates.push({
         id: rectangle.id,
         area: bounds.width * bounds.height,
-        dist: Math.hypot(point.x - mid.x, point.y - mid.y),
+        dist: Math.hypot(p.x - centreOf.x, p.y - centreOf.y),
       });
     }
   }
@@ -372,7 +395,7 @@ export function hitTestAnnotations(
     };
     const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= LINE_HIT_SLOP);
     const insideArea =
-      (shape.kind === "area" || shape.kind === "image") &&
+      (shape.kind === "area" || shape.kind === "image" || shape.kind === "text") &&
       points.length >= 3 &&
       pointInPolygon(point, points);
     const textRect = calloutTextRect(shape, viewport);

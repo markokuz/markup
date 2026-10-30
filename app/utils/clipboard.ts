@@ -24,8 +24,8 @@ import { toMeters } from "@/app/utils/units";
  */
 interface MarkupClipboard {
   lines: { start: Point2D; end: Point2D; color?: string; label?: string }[];
-  rects: { cornerA: Point2D; cornerB: Point2D; color?: string; label?: string }[];
-  notes: { position: Point2D; text: string; color?: string; label?: string }[];
+  rects: { cornerA: Point2D; cornerB: Point2D; color?: string; label?: string; rotation?: number }[];
+  notes: Omit<NoteAnnotation, "id">[];
   shapes: Omit<ShapeAnnotation, "id">[];
   /** Centre of the copied group's bounding box. */
   center: Point2D;
@@ -73,10 +73,11 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       cornerB: toView(r.bottomRight),
       color: r.color,
       label: r.label,
+      rotation: r.rotation,
     }));
   const notes = source.notes
     .filter((n) => selected.has(n.id))
-    .map((n) => ({ position: toView(n.position), text: n.text, color: n.color, label: n.label }));
+    .map(({ id: _id, ...n }) => ({ ...n, position: toView(n.position) }));
   const shapes = source.shapes
     .filter((s) => selected.has(s.id))
     .map(({ id: _id, ...s }) => ({ ...s, points: s.points.map(toView) }));
@@ -160,6 +161,7 @@ export function buildPaste(target: PasteTarget): {
       heightLabelOffset: { x: 0, y: 0 },
       ...(rect.color ? { color: rect.color } : {}),
       ...(rect.label ? { label: rect.label } : {}),
+      ...(rect.rotation ? { rotation: rect.rotation } : {}),
     };
     return {
       ...base,
@@ -177,17 +179,17 @@ export function buildPaste(target: PasteTarget): {
   });
 
   const notes: NoteAnnotation[] = clip.notes.map((note) => ({
+    ...note,
     id: crypto.randomUUID(),
     position: toDoc(note.position),
-    text: note.text,
-    ...(note.color ? { color: note.color } : {}),
-    ...(note.label ? { label: note.label } : {}),
   }));
 
   const shapes: ShapeAnnotation[] = clip.shapes.map((shape) => ({
     ...shape,
     id: crypto.randomUUID(),
     points: shape.points.map(toDoc),
+    // Text size is in doc units, so it follows the same real-world resize as the geometry.
+    ...(shape.fontSize ? { fontSize: shape.fontSize * sizeFactor } : {}),
   }));
 
   return { measurements, rectangles, notes, shapes };

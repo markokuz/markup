@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
@@ -11,6 +11,9 @@ export function DocumentTabs() {
   const { tabs, activeTabId } = useAppState();
   const dispatch = useAppDispatch();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const draggedIdRef = useRef<string | null>(null);
+  /** Where a dragged tab would land: before this index (0..tabs.length). */
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   useEffect(() => {
     pruneTabScroll(tabs.map((tab) => tab.id));
   }, [tabs]);
@@ -23,7 +26,12 @@ export function DocumentTabs() {
     if (file) await openDocumentFile(file, dispatch);
   };
 
-  const renderTab = (tab: (typeof tabs)[0]) => {
+  const endDrag = () => {
+    draggedIdRef.current = null;
+    setDropIndex(null);
+  };
+
+  const renderTab = (tab: (typeof tabs)[0], index: number) => {
     const isActive = tab.id === activeTabId;
     const label = tab.fileName ?? "Untitled";
     const requestClose = () => dispatch({ type: "REQUEST_CLOSE_TAB", tabId: tab.id });
@@ -36,14 +44,47 @@ export function DocumentTabs() {
             ? "border border-border bg-surface text-text-primary shadow-sm"
             : "border border-transparent text-text-secondary hover:bg-surface-muted hover:text-text-primary"
         }`}
-        style={
-          isActive
-            ? { boxShadow: "inset 0 -2px 0 0 var(--accent)" }
-            : undefined
-        }
+        style={{
+          boxShadow:
+            [
+              isActive && "inset 0 -2px 0 0 var(--accent)",
+              dropIndex === index && "inset 2px 0 0 0 var(--accent)",
+              dropIndex === index + 1 && index === tabs.length - 1 && "inset -2px 0 0 0 var(--accent)",
+            ]
+              .filter(Boolean)
+              .join(", ") || undefined,
+        }}
         onAuxClick={(event) => {
           if (event.button === 1) requestClose();
         }}
+        draggable
+        onDragStart={(event) => {
+          draggedIdRef.current = tab.id;
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", label);
+        }}
+        onDragOver={(event) => {
+          if (!draggedIdRef.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setDropIndex(event.clientX < rect.left + rect.width / 2 ? index : index + 1);
+        }}
+        onDrop={(event) => {
+          const draggedId = draggedIdRef.current;
+          if (!draggedId || dropIndex === null) return;
+          // Tab drags never reach the window's open-file drop handler.
+          event.preventDefault();
+          event.stopPropagation();
+          const from = tabs.findIndex((t) => t.id === draggedId);
+          dispatch({
+            type: "MOVE_TAB",
+            tabId: draggedId,
+            toIndex: dropIndex > from ? dropIndex - 1 : dropIndex,
+          });
+          endDrag();
+        }}
+        onDragEnd={endDrag}
       >
         <button
           type="button"

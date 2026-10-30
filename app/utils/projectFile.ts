@@ -8,6 +8,7 @@ import type {
   Scale,
   Unit,
 } from "@/app/types";
+import type { ColorTool } from "@/app/utils/settings";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 const PROJECT_FILE_EXTENSION = ".mkup";
@@ -37,6 +38,8 @@ export interface ProjectFilePayload {
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
+  /** Absent in projects saved before per-document tool colours existed. */
+  toolColors?: Partial<Record<ColorTool, string>>;
 }
 
 export interface LoadedProject {
@@ -54,6 +57,7 @@ export interface LoadedProject {
   rotation: DocumentRotation;
   /** Saved before v2 with an image rotated 90°/270°: coordinates need shifting. */
   legacyRotatedImage: boolean;
+  toolColors: Partial<Record<ColorTool, string>>;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -127,6 +131,7 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     displayUnit: payload.displayUnit,
     zoom: payload.zoom,
     rotation: payload.rotation,
+    toolColors: payload.toolColors ?? {},
     legacyRotatedImage:
       payload.version < 2 &&
       payload.fileType === "image" &&

@@ -514,6 +514,3 @@ export function computeInlineEdgeSegments(
   return computeInlineLineSegments(edgeStart, edgeEnd, labelWidth, labelPadding);
 }
 
-// Backwards-compatible aliases used across the app
-export const toPdfPoint = toDocPoint;
-export const pdfDistance = docDistance;

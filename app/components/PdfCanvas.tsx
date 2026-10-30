@@ -13,6 +13,9 @@ import { Minimap } from "@/app/components/Minimap";
 import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
+import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
+import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
+import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
 
 const ZOOM_WHEEL_STEP = 0.1;
 const ZOOM_COMMIT_DELAY_MS = 120;
@@ -101,6 +104,7 @@ export function PdfViewer() {
     return () => observer.disconnect();
   }, [fileBytes]);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didCenterRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(
@@ -430,6 +434,26 @@ export function PdfViewer() {
             Upload a PDF, TIF, or photo (PNG, JPG, etc.) to calibrate scale and
             add measurements, or drag and drop a file anywhere on the page.
           </p>
+          <button
+            type="button"
+            onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
+            className="btn-primary mt-6 shadow-sm"
+            // The global reset outranks Tailwind padding utilities, so size it here.
+            style={{ padding: "0.625rem 1.75rem", minWidth: "10rem" }}
+          >
+            Browse files…
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={`${ACCEPTED_FILE_TYPES},${PROJECT_ACCEPT}`}
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void openDocumentFile(file, dispatch);
+            }}
+          />
         </div>
         <RestoreSessions />
       </div>
@@ -485,6 +509,7 @@ export function PdfViewer() {
               <MagnifierLoupe
                 sourceCanvas={canvasElement}
                 cursor={cursor}
+                overlayRef={overlayRef}
                 viewportWidth={viewport.width}
                 viewportHeight={viewport.height}
               />

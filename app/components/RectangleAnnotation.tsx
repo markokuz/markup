@@ -36,6 +36,7 @@ function getDisplayDistance(
 }
 
 type RectCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+type RectEdge = "top" | "right" | "bottom" | "left";
 
 /** An unlabelled edge drawn as one unbroken segment (no gap for text). */
 function fullEdge(a: Point2D, b: Point2D): ReturnType<typeof computeInlineEdgeSegments> {
@@ -59,6 +60,8 @@ interface RectangleAnnotationProps {
     corner: RectCorner,
     event: React.PointerEvent,
   ) => void;
+  /** Side handle: resizes along one axis only. */
+  onEdgeHandlePointerDown: (id: string, edge: RectEdge, event: React.PointerEvent) => void;
   onWidthLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onHeightLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onStartEditWidth: (id: string) => void;
@@ -190,6 +193,7 @@ export function RectangleAnnotation({
   onSelect,
   onBodyPointerDown,
   onCornerPointerDown,
+  onEdgeHandlePointerDown,
   onWidthLabelDragStart,
   onHeightLabelDragStart,
   onStartEditWidth,
@@ -252,6 +256,13 @@ export function RectangleAnnotation({
     { id: "bottomRight", cx: x + width, cy: y + height },
   ];
 
+  const edgeHandles: { id: RectEdge; cx: number; cy: number; cursor: string }[] = [
+    { id: "top", cx: x + width / 2, cy: y, cursor: "ns-resize" },
+    { id: "bottom", cx: x + width / 2, cy: y + height, cursor: "ns-resize" },
+    { id: "left", cx: x, cy: y + height / 2, cursor: "ew-resize" },
+    { id: "right", cx: x + width, cy: y + height / 2, cursor: "ew-resize" },
+  ];
+
   const handleEdgePointerDown = (event: React.PointerEvent) => {
     if (!isSelectMode && !showHandles) return;
     event.stopPropagation();
@@ -262,7 +273,14 @@ export function RectangleAnnotation({
   };
 
   return (
-    <g className="rectangle-annotation">
+    <g
+      className="rectangle-annotation"
+      transform={
+        rectangle.rotation
+          ? `rotate(${rectangle.rotation} ${x + width / 2} ${y + height / 2})`
+          : undefined
+      }
+    >
       {isSelected && (
         <rect
           x={Math.min(x, x + width) - 4}
@@ -386,6 +404,24 @@ export function RectangleAnnotation({
       )}
       {showHandles && isSelected && (
         <>
+          {edgeHandles.map((handle) => (
+            <rect
+              key={handle.id}
+              x={handle.cx - 5}
+              y={handle.cy - 5}
+              width={10}
+              height={10}
+              rx={2}
+              fill="#0f172a"
+              stroke={color}
+              strokeWidth={2}
+              style={{ cursor: handle.cursor, pointerEvents: "all" }}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                onEdgeHandlePointerDown(rectangle.id, handle.id, event);
+              }}
+            />
+          ))}
           {corners.map((corner) => (
             <circle
               key={corner.id}
@@ -408,4 +444,4 @@ export function RectangleAnnotation({
   );
 }
 
-export type { RectCorner };
+export type { RectCorner, RectEdge };

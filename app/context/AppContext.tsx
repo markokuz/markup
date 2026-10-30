@@ -102,6 +102,15 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     }
     case "RESET_SETTINGS":
       return { ...state, settings: DEFAULT_SETTINGS };
+    case "SET_TAB_TOOL_COLOR":
+      return updateActiveTab(state, (tab) => {
+        const counting = tab.shapes.some((s) => s.id === tab.drawingShapeId && s.kind === "count");
+        return {
+          // A new count colour starts a new count group; dots already placed keep theirs.
+          ...(action.tool === "count" && counting ? finishDrawingShape(tab) : tab),
+          toolColors: { ...tab.toolColors, [action.tool]: action.color },
+        };
+      });
     case "SET_COUNT_START":
       return { ...state, countStart: Math.max(0, Math.floor(action.start)) };
     case "SET_ANNOTATION_LABEL":
@@ -129,12 +138,19 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       });
       return {
         ...state,
-        tabs: [...state.tabs, { ...tab, autoOrientPending: state.autoOrientPortrait }],
+        tabs: [
+          ...state.tabs,
+          { ...tab, autoOrientPending: state.autoOrientPortrait, projectHandle: action.handle ?? null },
+        ],
         activeTabId: tab.id,
         tool: "calibrate",
       };
     }
     case "LOAD_PROJECT": {
+      // A double-clicked restore must not open two tabs sharing one id.
+      if (state.tabs.some((tab) => tab.id === action.tabId)) {
+        return { ...state, activeTabId: action.tabId! };
+      }
       const base = createDocumentTab(
         {
           bytes: action.bytes,
@@ -155,6 +171,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         rotation: action.rotation,
         projectHandle: action.handle ?? null,
         legacyRotationFixPending: action.legacyRotatedImage ?? false,
+        toolColors: action.toolColors ?? {},
       };
       return {
         ...state,
@@ -163,6 +180,13 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         displayUnit: action.displayUnit,
         tool: action.scale ? "measure" : "calibrate",
       };
+    }
+    case "MOVE_TAB": {
+      const from = state.tabs.findIndex((tab) => tab.id === action.tabId);
+      if (from === -1) return state;
+      const tabs = state.tabs.filter((tab) => tab.id !== action.tabId);
+      tabs.splice(Math.max(0, Math.min(action.toIndex, tabs.length)), 0, state.tabs[from]);
+      return { ...state, tabs };
     }
     case "SWITCH_TAB":
       if (!state.tabs.some((tab) => tab.id === action.tabId)) return state;
@@ -200,7 +224,10 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "CANCEL_CLOSE_TAB":
       return { ...state, pendingCloseTabId: null };
     case "MARK_TAB_SAVED":
-      return updateTabById(state, action.tabId, (tab) => ({ ...tab, dirty: false }));
+      return updateTabById(state, action.tabId, (tab) => ({
+        ...tab,
+        dirty: annotationsChanged(action.saved, tab),
+      }));
     case "SET_CONFIRM_CLOSE_UNSAVED":
       return { ...state, confirmCloseUnsaved: action.enabled };
     case "SET_ZOOM":
@@ -275,7 +302,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           selectedIds: [action.note.id],
           editingNoteId: action.note.id,
         })),
-        tool: "select",
       };
     case "UPDATE_NOTE":
       return updateActiveTab(state, (tab) => ({
@@ -300,12 +326,12 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         shapes: [...tab.shapes, shape],
         pendingPoint: null,
         drawingShapeId: action.drawing ? shape.id : null,
-        ...(shape.kind === "callout"
+        ...(shape.kind === "callout" || shape.kind === "text"
           ? { selectedIds: [shape.id], editingNoteId: shape.id }
           : {}),
       }));
-      // Callouts open straight into text editing, like notes.
-      return shape.kind === "callout" ? { ...next, tool: "select" } : next;
+      // Callouts and text open straight into text editing, like notes; the tool stays.
+      return next;
     }
     case "APPEND_SHAPE_POINT":
       return updateActiveTab(state, (tab) => ({
@@ -405,8 +431,21 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "SET_ANNOTATION_COLOR":
       return updateActiveTab(state, (tab) => {
         const targetIds = new Set(action.ids);
+        // Remember the colour for each recoloured markup's tool, so the next one matches.
+        const toolColors = { ...tab.toolColors };
+        if (action.color) {
+          for (const m of tab.measurements) {
+            if (targetIds.has(m.id) && !m.isCalibration) toolColors.measure = action.color;
+          }
+          if (tab.rectangles.some((r) => targetIds.has(r.id))) toolColors.rectangle = action.color;
+          if (tab.notes.some((n) => targetIds.has(n.id))) toolColors.note = action.color;
+          for (const s of tab.shapes) {
+            if (targetIds.has(s.id) && s.kind !== "image") toolColors[s.kind] = action.color;
+          }
+        }
         return {
           ...tab,
+          toolColors,
           // A colour-wheel drag sends many updates; only its first one records undo.
           history: action.recordUndo === false ? tab.history : appendHistory(tab),
           measurements: tab.measurements.map((m) =>
@@ -613,6 +652,18 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
   }
 }
 
+type SavedFields = Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "scale">;
+
+function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
+  return (
+    a.measurements !== b.measurements ||
+    a.rectangles !== b.rectangles ||
+    a.notes !== b.notes ||
+    a.shapes !== b.shapes ||
+    a.scale !== b.scale
+  );
+}
+
 /** Flags tabs whose annotations or scale changed as a result of an action. */
 function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
   if (prev.tabs === next.tabs) return next;
@@ -622,13 +673,7 @@ function trackDirtyTabs(prev: TabsState, next: TabsState): TabsState {
   const tabs = next.tabs.map((tab) => {
     const before = prevById.get(tab.id);
     if (!before || tab.dirty) return tab;
-    if (
-      tab.measurements !== before.measurements ||
-      tab.rectangles !== before.rectangles ||
-      tab.notes !== before.notes ||
-      tab.shapes !== before.shapes ||
-      tab.scale !== before.scale
-    ) {
+    if (annotationsChanged(before, tab)) {
       changed = true;
       return { ...tab, dirty: true };
     }
@@ -673,28 +718,7 @@ function initTabsState(state: TabsState): TabsState {
 
 function mergeActiveTabView(state: TabsState): AppState {
   const activeTab = getActiveTab(state);
-  if (!activeTab) {
-    return {
-      ...EMPTY_DOCUMENT_VIEW,
-      tool: state.tool,
-      displayUnit: state.displayUnit,
-      tabs: state.tabs,
-      activeTabId: state.activeTabId,
-      loupeEnabled: state.loupeEnabled,
-      minimapHidden: state.minimapHidden,
-      confirmCloseUnsaved: state.confirmCloseUnsaved,
-      pendingCloseTabId: state.pendingCloseTabId,
-      snapLines: state.snapLines,
-      autoOrientPortrait: state.autoOrientPortrait,
-      cloudMode: state.cloudMode,
-      countStart: state.countStart,
-      lineMode: state.lineMode,
-      rectMode: state.rectMode,
-      settings: state.settings,
-    };
-  }
-
-  const { id: _id, ...documentFields } = activeTab;
+  const { id: _id, ...documentFields } = activeTab ?? { id: "", ...EMPTY_DOCUMENT_VIEW };
   return {
     ...documentFields,
     tool: state.tool,

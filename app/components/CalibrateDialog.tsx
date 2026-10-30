@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { defaultScreenLabelOffsetDoc, midpoint, pdfDistance } from "@/app/utils/coordinates";
+import { defaultScreenLabelOffsetDoc, docDistance, midpoint } from "@/app/utils/coordinates";
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
@@ -15,6 +15,18 @@ export function CalibrateDialog() {
   const [pickedUnit, setUnit] = useState<Unit | null>(null);
   const unit = pickedUnit ?? settings.defaultUnit;
   const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // autoFocus loses to the canvas click that opened the dialog; focus after it.
+  const open = calibrateDialogOpen && !!pendingCalibrationLine;
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   if (!calibrateDialogOpen || !pendingCalibrationLine) return null;
 
@@ -26,7 +38,7 @@ export function CalibrateDialog() {
       return;
     }
 
-    const pdfDist = pdfDistance(
+    const pdfDist = docDistance(
       pendingCalibrationLine.start,
       pendingCalibrationLine.end,
     );
@@ -96,7 +108,7 @@ export function CalibrateDialog() {
                 type="number"
                 step="any"
                 min="0"
-                autoFocus
+                ref={inputRef}
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="10"

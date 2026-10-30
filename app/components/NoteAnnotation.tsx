@@ -5,7 +5,7 @@ import type { NoteAnnotation as NoteAnnotationType } from "@/app/types";
 import { toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
-import { NOTE_CARD } from "@/app/utils/noteLayout";
+import { NOTE_CARD, NOTE_CARD_CHROME_X } from "@/app/utils/noteLayout";
 
 const FOREIGN_OBJECT_WIDTH = 320;
 const FOREIGN_OBJECT_HEIGHT = 120;
@@ -59,8 +59,10 @@ export function NoteAnnotation({
     fontSize: NOTE_CARD.fontSize,
     lineHeight: `${NOTE_CARD.lineHeight}px`,
     padding: `${NOTE_CARD.padY}px ${NOTE_CARD.padX}px`,
-    maxWidth: NOTE_CARD.maxTextWidth + NOTE_CARD.padX * 2 + NOTE_CARD.accentWidth,
-    minWidth: NOTE_CARD.minWidth,
+    // A resized note keeps its width and wraps the text inside it.
+    ...(note.width
+      ? { width: note.width, boxSizing: "border-box" }
+      : { maxWidth: NOTE_CARD.maxTextWidth + NOTE_CARD_CHROME_X, minWidth: NOTE_CARD.minWidth }),
   };
 
   useEffect(() => {
@@ -135,6 +137,8 @@ export function NoteAnnotation({
       y={screenPos.y}
       width={FOREIGN_OBJECT_WIDTH}
       height={FOREIGN_OBJECT_HEIGHT}
+      // Turned about the card's top-left, like the export.
+      transform={note.rotation ? `rotate(${note.rotation} ${screenPos.x} ${screenPos.y})` : undefined}
       style={{ overflow: "visible", pointerEvents: interactive ? "all" : "none" }}
     >
       <div className="inline-block">
@@ -152,7 +156,7 @@ export function NoteAnnotation({
                 // Auto-sized to its content, so a scroll bar is never needed.
                 overflow: "hidden",
                 // Grow with the text like the display card instead of a fixed textarea width.
-                fieldSizing: "content",
+                fieldSizing: note.width ? "fixed" : "content",
               } as React.CSSProperties
             }
             onPointerDown={(event) => event.stopPropagation()}
@@ -181,7 +185,7 @@ export function NoteAnnotation({
             className="rounded-md font-sans whitespace-pre-wrap break-words"
             style={{
               ...cardStyle,
-              width: "fit-content",
+              width: note.width ?? "fit-content",
               cursor: isSelectMode ? "pointer" : "default",
               boxShadow: selectionGlow,
             }}

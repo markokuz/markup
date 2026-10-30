@@ -12,6 +12,7 @@ export type ToolMode =
   | "count"
   | "cloud"
   | "callout"
+  | "text"
   | "snapshot";
 
 export type Unit = "ft" | "in" | "m" | "mm";
@@ -48,17 +49,23 @@ export interface RectMeasurement {
   label?: string;
   /** Drawn as a plain markup box: no dimension labels. */
   plain?: boolean;
+  /** Degrees clockwise on screen, about the rectangle's centre. */
+  rotation?: number;
 }
 
 export interface NoteAnnotation {
   id: string;
   position: Point2D;
   text: string;
+  /** Degrees clockwise on screen, about `position` (the card's top-left). */
+  rotation?: number;
+  /** Card width in screen px; text wraps to it. Unset: sized to the text. */
+  width?: number;
   color?: string;
   label?: string;
 }
 
-export type ShapeKind = "area" | "count" | "cloud" | "callout" | "image";
+export type ShapeKind = "area" | "count" | "cloud" | "callout" | "text" | "image";
 
 /** Generic multi-point markup: area polygon, count group, revision cloud or callout. */
 export interface ShapeAnnotation {
@@ -66,8 +73,17 @@ export interface ShapeAnnotation {
   kind: ShapeKind;
   /** area: vertices · count: markers · cloud: two corners · callout: [arrow tip, text anchor] */
   points: Point2D[];
-  /** Callout text. */
+  /** Callout and free text. */
   text?: string;
+  /** Text only: font size in doc units (points on a PDF); points = [screen-aligned top-left]. */
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  /**
+   * Degrees clockwise on screen. Text turns about its anchor; areas and clouds have
+   * their points turned already and keep this only as their resize frame.
+   */
+  rotation?: number;
   color?: string;
   label?: string;
   /** Count only: number of the first marker (defaults to 1). */
@@ -141,10 +157,12 @@ export interface DocumentTab {
   dirty: boolean;
   /** Pick 0° or 270° from the page aspect once the document loads. */
   autoOrientPending: boolean;
-  /** Linked .mkup file that Ctrl+S writes to (File System Access API). */
+  /** File Ctrl+S writes to (File System Access API): a .mkup project, or the PDF itself. */
   projectHandle: FileSystemFileHandle | null;
   /** Opened from a v1 project with a rotated image; shift coords once size is known. */
   legacyRotationFixPending: boolean;
+  /** Last colour used per tool in this document; falls back to settings.toolColors. */
+  toolColors: Partial<Record<ColorTool, string>>;
 }
 
 /** Internal reducer state. */
@@ -202,6 +220,8 @@ export type AppAction =
       fileName: string;
       fileType: DocumentType;
       mimeType: string;
+      /** The opened PDF, so Ctrl+S can save the markups into it. */
+      handle?: FileSystemFileHandle | null;
     }
   | {
       type: "LOAD_PROJECT";
@@ -221,12 +241,20 @@ export type AppAction =
       legacyRotatedImage?: boolean;
       /** Reuse this tab id (restoring a browser backup keeps its session entry). */
       tabId?: string;
+      toolColors?: Partial<Record<ColorTool, string>>;
     }
   | { type: "SWITCH_TAB"; tabId: string }
+  | { type: "SET_TAB_TOOL_COLOR"; tool: ColorTool; color: string }
+  | { type: "MOVE_TAB"; tabId: string; toIndex: number }
   | { type: "CLOSE_TAB"; tabId: string }
   | { type: "REQUEST_CLOSE_TAB"; tabId: string }
   | { type: "CANCEL_CLOSE_TAB" }
-  | { type: "MARK_TAB_SAVED"; tabId: string }
+  | {
+      type: "MARK_TAB_SAVED";
+      tabId: string;
+      /** What was written; edits made while saving keep the tab dirty. */
+      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "scale">;
+    }
   | { type: "SET_CONFIRM_CLOSE_UNSAVED"; enabled: boolean }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_ROTATION"; rotation: DocumentRotation }

@@ -37,6 +37,7 @@ export function createDocumentTab(
     autoOrientPending: false,
     projectHandle: null,
     legacyRotationFixPending: false,
+    toolColors: {},
   };
 }
 
@@ -96,6 +97,7 @@ export const EMPTY_DOCUMENT_VIEW = {
   autoOrientPending: false,
   projectHandle: null,
   legacyRotationFixPending: false,
+  toolColors: {},
 };
 
 /** The active tab as stored in the tab list (useful for helpers that take a tab). */

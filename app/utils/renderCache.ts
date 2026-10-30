@@ -3,6 +3,8 @@
 // Rendered full pages kept between sessions (IndexedDB), so reopening a heavy
 // PDF shows it at once. Every call fails soft: no storage just means no cache.
 
+import { createDbOpener, done } from "@/app/utils/idb";
+
 const DB_NAME = "markup-render-cache";
 const STORE = "pages";
 /** Oldest renders are dropped beyond this (a big sheet is a few MB as PNG). */
@@ -14,31 +16,9 @@ interface CachedRender {
   savedAt: number;
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDb() {
-  dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(STORE, { keyPath: "key" });
-      store.createIndex("savedAt", "savedAt");
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  dbPromise.catch(() => {
-    dbPromise = null;
-  });
-  return dbPromise;
-}
-
-function done(transaction: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
-}
+const openDb = createDbOpener(DB_NAME, (db) => {
+  db.createObjectStore(STORE, { keyPath: "key" }).createIndex("savedAt", "savedAt");
+});
 
 /** Content hash of the file, so the same PDF hits the cache under any name. */
 export async function hashFile(bytes: Uint8Array): Promise<string | null> {

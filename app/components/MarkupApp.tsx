@@ -64,7 +64,7 @@ function MarkupShell() {
       // Let the blur's state update land before reading the tab.
       setTimeout(() => {
         const latest = getActiveTabFromAppState(stateRef.current) ?? tab;
-        void saveTabWithFeedback(latest, stateRef.current.displayUnit, "linked", dispatch).finally(
+        void saveTabWithFeedback(latest, stateRef.current.displayUnit, "in-place", dispatch).finally(
           () => {
             savingRef.current = false;
           },
@@ -120,7 +120,8 @@ function MarkupShell() {
         // Markups are selected, so a stray page text highlight is accidental.
         window.getSelection()?.removeAllRanges();
         event.preventDefault();
-        copySelection(current, current.documentViewport);
+        const copied = copySelection(current, current.documentViewport);
+        if (copied > 0) showSaveStatus("success", `Copied ${copied} item${copied === 1 ? "" : "s"}`);
         return;
       }
 
@@ -137,7 +138,12 @@ function MarkupShell() {
           fileType: current.fileType,
           targetScreen,
         });
-        if (pasted) dispatch({ type: "PASTE_ANNOTATIONS", ...pasted });
+        if (pasted) {
+          dispatch({ type: "PASTE_ANNOTATIONS", ...pasted });
+          const count =
+            pasted.measurements.length + pasted.rectangles.length + pasted.notes.length + pasted.shapes.length;
+          showSaveStatus("success", `Pasted ${count} item${count === 1 ? "" : "s"}`);
+        }
         return;
       }
 

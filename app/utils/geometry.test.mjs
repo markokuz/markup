@@ -9,6 +9,8 @@ import {
   polygonArea,
   polygonCentroid,
   polylineLength,
+  rotateAround,
+  rotatedBoxCorners,
 } from "./geometry.ts";
 
 const square = [
@@ -57,5 +59,12 @@ assert.equal(cloudOutline(triangle), triangle);
 
 assert.equal(formatArea(1234.56, "ft"), "1,234.6 sq ft");
 assert.equal(formatArea(12.345, "m"), "12.35 m²");
+
+const near = (p, q) => Math.abs(p.x - q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9;
+// 90° clockwise on a y-down screen: right -> down.
+assert.ok(near(rotateAround({ x: 2, y: 1 }, { x: 1, y: 1 }, 90), { x: 1, y: 2 }));
+assert.ok(near(rotateAround({ x: 3, y: 4 }, { x: 0, y: 0 }, 360), { x: 3, y: 4 }));
+const turned = rotatedBoxCorners({ x: 0, y: 0 }, 4, 2, 90);
+assert.ok(near(turned[1], { x: 0, y: 4 }) && near(turned[2], { x: -2, y: 4 }) && near(turned[3], { x: -2, y: 0 }));
 
 console.log("geometry: all checks passed");

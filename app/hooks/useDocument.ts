@@ -21,6 +21,7 @@ import {
 } from "@/app/utils/pdfjsConfig";
 import { isAbortError, renderPdfRegion } from "@/app/utils/pdfium";
 import { hashFile, loadCachedRender, saveCachedRender } from "@/app/utils/renderCache";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 
 type PdfJsModule = typeof import("pdfjs-dist");
 
@@ -148,6 +149,9 @@ export function useDocument(
 
           const page = await pdf.getPage(1);
           if (cancelled) return;
+          if (pdf.numPages > 1) {
+            showSaveStatus("info", `This PDF has ${pdf.numPages} pages; only page 1 is shown.`);
+          }
           pageRef.current = page;
           imageRef.current = null;
           const base = page.getViewport({ scale: 1 });

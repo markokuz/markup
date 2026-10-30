@@ -123,7 +123,10 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
         startAt: start,
       });
     } else {
-      rows.push({ ...base, display: s.kind === "callout" ? s.text || "—" : "—" });
+      rows.push({
+        ...base,
+        display: s.kind === "callout" || s.kind === "text" ? s.text || "—" : "—",
+      });
     }
   }
 

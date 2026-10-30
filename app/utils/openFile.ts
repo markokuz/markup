@@ -3,6 +3,12 @@ import type { AppAction } from "@/app/types";
 import { detectDocumentType } from "@/app/utils/fileTypes";
 import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
 import { putSession, type SessionEntry } from "@/app/utils/sessionStore";
+import { readPdfWithMarkups } from "@/app/utils/pdfSave";
+
+/** Files Ctrl+S writes back to: .mkup projects and PDFs (markups saved into the PDF). */
+function keepsHandle(file: File): boolean {
+  return isProjectFile(file) || detectDocumentType(file) === "pdf";
+}
 
 type WindowWithOpenFilePicker = Window & {
   showOpenFilePicker?: (options?: {
@@ -39,7 +45,7 @@ const OPEN_PICKER_TYPES = [
 ];
 
 /**
- * Open a document or .mkup project in a new tab. `handle` links a .mkup so
+ * Open a document or .mkup project in a new tab. `handle` links the .mkup or PDF so
  * Ctrl+S can save back to it.
  */
 export async function openDocumentFile(
@@ -69,6 +75,7 @@ export async function openDocumentFile(
         zoom: project.zoom,
         rotation: project.rotation,
         legacyRotatedImage: project.legacyRotatedImage,
+      toolColors: project.toolColors,
         handle,
       });
       return;
@@ -77,13 +84,28 @@ export async function openDocumentFile(
     const fileType = detectDocumentType(file);
     if (!fileType) return;
 
-    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // A PDF saved from here carries its markups: reopen them as editable markups.
+    const saved = fileType === "pdf" ? await readPdfWithMarkups(bytes).catch(() => null) : null;
+    if (saved) {
+      dispatch({
+        type: "LOAD_PROJECT",
+        ...saved.data,
+        bytes: saved.pristine,
+        fileName: file.name,
+        fileType,
+        mimeType: file.type,
+        handle,
+      });
+      return;
+    }
     dispatch({
       type: "LOAD_FILE",
-      bytes: new Uint8Array(buffer),
+      bytes,
       fileName: file.name,
       fileType,
       mimeType: file.type,
+      handle,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to open file.";
@@ -117,10 +139,10 @@ export async function pickAndOpenFile(
   const handle = handles[0];
   if (!handle) return;
   const file = await handle.getFile();
-  await openDocumentFile(file, dispatch, isProjectFile(file) ? handle : null);
+  await openDocumentFile(file, dispatch, keepsHandle(file) ? handle : null);
 }
 
-/** Open the first dropped file, keeping a handle for dropped .mkup projects. */
+/** Open the first dropped file, keeping a handle for dropped .mkup projects and PDFs. */
 export async function openDroppedFile(
   dataTransfer: DataTransfer,
   dispatch: Dispatch<AppAction>,
@@ -131,7 +153,7 @@ export async function openDroppedFile(
   // getAsFileSystemHandle must be called synchronously inside the drop event.
   const item = dataTransfer.items[0] as DataTransferItemWithHandle | undefined;
   const handlePromise =
-    isProjectFile(file) && item?.kind === "file" && item.getAsFileSystemHandle
+    keepsHandle(file) && item?.kind === "file" && item.getAsFileSystemHandle
       ? item.getAsFileSystemHandle().catch(() => null)
       : null;
 
@@ -166,6 +188,7 @@ export async function restoreSession(
       zoom: project.zoom,
       rotation: project.rotation,
       legacyRotatedImage: project.legacyRotatedImage,
+      toolColors: project.toolColors,
       handle: entry.handle,
     });
   } catch (error) {

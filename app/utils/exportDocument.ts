@@ -34,6 +34,7 @@ import {
   computeInlineEdgeSegments,
   computePdfLabelAngleDeg,
   docDistance,
+  midpoint,
   type ArrowSpec,
 } from "@/app/utils/coordinates";
 import {
@@ -41,7 +42,17 @@ import {
   getRectDocWidth,
 } from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
-import { getScreenAxes, NOTE_CARD, wrapNoteText } from "@/app/utils/noteLayout";
+import {
+  getScreenAxes,
+  NOTE_CARD,
+  noteTextWidth,
+  rotateScreenUp,
+  TEXT_DEFAULT_SIZE,
+  TEXT_LINE_HEIGHT,
+  textFont,
+  textLines,
+  wrapNoteText,
+} from "@/app/utils/noteLayout";
 import { cloudOutline, cloudPath, polygonCentroid } from "@/app/utils/geometry";
 import { CALLOUT_LEADER_OFFSET, countStartAt, getShapeLabel } from "@/app/utils/shapeMetrics";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
@@ -470,17 +481,20 @@ function layoutNoteCard(
   text: string,
   zoom: number,
   measureAtSize: (s: string, size: number) => number,
+  cardWidth?: number,
 ): NoteCardLayout {
   const k = 1 / Math.max(zoom, 0.0001);
   const fontSize = NOTE_CARD.fontSize * k;
   const padX = NOTE_CARD.padX * k;
   const accentWidth = NOTE_CARD.accentWidth * k;
   const measure = (s: string) => measureAtSize(s, fontSize);
-  const lines = wrapNoteText(text, measure, NOTE_CARD.maxTextWidth * k);
+  const lines = wrapNoteText(text, measure, noteTextWidth(cardWidth) * k);
   const textWidth = Math.max(...lines.map(measure));
   return {
     lines,
-    width: Math.max(textWidth + padX * 2 + accentWidth, NOTE_CARD.minWidth * k),
+    width: cardWidth
+      ? cardWidth * k
+      : Math.max(textWidth + padX * 2 + accentWidth, NOTE_CARD.minWidth * k),
     height: lines.length * NOTE_CARD.lineHeight * k + NOTE_CARD.padY * 2 * k,
     fontSize,
     lineHeight: NOTE_CARD.lineHeight * k,
@@ -498,12 +512,18 @@ function drawNoteCardOnCanvas(
   color: string,
   zoom: number,
   upDir: Point2D,
+  cardWidth?: number,
 ) {
   const font = (size: number) => `${size}px Helvetica, Arial, sans-serif`;
-  const layout = layoutNoteCard(text, zoom, (s, size) => {
-    context.font = font(size);
-    return context.measureText(s).width;
-  });
+  const layout = layoutNoteCard(
+    text,
+    zoom,
+    (s, size) => {
+      context.font = font(size);
+      return context.measureText(s).width;
+    },
+    cardWidth,
+  );
   const { right } = getScreenAxes(upDir, false);
 
   context.save();
@@ -538,8 +558,9 @@ function drawNoteCardOnPdf(
   zoom: number,
   upDir: Point2D,
   font: PDFFont,
+  cardWidth?: number,
 ) {
-  const layout = layoutNoteCard(text, zoom, (s, size) => font.widthOfTextAtSize(s, size));
+  const layout = layoutNoteCard(text, zoom, (s, size) => font.widthOfTextAtSize(s, size), cardWidth);
   const { right, down } = getScreenAxes(upDir, true);
   const rotate = degrees((Math.atan2(right.y, right.x) * 180) / Math.PI);
   const at = (dx: number, dy: number) => ({
@@ -776,8 +797,34 @@ function drawShapesOnCanvas(
         color,
       );
       drawNoteCardOnCanvas(context, anchor, shape.text ?? "", color, zoom, upDir);
+    } else if (shape.kind === "text" && shape.points.length >= 1) {
+      const size = shape.fontSize ?? TEXT_DEFAULT_SIZE;
+      const anchor = shape.points[0];
+      const turned = getScreenAxes(rotateScreenUp(upDir, shape.rotation ?? 0, false), false).right;
+      context.save();
+      context.translate(anchor.x, anchor.y);
+      context.rotate(Math.atan2(turned.y, turned.x));
+      context.font = textFont(size, shape.bold, shape.italic);
+      context.fillStyle = color;
+      context.textBaseline = "top";
+      textLines(shape.text).forEach((line, i) => {
+        context.fillText(line, 0, (i * TEXT_LINE_HEIGHT + (TEXT_LINE_HEIGHT - 1) / 2) * size);
+      });
+      context.restore();
     }
   }
+}
+
+/** Helvetica faces for free text, keyed "" | "b" | "i" | "bi". */
+type TextFonts = Record<string, PDFFont>;
+
+async function embedTextFonts(pdfDoc: PDFDocument, regular: PDFFont): Promise<TextFonts> {
+  const [b, i, bi] = await Promise.all([
+    pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+    pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
+  ]);
+  return { "": regular, b, i, bi };
 }
 
 function drawShapesOnPdf(
@@ -789,6 +836,7 @@ function drawShapesOnPdf(
   zoom: number,
   upDir: Point2D,
   font: PDFFont,
+  textFonts: TextFonts,
 ) {
   const k = 1 / Math.max(zoom, 0.0001);
   const { right, down } = getScreenAxes(upDir, true);
@@ -851,6 +899,24 @@ function drawShapesOnPdf(
         color,
       );
       drawNoteCardOnPdf(page, anchor, shape.text ?? "", shapeColor(shape), zoom, upDir, font);
+    } else if (shape.kind === "text" && shape.points.length >= 1) {
+      const size = shape.fontSize ?? TEXT_DEFAULT_SIZE;
+      const textFace = textFonts[`${shape.bold ? "b" : ""}${shape.italic ? "i" : ""}`];
+      const anchor = shape.points[0];
+      const axes = getScreenAxes(rotateScreenUp(upDir, shape.rotation ?? 0, true), true);
+      // drawText places the baseline; push each line down by its ascent from the top.
+      const ascent = textFace.heightAtSize(size, { descender: false });
+      textLines(shape.text).forEach((line, i) => {
+        const offset = (i * TEXT_LINE_HEIGHT + (TEXT_LINE_HEIGHT - 1) / 2) * size + ascent;
+        page.drawText(line, {
+          x: anchor.x + axes.down.x * offset,
+          y: anchor.y + axes.down.y * offset,
+          size,
+          font: textFace,
+          color,
+          rotate: degrees((Math.atan2(axes.right.y, axes.right.x) * 180) / Math.PI),
+        });
+      });
     }
   }
 }
@@ -867,6 +933,23 @@ export async function buildMarkedUpPdfBlob(
   screenUpDoc: Point2D = { x: 0, y: 1 },
 ): Promise<Blob> {
   const pdfDoc = await PDFDocument.load(fileBytes);
+  await drawMarkupsOnPdf(pdfDoc, measurements, rectangles, notes, shapes, scale, displayUnit, zoom, screenUpDoc);
+  const output = await pdfDoc.save();
+  return new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" });
+}
+
+/** Draws every markup onto page 1 of an already-loaded PDF. */
+export async function drawMarkupsOnPdf(
+  pdfDoc: PDFDocument,
+  measurements: Measurement[],
+  rectangles: RectMeasurement[],
+  notes: NoteAnnotation[],
+  shapes: ShapeAnnotation[],
+  scale: Scale | null,
+  displayUnit: Unit,
+  zoom: number,
+  screenUpDoc: Point2D = { x: 0, y: 1 },
+): Promise<void> {
   const page = pdfDoc.getPage(0);
   const style = getExportStyle(zoom);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -894,6 +977,17 @@ export async function buildMarkedUpPdfBlob(
   }
 
   for (const rectangle of rectangles) {
+    if (rectangle.rotation) {
+      // PDF space is y-up: a clockwise screen turn is a negative (clockwise) angle here.
+      const c = midpoint(rectangle.topLeft, rectangle.bottomRight);
+      const rad = (-rectangle.rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      page.pushOperators(
+        pushGraphicsState(),
+        concatTransformationMatrix(cos, sin, -sin, cos, c.x - cos * c.x + sin * c.y, c.y - sin * c.x - cos * c.y),
+      );
+    }
     const x = rectangle.topLeft.x;
     const y = rectangle.topLeft.y;
     const rectWidth = rectangle.bottomRight.x - rectangle.topLeft.x;
@@ -983,16 +1077,27 @@ export async function buildMarkedUpPdfBlob(
     } else {
       page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color });
     }
+    if (rectangle.rotation) page.pushOperators(popGraphicsState());
   }
 
-  drawShapesOnPdf(page, shapes, scale, displayUnit, style, zoom, screenUpDoc, font);
+  const textFonts = shapes.some((s) => s.kind === "text" && (s.bold || s.italic))
+    ? await embedTextFonts(pdfDoc, font)
+    : { "": font, b: font, i: font, bi: font };
+  drawShapesOnPdf(page, shapes, scale, displayUnit, style, zoom, screenUpDoc, font, textFonts);
 
   for (const note of notes) {
-    drawNoteCardOnPdf(page, note.position, note.text, getNoteColor(note), zoom, screenUpDoc, font);
+    drawNoteCardOnPdf(
+      page,
+      note.position,
+      note.text,
+      getNoteColor(note),
+      zoom,
+      rotateScreenUp(screenUpDoc, note.rotation ?? 0, true),
+      font,
+      note.width,
+    );
   }
 
-  const output = await pdfDoc.save();
-  return new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" });
 }
 
 export async function buildMarkedUpImageBlob(
@@ -1026,13 +1131,30 @@ export async function buildMarkedUpImageBlob(
   }
 
   for (const rectangle of rectangles) {
+    context.save();
+    if (rectangle.rotation) {
+      // Image space is y-down like the screen, so a clockwise screen turn is a clockwise turn here.
+      const c = midpoint(rectangle.topLeft, rectangle.bottomRight);
+      context.translate(c.x, c.y);
+      context.rotate((rectangle.rotation * Math.PI) / 180);
+      context.translate(-c.x, -c.y);
+    }
     drawRectangleOnCanvas(context, rectangle, scale, displayUnit, style);
+    context.restore();
   }
 
   drawShapesOnCanvas(context, shapes, scale, displayUnit, style, zoom, screenUpDoc);
 
   for (const note of notes) {
-    drawNoteCardOnCanvas(context, note.position, note.text, getNoteColor(note), zoom, screenUpDoc);
+    drawNoteCardOnCanvas(
+      context,
+      note.position,
+      note.text,
+      getNoteColor(note),
+      zoom,
+      rotateScreenUp(screenUpDoc, note.rotation ?? 0, false),
+      note.width,
+    );
   }
 
   const blob = await new Promise<Blob | null>((resolve) => {

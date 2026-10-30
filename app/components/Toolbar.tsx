@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocumentRotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { ExportPreviewDialog } from "@/app/components/ExportPreviewDialog";
 import {
   buildMarkedUpImageBlob,
   buildMarkedUpPdfBlob,
@@ -31,6 +30,9 @@ import {
   MARKUP_PALETTE,
 } from "@/app/utils/colors";
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
+import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
+import { isColorTool } from "@/app/utils/settings";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
@@ -42,11 +44,6 @@ export function Toolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
-  const [pendingSaveMode, setPendingSaveMode] = useState<ExportSaveMode>("download");
-  const previewBlobRef = useRef<Blob | null>(null);
 
   useEffect(() => {
     if (!saveMenuOpen) return;
@@ -77,16 +74,7 @@ export function Toolbar() {
   const handleSave = async (saveMode: ExportSaveMode = "download") => {
     if (!state.fileBytes || !state.fileName || !state.fileType) return;
     setSaveMenuOpen(false);
-    setPendingSaveMode(saveMode);
-    setPreviewOpen(true);
-    setPreviewLoading(true);
-
-    if (previewBlobUrl) {
-      URL.revokeObjectURL(previewBlobUrl);
-      setPreviewBlobUrl(null);
-    }
-    previewBlobRef.current = null;
-
+    showSaveStatus("saving", "Saving…");
     try {
       const screenUpDoc = getScreenUpDocDirection(state.documentViewport, state.fileType);
       const blob =
@@ -115,47 +103,25 @@ export function Toolbar() {
               state.zoom,
               screenUpDoc,
             );
-
       if (!blob) {
-        setPreviewOpen(false);
+        showSaveStatus("error", "Couldn't save: nothing was generated");
         return;
       }
-
-      previewBlobRef.current = blob;
-      setPreviewBlobUrl(URL.createObjectURL(blob));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const handleConfirmSave = async () => {
-    const blob = previewBlobRef.current;
-    if (!blob || !state.fileName || !state.fileType) return;
-
-    const outputFileName = getMarkedUpExportFileName(state.fileType, state.fileName);
-    const saved = await persistExportedBlob(blob, outputFileName, pendingSaveMode);
-    if (saved && state.activeTabId) {
-      dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId });
-    }
-    handleClosePreview();
-  };
-
-  const handleClosePreview = () => {
-    setPreviewOpen(false);
-    if (previewBlobUrl) {
-      URL.revokeObjectURL(previewBlobUrl);
-      setPreviewBlobUrl(null);
-    }
-    previewBlobRef.current = null;
-  };
-
-  useEffect(() => {
-    return () => {
-      if (previewBlobUrl) {
-        URL.revokeObjectURL(previewBlobUrl);
+      const outputFileName = getMarkedUpExportFileName(state.fileType, state.fileName);
+      const saved = await persistExportedBlob(blob, outputFileName, saveMode);
+      if (!saved) {
+        showSaveStatus("info", "Save cancelled");
+        return;
       }
-    };
-  }, [previewBlobUrl]);
+      if (state.activeTabId) {
+        dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId, saved: state });
+      }
+      showSaveStatus("success", `Saved ${outputFileName}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      showSaveStatus("error", `Couldn't save: ${message}`);
+    }
+  };
 
   const annotationCount =
     state.measurements.filter((m) => !m.isCalibration).length +
@@ -437,16 +403,6 @@ export function Toolbar() {
         </div>
       </div>
     </header>
-    <ExportPreviewDialog
-      open={previewOpen}
-      blobUrl={previewBlobUrl}
-      fileType={state.fileType ?? "pdf"}
-      fileName={state.fileName ?? "export"}
-      loading={previewLoading}
-      saveMode={pendingSaveMode}
-      onConfirm={handleConfirmSave}
-      onCancel={handleClosePreview}
-    />
     </>
   );
 }
@@ -480,6 +436,21 @@ export function StatusBar() {
   const selectedSnapshotIds = state.shapes
     .filter((sh) => sh.kind === "image" && colorableIds.includes(sh.id))
     .map((sh) => sh.id);
+  const selectedTexts = state.shapes.filter(
+    (sh) => sh.kind === "text" && state.selectedIds.includes(sh.id),
+  );
+  const textSize = Math.round(selectedTexts[0]?.fontSize ?? TEXT_DEFAULT_SIZE);
+  const updateTexts = (updates: Partial<(typeof selectedTexts)[0]>) => {
+    dispatch({ type: "RECORD_UNDO" });
+    for (const shape of selectedTexts) {
+      dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates });
+    }
+  };
+  const setTextSize = (size: number) => {
+    if (!Number.isFinite(size) || size <= 0) return;
+    updateTexts({ fontSize: Math.min(size, 2000) });
+  };
+
   const sharedColor =
     selectedAnnotations.length > 0 &&
     selectedAnnotations.every(
@@ -490,7 +461,17 @@ export function StatusBar() {
       ? (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR)
       : null;
 
+  // With nothing selected, the palette sets the colour of the tool in hand (for this tab).
+  const paletteTool = colorableIds.length === 0 && isColorTool(state.tool) ? state.tool : null;
+  const paletteColor = paletteTool
+    ? (state.toolColors[paletteTool] ?? state.settings.toolColors[paletteTool])
+    : sharedColor;
+
   const applyColor = (color: string, recordUndo = true) => {
+    if (paletteTool) {
+      dispatch({ type: "SET_TAB_TOOL_COLOR", tool: paletteTool, color });
+      return;
+    }
     if (colorableIds.length === 0) return;
     dispatch({ type: "SET_ANNOTATION_COLOR", ids: colorableIds, color, recordUndo });
   };
@@ -562,9 +543,73 @@ export function StatusBar() {
           </span>
         )}
 
-        {colorableIds.length > 0 && (
+        {selectedTexts.length > 0 && (
+          <div className="flex items-center gap-1" aria-label="Text style">
+            <span className="mr-1 text-text-muted">Size</span>
+            <button
+              type="button"
+              title="Smaller text"
+              onClick={() => setTextSize(Math.max(1, textSize - (textSize > 20 ? 4 : 1)))}
+              className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
+            >
+              −
+            </button>
+            <input
+              key={textSize}
+              type="number"
+              min={1}
+              defaultValue={textSize}
+              aria-label="Text size"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") setTextSize(Number(event.currentTarget.value));
+              }}
+              onBlur={(event) => {
+                if (Number(event.currentTarget.value) !== textSize) setTextSize(Number(event.currentTarget.value));
+              }}
+              className="input-field w-14 px-1.5 py-0.5 text-center text-xs"
+            />
+            <button
+              type="button"
+              title="Bigger text"
+              onClick={() => setTextSize(textSize + (textSize >= 20 ? 4 : 1))}
+              className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              title="Bold"
+              aria-pressed={selectedTexts.every((s) => s.bold)}
+              onClick={() => {
+                const bold = !selectedTexts.every((s) => s.bold);
+                updateTexts({ bold });
+              }}
+              className={`ml-1 rounded border px-1.5 py-0.5 text-xs font-bold ${
+                selectedTexts.every((s) => s.bold) ? "border-accent text-accent" : "border-border"
+              }`}
+            >
+              B
+            </button>
+            <button
+              type="button"
+              title="Italic"
+              aria-pressed={selectedTexts.every((s) => s.italic)}
+              onClick={() => {
+                const italic = !selectedTexts.every((s) => s.italic);
+                updateTexts({ italic });
+              }}
+              className={`rounded border px-1.5 py-0.5 text-xs italic ${
+                selectedTexts.every((s) => s.italic) ? "border-accent text-accent" : "border-border"
+              }`}
+            >
+              I
+            </button>
+          </div>
+        )}
+
+        {(colorableIds.length > 0 || paletteTool) && (
           <div className="flex items-center gap-2">
-            <span className="text-text-muted">Color</span>
+            <span className="text-text-muted">{paletteTool ? "Tool color" : "Color"}</span>
             <div className="flex items-center gap-1">
               {MARKUP_PALETTE.map((color) => (
                 <button
@@ -573,7 +618,7 @@ export function StatusBar() {
                   title={`Set color ${color}`}
                   onClick={() => applyColor(color)}
                   className={`h-5 w-5 rounded-full border-2 transition hover:scale-110 ${
-                    sharedColor === color
+                    paletteColor === color
                       ? "border-text-primary"
                       : "border-border"
                   }`}
@@ -581,7 +626,7 @@ export function StatusBar() {
                 />
               ))}
               <ColorWheel
-                value={sharedColor ?? DEFAULT_ANNOTATION_COLOR}
+                value={paletteColor ?? DEFAULT_ANNOTATION_COLOR}
                 onChange={(color, recordUndo) => applyColor(color, recordUndo)}
               />
               {selectedSnapshotIds.length > 0 && (

@@ -61,6 +61,26 @@ export function boxCorners(a: Point2D, b: Point2D): Point2D[] {
 }
 
 /** A cloud's outline: two points are box corners, more are a freehand polygon. */
+/** Rotates `p` about `c` by `deg`, clockwise on a y-down screen (counter-clockwise in y-up space). */
+export function rotateAround(p: Point2D, c: Point2D, deg: number): Point2D {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  return { x: c.x + dx * cos - dy * sin, y: c.y + dx * sin + dy * cos };
+}
+
+/** Corners (TL, TR, BR, BL) of a w×h box whose top-left is `anchor`, turned `deg` about it. */
+export function rotatedBoxCorners(anchor: Point2D, w: number, h: number, deg: number): Point2D[] {
+  return [
+    anchor,
+    rotateAround({ x: anchor.x + w, y: anchor.y }, anchor, deg),
+    rotateAround({ x: anchor.x + w, y: anchor.y + h }, anchor, deg),
+    rotateAround({ x: anchor.x, y: anchor.y + h }, anchor, deg),
+  ];
+}
+
 export function cloudOutline(points: Point2D[]): Point2D[] {
   return points.length === 2 ? boxCorners(points[0], points[1]) : points;
 }

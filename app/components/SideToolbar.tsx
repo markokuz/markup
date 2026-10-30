@@ -19,7 +19,7 @@ const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle" },
   { id: "cloud", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
   { id: "callout", label: "Callout", hint: "Click the point to call out, then where the text goes" },
-  { id: "note", label: "Note", hint: "Click to add a text note" },
+  { id: "text", label: "Text", hint: "Free text or a note card. Double-click text to edit it" },
   {
     id: "snapshot",
     label: "Snap",
@@ -38,6 +38,12 @@ interface ModeOption<T extends string> {
 const CLOUD_MODES: ModeOption<CloudMode>[] = [
   { id: "rect", label: "Box", hint: "Click two corners for a rectangular cloud" },
   { id: "freehand", label: "Draw", hint: "Drag to draw any outline; it is smoothed into a cloud" },
+];
+
+/** The Text button holds both text tools. */
+const TEXT_TOOLS: ModeOption<"text" | "note">[] = [
+  { id: "text", label: "Text", hint: "Click to type free text on the drawing" },
+  { id: "note", label: "Note", hint: "Click to add a note card" },
 ];
 
 const LINE_MODES: ModeOption<DrawMode>[] = [
@@ -138,6 +144,9 @@ export function SideToolbar() {
     (s) => s.id === state.drawingShapeId && s.kind === "count",
   );
 
+  const isActive = (tool: ToolMode) =>
+    state.tool === tool || (tool === "text" && state.tool === "note");
+
   return (
     <aside className="flex w-14 shrink-0 flex-col gap-1 border-r border-border bg-surface p-2">
       {TOOLS.map((tool) => (
@@ -149,16 +158,26 @@ export function SideToolbar() {
                 ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})`
                 : tool.hint
             }
-            onClick={() => dispatch({ type: "SET_TOOL", tool: tool.id })}
+            onClick={() => {
+              // Re-clicking Text keeps Note if that is the one picked.
+              if (!(tool.id === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool: tool.id });
+            }}
             className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition ${
-              state.tool === tool.id
+              isActive(tool.id)
                 ? "bg-accent text-white shadow-sm"
                 : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
             }`}
           >
-            <ToolIcon tool={tool.id} />
-            <span>{tool.label}</span>
+            <ToolIcon tool={tool.id === "text" && state.tool === "note" ? "note" : tool.id} />
+            <span>{tool.id === "text" && state.tool === "note" ? "Note" : tool.label}</span>
           </button>
+          {tool.id === "text" && isActive("text") && (
+            <ModeToggle
+              options={TEXT_TOOLS}
+              value={state.tool === "note" ? "note" : "text"}
+              onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
+            />
+          )}
           {tool.id === "measure" && state.tool === "measure" && (
             <ModeToggle
               options={LINE_MODES}
@@ -306,6 +325,12 @@ function ToolIcon({ tool }: { tool: ToolMode }) {
           <rect x="8" y="3" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <line x1="8" y1="7" x2="3.5" y2="16" stroke="currentColor" strokeWidth="1.5" />
           <path d="M2 18 L3 13.5 L6 15.5 Z" fill="currentColor" />
+        </svg>
+      );
+    case "text":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path d="M4 5V3.5h12V5M10 3.5v13M7.5 16.5h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     case "snapshot":

@@ -10,6 +10,7 @@ export function MarkupsPanel() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(true);
+  const [totalsOpen, setTotalsOpen] = useState(true);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   // Enter then blur both commit; the ref lets only the first one apply.
@@ -180,10 +181,21 @@ export function MarkupsPanel() {
 
       {totals.length > 0 && (
         <div className="border-t border-border bg-surface-muted px-3 py-2">
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
+          <button
+            type="button"
+            aria-expanded={totalsOpen}
+            onClick={() => setTotalsOpen((v) => !v)}
+            className="flex w-full items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-secondary hover:text-text-primary"
+          >
+            <span aria-hidden className={`inline-block transition ${totalsOpen ? "rotate-90" : ""}`}>
+              ›
+            </span>
             Totals
-          </h3>
-          <ul className="space-y-1">
+            {!totalsOpen && (
+              <span className="ml-auto font-normal normal-case text-text-muted">{totals.length}</span>
+            )}
+          </button>
+          <ul className={`mt-1 max-h-48 space-y-1 overflow-y-auto ${totalsOpen ? "" : "hidden"}`}>
             {totals.map((t) => (
               <li key={`${t.type}-${t.color}`} className="flex items-center gap-2 text-sm">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: t.color }} />

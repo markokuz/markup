@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { Point2D } from "@/app/types";
 import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 
@@ -13,6 +14,8 @@ interface MagnifierLoupeProps {
   sourceCanvas: HTMLCanvasElement | null;
   /** Cursor position in overlay/CSS coordinates, or null when off-canvas. */
   cursor: Point2D | null;
+  /** The overlay `cursor` is measured in; places the loupe on screen. */
+  overlayRef: RefObject<HTMLElement | null>;
   viewportWidth: number;
   viewportHeight: number;
 }
@@ -20,10 +23,29 @@ interface MagnifierLoupeProps {
 export function MagnifierLoupe({
   sourceCanvas,
   cursor,
+  overlayRef,
   viewportWidth,
   viewportHeight,
 }: MagnifierLoupeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // Fixed to the window (portaled to body) so the scroll area and tabs never clip it.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const overlay = overlayRef.current;
+    if (!box || !overlay || !cursor) return;
+    const origin = overlay.getBoundingClientRect();
+    const clientX = origin.left + cursor.x;
+    const clientY = origin.top + cursor.y;
+    let left = clientX + CURSOR_OFFSET;
+    let top = clientY - LOUPE_SIZE - CURSOR_OFFSET;
+    if (left + LOUPE_SIZE > window.innerWidth) left = clientX - LOUPE_SIZE - CURSOR_OFFSET;
+    if (left < 0) left = CURSOR_OFFSET;
+    if (top < 0) top = clientY + CURSOR_OFFSET;
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+  }, [cursor, overlayRef]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,23 +82,16 @@ export function MagnifierLoupe({
 
   if (!cursor || !sourceCanvas) return null;
 
-  let left = cursor.x + CURSOR_OFFSET;
-  let top = cursor.y - LOUPE_SIZE - CURSOR_OFFSET;
-  if (left + LOUPE_SIZE > viewportWidth) left = cursor.x - LOUPE_SIZE - CURSOR_OFFSET;
-  if (left < 0) left = CURSOR_OFFSET;
-  if (top < 0) top = cursor.y + CURSOR_OFFSET;
-
   // Same crop as the canvas, in overlay coordinates, for the live markup copy.
   const cropCss = LOUPE_SIZE / MAGNIFICATION;
   const viewBox = `${cursor.x - cropCss / 2} ${cursor.y - cropCss / 2} ${cropCss} ${cropCss}`;
   const center = LOUPE_SIZE / 2;
 
-  return (
+  return createPortal(
     <div
+      ref={boxRef}
       style={{
-        position: "absolute",
-        left,
-        top,
+        position: "fixed",
         width: LOUPE_SIZE,
         height: LOUPE_SIZE,
         borderRadius: "50%",
@@ -84,7 +99,7 @@ export function MagnifierLoupe({
         border: "2px solid rgba(15, 23, 42, 0.6)",
         boxShadow: "0 2px 10px rgba(0, 0, 0, 0.35)",
         pointerEvents: "none",
-        zIndex: 40,
+        zIndex: 60,
         background: "#fff",
       }}
     >
@@ -114,6 +129,7 @@ export function MagnifierLoupe({
           <circle cx={center} cy={center} r={3} />
         </g>
       </svg>
-    </div>
+    </div>,
+    document.body,
   );
 }

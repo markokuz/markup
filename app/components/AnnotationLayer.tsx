@@ -116,6 +116,7 @@ const MIN_MARQUEE_SIZE = 4;
 const FREEHAND_STEP_PX = 3;
 const FREEHAND_SIMPLIFY_PX = 4;
 const MIN_FREEHAND_SIZE = 12;
+const ROTATION_SNAP_TOLERANCE_DEG = 5;
 
 function createId() {
   return crypto.randomUUID();
@@ -636,8 +637,12 @@ export function AnnotationLayer({
         } else if (drag.type === "rotate") {
           const pointerAngle = (Math.atan2(local.y - drag.frame.centre.y, local.x - drag.frame.centre.x) * 180) / Math.PI;
           let delta = pointerAngle - drag.startAngle;
+          const angle = drag.frame.angle + delta;
           if (event.shiftKey) {
-            delta = Math.round((drag.frame.angle + delta) / 15) * 15 - drag.frame.angle;
+            delta = Math.round(angle / 15) * 15 - drag.frame.angle;
+          } else if (state.settings.snapRotation) {
+            const nearest = Math.round(angle / 45) * 45;
+            if (Math.abs(angle - nearest) <= ROTATION_SNAP_TOLERANCE_DEG) delta = nearest - drag.frame.angle;
           }
           dispatch(rotateTarget(drag.target, drag.frame, delta, viewport));
         } else if (drag.type === "scale") {
@@ -719,7 +724,7 @@ export function AnnotationLayer({
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.shapes, state.tool, unturnRectPoint, viewport],
+    [dispatch, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
   );
 
   /**

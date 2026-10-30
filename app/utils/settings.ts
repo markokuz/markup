@@ -15,6 +15,8 @@ export interface AppSettings {
   snapToleranceDeg: number;
   /** Draw the placed calibration line on the page (it is never exported). */
   showCalibrationLine: boolean;
+  /** Rotating a markup sticks to 45° multiples when close. */
+  snapRotation: boolean;
 }
 
 /** Reserved for the magnifier toggle. */
@@ -49,6 +51,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snapStepDeg: 90,
   snapToleranceDeg: 5,
   showCalibrationLine: true,
+  snapRotation: true,
 };
 
 export function isColorTool(tool: string): tool is ColorTool {

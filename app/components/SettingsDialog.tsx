@@ -194,7 +194,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
             />
           </Section>
 
-          <Section title="Line snapping">
+          <Section title="Snapping">
             <CheckRow
               checked={state.snapLines}
               onChange={(enabled) => dispatch({ type: "SET_SNAP_LINES", enabled })}
@@ -236,6 +236,12 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                 degrees
               </label>
             </div>
+            <CheckRow
+              checked={settings.snapRotation}
+              onChange={(snap) => dispatch({ type: "UPDATE_SETTINGS", patch: { snapRotation: snap } })}
+              title="Snap rotation to 45° and 90°"
+              detail="Rotating a markup sticks to these angles when close. Hold Shift for 15° steps."
+            />
           </Section>
 
           <Section title="Units">

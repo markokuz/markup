@@ -140,7 +140,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...state,
         tabs: [
           ...state.tabs,
-          { ...tab, autoOrientPending: state.autoOrientPortrait, projectHandle: action.handle ?? null },
+          // Always orient new files: a PDF's own /Rotate is applied even with the setting off.
+          { ...tab, autoOrientPending: true, projectHandle: action.handle ?? null },
         ],
         activeTabId: tab.id,
         tool: "calibrate",

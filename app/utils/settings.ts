@@ -17,6 +17,8 @@ export interface AppSettings {
   showCalibrationLine: boolean;
   /** Rotating a markup sticks to 45° multiples when close. */
   snapRotation: boolean;
+  /** Size of the last text the user sized; new text starts at it. */
+  textSize?: number;
 }
 
 /** Reserved for the magnifier toggle. */

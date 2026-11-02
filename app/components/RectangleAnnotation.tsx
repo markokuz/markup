@@ -5,6 +5,7 @@ import {
   computeInlineEdgeSegments,
   estimateLabelWidth,
   getScreenRectEdgeDocLengths,
+  midpoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
@@ -256,12 +257,26 @@ export function RectangleAnnotation({
     { id: "bottomRight", cx: x + width, cy: y + height },
   ];
 
-  const edgeHandles: { id: RectEdge; cx: number; cy: number; cursor: string }[] = [
-    { id: "top", cx: x + width / 2, cy: y, cursor: "ns-resize" },
+  // Labelled edges carry their square beside the label so it never covers the number.
+  const topHandle = topEdge?.showGap
+    ? midpoint(topEdge.segment2Start, topEdge.segment2End)
+    : { x: x + width / 2, y };
+  const leftHandle = leftEdge?.showGap
+    ? midpoint(leftEdge.segment2Start, leftEdge.segment2End)
+    : { x, y: y + height / 2 };
+
+  const allEdgeHandles: { id: RectEdge; cx: number; cy: number; cursor: string }[] = [
+    { id: "top", cx: topHandle.x, cy: topHandle.y, cursor: "ns-resize" },
     { id: "bottom", cx: x + width / 2, cy: y + height, cursor: "ns-resize" },
-    { id: "left", cx: x, cy: y + height / 2, cursor: "ew-resize" },
+    { id: "left", cx: leftHandle.x, cy: leftHandle.y, cursor: "ew-resize" },
     { id: "right", cx: x + width, cy: y + height / 2, cursor: "ew-resize" },
   ];
+  // The edit box is wider than the label; hide that edge's square while typing.
+  const edgeHandles = allEdgeHandles.filter(
+    (handle) =>
+      !(editingField === "width" && handle.id === "top") &&
+      !(editingField === "height" && handle.id === "left"),
+  );
 
   const handleEdgePointerDown = (event: React.PointerEvent) => {
     if (!isSelectMode && !showHandles) return;

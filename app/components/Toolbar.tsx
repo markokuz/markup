@@ -448,7 +448,9 @@ export function StatusBar() {
   };
   const setTextSize = (size: number) => {
     if (!Number.isFinite(size) || size <= 0) return;
-    updateTexts({ fontSize: Math.min(size, 2000) });
+    const fontSize = Math.min(size, 2000);
+    updateTexts({ fontSize });
+    dispatch({ type: "UPDATE_SETTINGS", patch: { textSize: fontSize } });
   };
 
   const sharedColor =

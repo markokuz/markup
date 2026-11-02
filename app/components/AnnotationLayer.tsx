@@ -319,8 +319,8 @@ export function AnnotationLayer({
             kind: "text",
             points: [pdfPoint],
             text: "",
-            // Same on-screen size at any zoom when placed; it then scales with the drawing.
-            fontSize: TEXT_DEFAULT_SIZE / (viewportZoom(viewport) || 1),
+            // The last size picked, else the default — the same size on the page at any zoom.
+            fontSize: state.settings.textSize ?? TEXT_DEFAULT_SIZE,
             color: toolColors.text,
           },
         });
@@ -507,6 +507,7 @@ export function AnnotationLayer({
       state.pendingPoint,
       state.rectangles,
       state.scale,
+      state.settings.textSize,
       state.shapes,
       state.drawingShapeId,
       state.cloudMode,

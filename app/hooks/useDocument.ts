@@ -43,10 +43,17 @@ const MAX_MASTER_ZOOM = 4;
 /** The master is rendered in strips so on-screen renders can cut in between. */
 const STRIP_PIXELS = 2_000_000;
 
+interface NaturalSize {
+  width: number;
+  height: number;
+  /** The page's own clockwise turn (PDF /Rotate); 0 for images. */
+  pageRotation: number;
+}
+
 interface CachedSource {
   page: PDFPageProxy | null;
   image: ImageSource | null;
-  naturalSize: { width: number; height: number };
+  naturalSize: NaturalSize;
   /**
    * Full-page PDF render at `scale` device px per doc unit. Rendered once per
    * rotation; every zoom (and every return to the tab) is just a scaled copy,
@@ -101,8 +108,8 @@ export function useDocument(
   const [masterVersion, setMasterVersion] = useState(0);
   /** Canvas holds the full page at device resolution (no detail layer needed). */
   const [baseSharp, setBaseSharp] = useState(false);
-  /** Unrotated page size in doc units, known once the source has loaded. */
-  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(
+  /** Unrotated page size in doc units (and the page's own turn), known once the source has loaded. */
+  const [naturalSize, setNaturalSize] = useState<NaturalSize | null>(
     null,
   );
 
@@ -154,8 +161,9 @@ export function useDocument(
           }
           pageRef.current = page;
           imageRef.current = null;
-          const base = page.getViewport({ scale: 1 });
-          const size = { width: base.width, height: base.height };
+          // rotation: 0 is absolute in pdf.js, so this is the media box before /Rotate.
+          const base = page.getViewport({ scale: 1, rotation: 0 });
+          const size = { width: base.width, height: base.height, pageRotation: page.rotate };
           sourceCache.set(cacheKey, { page, image: null, naturalSize: size, bitmap: null });
           setNaturalSize(size);
         } else {
@@ -163,7 +171,7 @@ export function useDocument(
           if (cancelled) return;
           imageRef.current = image;
           pageRef.current = null;
-          const size = { width: image.width, height: image.height };
+          const size = { width: image.width, height: image.height, pageRotation: 0 };
           sourceCache.set(cacheKey, { page: null, image, naturalSize: size, bitmap: null });
           setNaturalSize(size);
         }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DropIcon } from "@/app/components/DropIcon";
 import { RestoreSessions } from "@/app/components/RestoreSessions";
-import type { Point2D } from "@/app/types";
+import type { DocumentRotation, Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
 import { AnnotationLayer } from "@/app/components/AnnotationLayer";
@@ -39,6 +39,7 @@ export function PdfViewer() {
     minimapHidden,
     activeTabId,
     autoOrientPending,
+    autoOrientPortrait,
     legacyRotationFixPending,
   } = useAppState();
   const dispatch = useAppDispatch();
@@ -72,15 +73,21 @@ export function PdfViewer() {
     dispatch({ type: "SET_DOCUMENT_VIEWPORT", viewport });
   }, [dispatch, viewport]);
 
-  // Sideways scans: once the page size is known, open portrait pages at 270°.
+  // Once the page size is known, keep the PDF's own /Rotate and, if that is
+  // still portrait, turn it a further 270° so drawings open landscape.
   useEffect(() => {
     if (!autoOrientPending || !naturalSize || !activeTabId) return;
+    const own = naturalSize.pageRotation;
+    const sideways = own === 90 || own === 270;
+    const portrait = sideways
+      ? naturalSize.width > naturalSize.height
+      : naturalSize.height > naturalSize.width;
     dispatch({
       type: "APPLY_AUTO_ORIENT",
       tabId: activeTabId,
-      rotation: naturalSize.height > naturalSize.width ? 270 : 0,
+      rotation: (portrait && autoOrientPortrait ? (own + 270) % 360 : own) as DocumentRotation,
     });
-  }, [activeTabId, autoOrientPending, dispatch, naturalSize]);
+  }, [activeTabId, autoOrientPending, autoOrientPortrait, dispatch, naturalSize]);
 
   // Old projects saved with a rotated image used a mapping offset by the page
   // aspect; shift their coordinates once the image size is known.

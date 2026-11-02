@@ -13,18 +13,14 @@ import { Minimap } from "@/app/components/Minimap";
 import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
+import { clampZoom } from "@/app/utils/zoomLevels";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
 
-const ZOOM_WHEEL_STEP = 0.1;
+/** Each wheel notch zooms by this factor, so steps feel the same at 25% and 1600%. */
+const ZOOM_WHEEL_FACTOR = 1.1;
 const ZOOM_COMMIT_DELAY_MS = 120;
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4;
-
-function clampZoom(value: number) {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
-}
 
 export function PdfViewer() {
   const {
@@ -336,7 +332,9 @@ export function PdfViewer() {
       event.preventDefault();
 
       previewZoomRef.current = clampZoom(
-        previewZoomRef.current + (event.deltaY > 0 ? -ZOOM_WHEEL_STEP : ZOOM_WHEEL_STEP),
+        event.deltaY > 0
+          ? previewZoomRef.current / ZOOM_WHEEL_FACTOR
+          : previewZoomRef.current * ZOOM_WHEEL_FACTOR,
       );
       lastWheelAnchorRef.current = {
         clientX: event.clientX,

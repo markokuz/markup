@@ -30,6 +30,7 @@ import {
   MARKUP_PALETTE,
 } from "@/app/utils/colors";
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
+import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
 import { isColorTool } from "@/app/utils/settings";
 import { showSaveStatus } from "@/app/utils/saveStatus";
@@ -139,11 +140,11 @@ export function Toolbar() {
 
   const zoomIn = () => {
     setZoomAnchor("center");
-    dispatch({ type: "SET_ZOOM", zoom: Math.min(4, state.zoom + 0.25) });
+    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, 1) });
   };
   const zoomOut = () => {
     setZoomAnchor("center");
-    dispatch({ type: "SET_ZOOM", zoom: Math.max(0.25, state.zoom - 0.25) });
+    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, -1) });
   };
 
   const rotateCw = () => {

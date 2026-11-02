@@ -38,8 +38,14 @@ async function getPdfJs(): Promise<PdfJsModule> {
 /** Pixel budget for the one-off full-page PDF render (pdf.js's default
  * maxCanvasPixels). Above its resolution PdfDetailLayer sharpens the visible area. */
 const MAX_BASE_PIXELS = 16_777_216;
-/** Highest zoom the master is ever needed at (PdfCanvas MAX_ZOOM). */
+/** Highest zoom the master is rendered for; PdfDetailLayer sharpens the visible area above it. */
 const MAX_MASTER_ZOOM = 4;
+/**
+ * Images: the canvas stops gaining pixels past this zoom and is stretched instead.
+ * A photo has no more detail to show, and a canvas sized for 16× would pass the
+ * browser's canvas size limit and go blank.
+ */
+const MAX_IMAGE_BACKING_ZOOM = 4;
 /** The master is rendered in strips so on-screen renders can cut in between. */
 const STRIP_PIXELS = 2_000_000;
 
@@ -314,15 +320,17 @@ export function useDocument(
     if (!image) return;
     const nextViewport = createImageViewport(image.width, image.height, zoom, rotation);
 
-    canvasElement.width = Math.floor(nextViewport.width * dpr);
-    canvasElement.height = Math.floor(nextViewport.height * dpr);
+    // Canvas px per CSS px: the screen's density, less once zoomed past the image's useful detail.
+    const backing = (Math.min(zoom, MAX_IMAGE_BACKING_ZOOM) * dpr) / zoom;
+    canvasElement.width = Math.floor(nextViewport.width * backing);
+    canvasElement.height = Math.floor(nextViewport.height * backing);
     canvasElement.style.width = `${nextViewport.width}px`;
     canvasElement.style.height = `${nextViewport.height}px`;
 
     const context = canvasElement.getContext("2d");
     if (!context) return;
 
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.setTransform(backing, 0, 0, backing, 0, 0);
     context.clearRect(0, 0, nextViewport.width, nextViewport.height);
     context.save();
     context.translate(nextViewport.width / 2, nextViewport.height / 2);

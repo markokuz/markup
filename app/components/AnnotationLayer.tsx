@@ -121,6 +121,8 @@ const FREEHAND_STEP_PX = 3;
 const FREEHAND_SIMPLIFY_PX = 4;
 const MIN_FREEHAND_SIZE = 12;
 const ROTATION_SNAP_TOLERANCE_DEG = 5;
+/** New text starts this far right of the click, in screen px, clear of the I-beam. */
+const TEXT_CURSOR_GAP_PX = 2;
 /** Right-clicking this close to a bend point offers to remove it, in screen px. */
 const MIDPOINT_HIT_PX = 8;
 
@@ -345,15 +347,18 @@ export function AnnotationLayer({
           dispatch({ type: "SET_EDITING_NOTE", id: hitId });
           return;
         }
+        // The last size picked, else the default — the same size on the page at any zoom.
+        const fontSize = state.settings.textSize ?? TEXT_DEFAULT_SIZE;
+        // Start typing just right of the I-beam, with the first line centred on it.
+        const lineHeightPx = fontSize * viewportZoom(viewport) * TEXT_LINE_HEIGHT;
         dispatch({
           type: "ADD_SHAPE",
           shape: {
             id: createId(),
             kind: "text",
-            points: [pdfPoint],
+            points: [toDocPoint(viewport, local.x + TEXT_CURSOR_GAP_PX, local.y - lineHeightPx / 2)],
             text: "",
-            // The last size picked, else the default — the same size on the page at any zoom.
-            fontSize: state.settings.textSize ?? TEXT_DEFAULT_SIZE,
+            fontSize,
             color: toolColors.text,
           },
         });
@@ -1537,7 +1542,7 @@ export function AnnotationLayer({
         cursor:
           state.tool === "pan"
             ? "grab"
-            : state.tool === "note"
+            : state.tool === "note" || state.tool === "text"
               ? "text"
               : "crosshair",
       }}

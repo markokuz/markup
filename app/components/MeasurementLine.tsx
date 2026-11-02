@@ -1,8 +1,8 @@
 "use client";
 
 import type { Measurement, Scale, Unit } from "@/app/types";
-import { toScreenPoint, estimateLabelWidth } from "@/app/utils/coordinates";
-import { CALIBRATION_COLOR, getAnnotationColor } from "@/app/utils/colors";
+import { toScreenPoint, estimateLabelWidth, linePoints } from "@/app/utils/coordinates";
+import { CALIBRATION_COLOR, getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { InlineDimensionLine } from "@/app/components/InlineDimensionLine";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -50,6 +50,8 @@ interface MeasurementLineProps {
     event: React.PointerEvent,
   ) => void;
   onBodyPointerDown: (id: string, event: React.PointerEvent) => void;
+  /** Drag of a plain line's bend point (`index` into `midpoints`). */
+  onMidpointPointerDown: (id: string, index: number, event: React.PointerEvent) => void;
   onLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onStartEditLength: (id: string) => void;
   onCommitLength: (id: string, value: number) => void;
@@ -68,6 +70,7 @@ export function MeasurementLine({
   onSelect,
   onEndpointPointerDown,
   onBodyPointerDown,
+  onMidpointPointerDown,
   onLabelDragStart,
   onStartEditLength,
   onCommitLength,
@@ -127,6 +130,76 @@ export function MeasurementLine({
         >
           Calibration
         </text>
+      </g>
+    );
+  }
+
+  if (measurement.midpoints?.length) {
+    const points = linePoints(measurement).map((p) => toScreenPoint(viewport, p.x, p.y));
+    const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
+    const handle = (p: (typeof points)[0], key: string, r: number, onDown: (event: React.PointerEvent) => void) => (
+      <circle
+        key={key}
+        cx={p.x}
+        cy={p.y}
+        r={r}
+        fill="#0f172a"
+        stroke={color}
+        strokeWidth={2}
+        style={{ cursor: "crosshair", pointerEvents: "all" }}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          // Right-click opens the line's menu instead of starting a drag.
+          if (event.button === 0) onDown(event);
+        }}
+      />
+    );
+    return (
+      <g>
+        {isSelected && (
+          <polyline
+            points={polyline}
+            fill="none"
+            stroke={SELECTION_ACCENT}
+            strokeWidth={strokeWidth + 6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={0.35}
+            style={{ pointerEvents: "none" }}
+          />
+        )}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinejoin="round"
+          style={{ pointerEvents: "none" }}
+        />
+        {interactive && (
+          <polyline
+            points={polyline}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={16}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: "stroke", cursor: "pointer" }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);
+            }}
+          />
+        )}
+        {showHandles && isSelected && (
+          <>
+            {points.slice(1, -1).map((p, i) =>
+              handle(p, `mid-${i}`, 5, (event) => onMidpointPointerDown(measurement.id, i, event)),
+            )}
+            {handle(start, "start", 7, (event) => onEndpointPointerDown(measurement.id, "start", event))}
+            {handle(end, "end", 7, (event) => onEndpointPointerDown(measurement.id, "end", event))}
+          </>
+        )}
       </g>
     );
   }

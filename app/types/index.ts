@@ -37,6 +37,8 @@ export interface Measurement {
   label?: string;
   /** Drawn as a plain markup line: no dimension label or arrowheads. */
   plain?: boolean;
+  /** Plain lines only: bend points between start and end, in order. */
+  midpoints?: Point2D[];
 }
 
 export interface RectMeasurement {

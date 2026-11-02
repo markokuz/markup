@@ -34,6 +34,7 @@ import {
   computeInlineEdgeSegments,
   computePdfLabelAngleDeg,
   docDistance,
+  linePoints,
   midpoint,
   type ArrowSpec,
 } from "@/app/utils/coordinates";
@@ -371,6 +372,20 @@ function drawMeasurementOnCanvas(
   upDir: Point2D,
 ) {
   const color = getLineColor(measurement);
+  if (measurement.midpoints?.length) {
+    // A bent plain line: one path so the bends join cleanly.
+    const [first, ...rest] = linePoints(measurement);
+    context.save();
+    context.strokeStyle = color;
+    context.lineWidth = style.lineWidth;
+    context.lineJoin = "round";
+    context.beginPath();
+    context.moveTo(first.x, first.y);
+    for (const p of rest) context.lineTo(p.x, p.y);
+    context.stroke();
+    context.restore();
+    return;
+  }
   const label =
     scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
@@ -958,6 +973,14 @@ export async function drawMarkupsOnPdf(
   for (const measurement of getExportMeasurements(measurements)) {
     const { r, g, b } = hexToRgb(getLineColor(measurement));
     const color = rgb(r, g, b);
+    if (measurement.midpoints?.length) {
+      // drawSvgPath maps path (px, py) to PDF (px, -py); flip y so the path uses absolute PDF coords.
+      const path = linePoints(measurement)
+        .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${-p.y}`)
+        .join(" ");
+      page.drawSvgPath(path, { x: 0, y: 0, borderColor: color, borderWidth: style.lineWidth });
+      continue;
+    }
     const label =
       scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 

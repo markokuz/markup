@@ -80,6 +80,11 @@ export function defaultScreenLabelOffsetDoc(
   });
 }
 
+/** Every vertex of a line, start to end, including any bend points. */
+export function linePoints(measurement: Measurement): Point2D[] {
+  return [measurement.start, ...(measurement.midpoints ?? []), measurement.end];
+}
+
 export function getLineLabelAnchorDoc(measurement: Measurement): Point2D {
   return midpoint(measurement.start, measurement.end);
 }

@@ -23,8 +23,22 @@ import { toMeters } from "@/app/utils/units";
  * That lets a paste land the same way up in any tab, whatever its file type.
  */
 interface MarkupClipboard {
-  lines: { start: Point2D; end: Point2D; color?: string; label?: string }[];
-  rects: { cornerA: Point2D; cornerB: Point2D; color?: string; label?: string; rotation?: number }[];
+  lines: {
+    start: Point2D;
+    end: Point2D;
+    midpoints?: Point2D[];
+    color?: string;
+    label?: string;
+    plain?: boolean;
+  }[];
+  rects: {
+    cornerA: Point2D;
+    cornerB: Point2D;
+    color?: string;
+    label?: string;
+    rotation?: number;
+    plain?: boolean;
+  }[];
   notes: Omit<NoteAnnotation, "id">[];
   shapes: Omit<ShapeAnnotation, "id">[];
   /** Centre of the copied group's bounding box. */
@@ -65,7 +79,14 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
 
   const lines = source.measurements
     .filter((m) => selected.has(m.id) && !m.isCalibration)
-    .map((m) => ({ start: toView(m.start), end: toView(m.end), color: m.color, label: m.label }));
+    .map((m) => ({
+      start: toView(m.start),
+      end: toView(m.end),
+      midpoints: m.midpoints?.map(toView),
+      color: m.color,
+      label: m.label,
+      plain: m.plain,
+    }));
   const rects = source.rectangles
     .filter((r) => selected.has(r.id))
     .map((r) => ({
@@ -74,6 +95,7 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       color: r.color,
       label: r.label,
       rotation: r.rotation,
+      plain: r.plain,
     }));
   const notes = source.notes
     .filter((n) => selected.has(n.id))
@@ -83,7 +105,7 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
     .map(({ id: _id, ...s }) => ({ ...s, points: s.points.map(toView) }));
 
   const points = [
-    ...lines.flatMap((l) => [l.start, l.end]),
+    ...lines.flatMap((l) => [l.start, ...(l.midpoints ?? []), l.end]),
     ...rects.flatMap((r) => [r.cornerA, r.cornerB]),
     ...notes.map((n) => n.position),
     ...shapes.flatMap((s) => s.points),
@@ -147,8 +169,10 @@ export function buildPaste(target: PasteTarget): {
       start,
       end,
       labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
+      ...(line.midpoints?.length ? { midpoints: line.midpoints.map(toDoc) } : {}),
       ...(line.color ? { color: line.color } : {}),
       ...(line.label ? { label: line.label } : {}),
+      ...(line.plain ? { plain: true } : {}),
     };
   });
 
@@ -162,6 +186,7 @@ export function buildPaste(target: PasteTarget): {
       ...(rect.color ? { color: rect.color } : {}),
       ...(rect.label ? { label: rect.label } : {}),
       ...(rect.rotation ? { rotation: rect.rotation } : {}),
+      ...(rect.plain ? { plain: true } : {}),
     };
     return {
       ...base,

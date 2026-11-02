@@ -381,6 +381,9 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
                   ...m,
                   start: { x: m.start.x + dx, y: m.start.y + dy },
                   end: { x: m.end.x + dx, y: m.end.y + dy },
+                  ...(m.midpoints
+                    ? { midpoints: m.midpoints.map((p) => ({ x: p.x + dx, y: p.y + dy })) }
+                    : {}),
                 }
               : m,
           ),
@@ -613,6 +616,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
             ...m,
             start: move(m.start),
             end: move(m.end),
+            ...(m.midpoints ? { midpoints: m.midpoints.map(move) } : {}),
           })),
           rectangles: tab.rectangles.map((r) => ({
             ...r,

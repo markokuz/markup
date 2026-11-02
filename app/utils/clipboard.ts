@@ -26,10 +26,10 @@ interface MarkupClipboard {
   lines: {
     start: Point2D;
     end: Point2D;
-    midpoints?: Point2D[];
     color?: string;
     label?: string;
     plain?: boolean;
+    midpointTick?: boolean;
   }[];
   rects: {
     cornerA: Point2D;
@@ -82,10 +82,10 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
     .map((m) => ({
       start: toView(m.start),
       end: toView(m.end),
-      midpoints: m.midpoints?.map(toView),
       color: m.color,
       label: m.label,
       plain: m.plain,
+      midpointTick: m.midpointTick,
     }));
   const rects = source.rectangles
     .filter((r) => selected.has(r.id))
@@ -105,7 +105,7 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
     .map(({ id: _id, ...s }) => ({ ...s, points: s.points.map(toView) }));
 
   const points = [
-    ...lines.flatMap((l) => [l.start, ...(l.midpoints ?? []), l.end]),
+    ...lines.flatMap((l) => [l.start, l.end]),
     ...rects.flatMap((r) => [r.cornerA, r.cornerB]),
     ...notes.map((n) => n.position),
     ...shapes.flatMap((s) => s.points),
@@ -169,10 +169,10 @@ export function buildPaste(target: PasteTarget): {
       start,
       end,
       labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
-      ...(line.midpoints?.length ? { midpoints: line.midpoints.map(toDoc) } : {}),
       ...(line.color ? { color: line.color } : {}),
       ...(line.label ? { label: line.label } : {}),
       ...(line.plain ? { plain: true } : {}),
+      ...(line.midpointTick ? { midpointTick: true } : {}),
     };
   });
 

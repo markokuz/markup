@@ -80,9 +80,24 @@ export function defaultScreenLabelOffsetDoc(
   });
 }
 
-/** Every vertex of a line, start to end, including any bend points. */
-export function linePoints(measurement: Measurement): Point2D[] {
-  return [measurement.start, ...(measurement.midpoints ?? []), measurement.end];
+/** Half the length of a plain line's centre tick, in screen px. */
+export const MIDPOINT_TICK_HALF_PX = 7;
+
+/** Ends of a tick `halfLength` either side of the line, across its centre (null for a zero-length line). */
+export function midpointTickEnds(
+  start: Point2D,
+  end: Point2D,
+  halfLength: number,
+): [Point2D, Point2D] | null {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  if (length === 0) return null;
+  const mid = midpoint(start, end);
+  const nx = (-(end.y - start.y) / length) * halfLength;
+  const ny = ((end.x - start.x) / length) * halfLength;
+  return [
+    { x: mid.x + nx, y: mid.y + ny },
+    { x: mid.x - nx, y: mid.y - ny },
+  ];
 }
 
 export function getLineLabelAnchorDoc(measurement: Measurement): Point2D {

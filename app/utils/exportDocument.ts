@@ -34,8 +34,9 @@ import {
   computeInlineEdgeSegments,
   computePdfLabelAngleDeg,
   docDistance,
-  linePoints,
   midpoint,
+  MIDPOINT_TICK_HALF_PX,
+  midpointTickEnds,
   type ArrowSpec,
 } from "@/app/utils/coordinates";
 import {
@@ -69,6 +70,7 @@ export interface ExportStyle {
   calibrationDash: [number, number];
   arrowLen: number;
   arrowHalfWidth: number;
+  midpointTickHalf: number;
 }
 
 /**
@@ -87,6 +89,7 @@ export function getExportStyle(zoom: number): ExportStyle {
     calibrationDash: [6 * scale, 4 * scale],
     arrowLen: 9 * scale,
     arrowHalfWidth: 4 * scale,
+    midpointTickHalf: MIDPOINT_TICK_HALF_PX * scale,
   };
 }
 
@@ -372,20 +375,6 @@ function drawMeasurementOnCanvas(
   upDir: Point2D,
 ) {
   const color = getLineColor(measurement);
-  if (measurement.midpoints?.length) {
-    // A bent plain line: one path so the bends join cleanly.
-    const [first, ...rest] = linePoints(measurement);
-    context.save();
-    context.strokeStyle = color;
-    context.lineWidth = style.lineWidth;
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(first.x, first.y);
-    for (const p of rest) context.lineTo(p.x, p.y);
-    context.stroke();
-    context.restore();
-    return;
-  }
   const label =
     scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
@@ -401,6 +390,12 @@ function drawMeasurementOnCanvas(
     style.arrowHalfWidth,
     upDir,
   );
+
+  const tick =
+    measurement.plain && measurement.midpointTick
+      ? midpointTickEnds(measurement.start, measurement.end, style.midpointTickHalf)
+      : null;
+  if (tick) drawDocLineSegment(context, tick[0], tick[1]);
 }
 
 function drawRectangleOnCanvas(
@@ -973,14 +968,6 @@ export async function drawMarkupsOnPdf(
   for (const measurement of getExportMeasurements(measurements)) {
     const { r, g, b } = hexToRgb(getLineColor(measurement));
     const color = rgb(r, g, b);
-    if (measurement.midpoints?.length) {
-      // drawSvgPath maps path (px, py) to PDF (px, -py); flip y so the path uses absolute PDF coords.
-      const path = linePoints(measurement)
-        .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${-p.y}`)
-        .join(" ");
-      page.drawSvgPath(path, { x: 0, y: 0, borderColor: color, borderWidth: style.lineWidth });
-      continue;
-    }
     const label =
       scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
@@ -997,6 +984,12 @@ export async function drawMarkupsOnPdf(
       style.arrowHalfWidth,
       screenUpDoc,
     );
+
+    const tick =
+      measurement.plain && measurement.midpointTick
+        ? midpointTickEnds(measurement.start, measurement.end, style.midpointTickHalf)
+        : null;
+    if (tick) page.drawLine({ start: tick[0], end: tick[1], thickness: style.lineWidth, color });
   }
 
   for (const rectangle of rectangles) {

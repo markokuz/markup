@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  Measurement,
   Point2D,
   RectMeasurement,
   ShapeAnnotation as ShapeAnnotationType,
@@ -10,7 +11,6 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
   computeDocOffsetFromScreen,
   defaultScreenLabelOffsetDoc,
-  distanceToSegment,
   docRectFromScreenCorners,
   getLocalCoords,
   getOppositeScreenCorner,
@@ -18,7 +18,6 @@ import {
   getLineLabelAnchorDoc,
   getRectHeightLabelAnchorDoc,
   getRectWidthLabelAnchorDoc,
-  linePoints,
   midpoint,
   snapScreenPointToAxis,
   toDocPoint,
@@ -85,8 +84,6 @@ interface AnnotationLayerProps {
 
 type DragMode =
   | { type: "endpoint"; id: string; endpoint: "start" | "end" }
-  /** A plain line's bend point, `index` into its `midpoints`. */
-  | { type: "midpoint"; id: string; index: number }
   | { type: "body"; id: string; originPdf: Point2D; startPdf: Point2D; endPdf: Point2D }
   | { type: "label"; id: string }
   | { type: "rectBody"; id: string; originPdf: Point2D; topLeft: Point2D; bottomRight: Point2D }
@@ -123,16 +120,11 @@ const MIN_FREEHAND_SIZE = 12;
 const ROTATION_SNAP_TOLERANCE_DEG = 5;
 /** New text starts this far right of the click, in screen px, clear of the I-beam. */
 const TEXT_CURSOR_GAP_PX = 2;
-/** Right-clicking this close to a bend point offers to remove it, in screen px. */
-const MIDPOINT_HIT_PX = 8;
-
-/** Right-click menu on a plain line: `segment` was clicked; `vertex` is a bend point under the cursor. */
+/** Right-click menu on a plain line. */
 interface LineMenu {
   id: string;
   /** Doc point clicked, so the menu stays by the line when the view pans or zooms. */
   at: Point2D;
-  segment: number;
-  vertex: number | null;
 }
 
 function createId() {
@@ -268,6 +260,13 @@ export function AnnotationLayer({
       if (state.tool === "pan") return;
       // A click outside a note/text being typed only finishes it (its blur saves it).
       if (state.editingNoteId) return;
+      // The click that closes the line menu does nothing else.
+      if (lineMenu) {
+        setLineMenu(null);
+        return;
+      }
+      // Right-click opens the line menu instead of placing a line point.
+      if (state.tool === "measure" && event.button !== 0) return;
 
       const overlay = overlayRef.current;
       if (!overlay) return;
@@ -533,6 +532,7 @@ export function AnnotationLayer({
     [
       dispatch,
       handleSelect,
+      lineMenu,
       overlayRef,
       startShapeDrag,
       snapToLine,
@@ -610,30 +610,15 @@ export function AnnotationLayer({
 
         if (drag.type === "endpoint") {
           const measurement = state.measurements.find((m) => m.id === drag.id);
-          // Snap against the neighbouring vertex: the far end, or the nearest bend point.
-          const points = measurement ? linePoints(measurement) : null;
-          const fixedEnd = points
+          const fixedEnd = measurement
             ? drag.endpoint === "start"
-              ? points[1]
-              : points[points.length - 2]
+              ? measurement.end
+              : measurement.start
             : null;
           dispatch({
             type: "UPDATE_MEASUREMENT",
             id: drag.id,
             updates: { [drag.endpoint]: snapToLine(fixedEnd, local) },
-          });
-        } else if (drag.type === "midpoint") {
-          const measurement = state.measurements.find((m) => m.id === drag.id);
-          if (!measurement?.midpoints) return;
-          const previous = linePoints(measurement)[drag.index];
-          dispatch({
-            type: "UPDATE_MEASUREMENT",
-            id: drag.id,
-            updates: {
-              midpoints: measurement.midpoints.map((p, i) =>
-                i === drag.index ? snapToLine(previous, local) : p,
-              ),
-            },
           });
         } else if (drag.type === "body") {
           const dx = pdfPoint.x - drag.originPdf.x;
@@ -893,15 +878,9 @@ export function AnnotationLayer({
     dragRef.current = { type: "endpoint", id, endpoint };
   };
 
-  const onMidpointPointerDown = (id: string, index: number, event: React.PointerEvent) => {
-    dispatch({ type: "RECORD_UNDO" });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { type: "midpoint", id, index };
-  };
-
   const handleContextMenu = (event: React.MouseEvent<SVGSVGElement>) => {
     setLineMenu(null);
-    if (state.tool !== "select") return;
+    if (state.tool !== "select" && state.tool !== "measure") return;
     const overlay = overlayRef.current;
     if (!overlay) return;
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
@@ -918,54 +897,22 @@ export function AnnotationLayer({
     const line = hitId ? state.measurements.find((m) => m.id === hitId) : null;
     if (!line) return;
     event.preventDefault();
-    const points = linePoints(line).map((p) => toScreenPoint(viewport, p.x, p.y));
-    let segment = 0;
-    for (let i = 1; i < points.length - 1; i++) {
-      if (
-        distanceToSegment(local, points[i], points[i + 1]) <
-        distanceToSegment(local, points[segment], points[segment + 1])
-      ) {
-        segment = i;
-      }
-    }
-    const vertexAt = points
-      .slice(1, -1)
-      .findIndex((p) => Math.hypot(local.x - p.x, local.y - p.y) <= MIDPOINT_HIT_PX);
-    dispatch({ type: "SET_SELECTION", ids: [line.id] });
-    setLineMenu({
-      id: line.id,
-      at: toDocPoint(viewport, local.x, local.y),
-      segment,
-      vertex: vertexAt >= 0 ? vertexAt : null,
-    });
+    if (state.tool === "select") dispatch({ type: "SET_SELECTION", ids: [line.id] });
+    setLineMenu({ id: line.id, at: toDocPoint(viewport, local.x, local.y) });
   };
 
-  /** Bend the line at the middle of the right-clicked segment. */
-  const addLineMidpoint = (menu: LineMenu) => {
+  /** Show or hide the tick marking the line's centre. */
+  const toggleMidpointTick = (line: Measurement) => {
     setLineMenu(null);
-    const line = state.measurements.find((m) => m.id === menu.id);
-    if (!line) return;
-    const points = linePoints(line);
-    const midpoints = [...(line.midpoints ?? [])];
-    midpoints.splice(menu.segment, 0, midpoint(points[menu.segment], points[menu.segment + 1]));
-    dispatch({ type: "RECORD_UNDO" });
-    dispatch({ type: "UPDATE_MEASUREMENT", id: line.id, updates: { midpoints } });
-  };
-
-  const removeLineMidpoint = (menu: LineMenu) => {
-    setLineMenu(null);
-    const line = state.measurements.find((m) => m.id === menu.id);
-    if (!line?.midpoints || menu.vertex === null) return;
-    const midpoints = line.midpoints.filter((_p, i) => i !== menu.vertex);
     dispatch({ type: "RECORD_UNDO" });
     dispatch({
       type: "UPDATE_MEASUREMENT",
       id: line.id,
-      updates: { midpoints: midpoints.length ? midpoints : undefined },
+      updates: { midpointTick: line.midpointTick ? undefined : true },
     });
   };
 
-  const renderLineMenu = (menu: LineMenu) => {
+  const renderLineMenu = (menu: LineMenu, line: Measurement) => {
     const at = toScreenPoint(viewport, menu.at.x, menu.at.y);
     const item = (label: string, onClick: () => void) => (
       <button
@@ -986,9 +933,9 @@ export function AnnotationLayer({
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
         >
-          {menu.vertex !== null
-            ? item("Remove midpoint", () => removeLineMidpoint(menu))
-            : item("Add midpoint", () => addLineMidpoint(menu))}
+          {item(line.midpointTick ? "Remove midpoint" : "Add midpoint", () =>
+            toggleMidpointTick(line),
+          )}
         </div>
       </foreignObject>
     );
@@ -1172,7 +1119,6 @@ export function AnnotationLayer({
       onSelect={(id, additive) => handleSelect(id, additive)}
       onEndpointPointerDown={onEndpointPointerDown}
       onBodyPointerDown={onBodyPointerDown}
-      onMidpointPointerDown={onMidpointPointerDown}
       onLabelDragStart={onLabelDragStart}
       onStartEditLength={handleStartEditLength}
       onCommitLength={handleCommitLength}
@@ -1420,6 +1366,11 @@ export function AnnotationLayer({
     );
   };
 
+  const menuLine =
+    lineMenu && (state.tool === "select" || state.tool === "measure")
+      ? state.measurements.find((m) => m.id === lineMenu.id)
+      : undefined;
+
   const selectedSet = new Set(state.selectedIds);
   const callouts = state.shapes.filter((s) => s.kind === "callout");
   const visibleMeasurements = state.settings.showCalibrationLine
@@ -1589,10 +1540,7 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
-        {lineMenu &&
-          state.tool === "select" &&
-          state.measurements.some((m) => m.id === lineMenu.id) &&
-          renderLineMenu(lineMenu)}
+        {lineMenu && menuLine && renderLineMenu(lineMenu, menuLine)}
         {callouts
           .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length === 2)
           .map((c) => {

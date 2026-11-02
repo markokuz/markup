@@ -1,8 +1,13 @@
 "use client";
 
 import type { Measurement, Scale, Unit } from "@/app/types";
-import { toScreenPoint, estimateLabelWidth, linePoints } from "@/app/utils/coordinates";
-import { CALIBRATION_COLOR, getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
+import {
+  toScreenPoint,
+  estimateLabelWidth,
+  MIDPOINT_TICK_HALF_PX,
+  midpointTickEnds,
+} from "@/app/utils/coordinates";
+import { CALIBRATION_COLOR, getAnnotationColor } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { InlineDimensionLine } from "@/app/components/InlineDimensionLine";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -50,8 +55,6 @@ interface MeasurementLineProps {
     event: React.PointerEvent,
   ) => void;
   onBodyPointerDown: (id: string, event: React.PointerEvent) => void;
-  /** Drag of a plain line's bend point (`index` into `midpoints`). */
-  onMidpointPointerDown: (id: string, index: number, event: React.PointerEvent) => void;
   onLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onStartEditLength: (id: string) => void;
   onCommitLength: (id: string, value: number) => void;
@@ -70,7 +73,6 @@ export function MeasurementLine({
   onSelect,
   onEndpointPointerDown,
   onBodyPointerDown,
-  onMidpointPointerDown,
   onLabelDragStart,
   onStartEditLength,
   onCommitLength,
@@ -134,103 +136,52 @@ export function MeasurementLine({
     );
   }
 
-  if (measurement.midpoints?.length) {
-    const points = linePoints(measurement).map((p) => toScreenPoint(viewport, p.x, p.y));
-    const polyline = points.map((p) => `${p.x},${p.y}`).join(" ");
-    const handle = (p: (typeof points)[0], key: string, r: number, onDown: (event: React.PointerEvent) => void) => (
-      <circle
-        key={key}
-        cx={p.x}
-        cy={p.y}
-        r={r}
-        fill="#0f172a"
-        stroke={color}
-        strokeWidth={2}
-        style={{ cursor: "crosshair", pointerEvents: "all" }}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          // Right-click opens the line's menu instead of starting a drag.
-          if (event.button === 0) onDown(event);
-        }}
-      />
-    );
-    return (
-      <g>
-        {isSelected && (
-          <polyline
-            points={polyline}
-            fill="none"
-            stroke={SELECTION_ACCENT}
-            strokeWidth={strokeWidth + 6}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity={0.35}
-            style={{ pointerEvents: "none" }}
-          />
-        )}
-        <polyline
-          points={polyline}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-          style={{ pointerEvents: "none" }}
-        />
-        {interactive && (
-          <polyline
-            points={polyline}
-            fill="none"
-            stroke="transparent"
-            strokeWidth={16}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ pointerEvents: "stroke", cursor: "pointer" }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);
-            }}
-          />
-        )}
-        {showHandles && isSelected && (
-          <>
-            {points.slice(1, -1).map((p, i) =>
-              handle(p, `mid-${i}`, 5, (event) => onMidpointPointerDown(measurement.id, i, event)),
-            )}
-            {handle(start, "start", 7, (event) => onEndpointPointerDown(measurement.id, "start", event))}
-            {handle(end, "end", 7, (event) => onEndpointPointerDown(measurement.id, "end", event))}
-          </>
-        )}
-      </g>
-    );
-  }
+  const tick =
+    measurement.plain && measurement.midpointTick
+      ? midpointTickEnds(start, end, MIDPOINT_TICK_HALF_PX)
+      : null;
 
   return (
-    <InlineDimensionLine
-      start={start}
-      end={end}
-      label={label}
-      valueInDisplayUnit={labelValueInDisplayUnit}
-      color={color}
-      strokeWidth={strokeWidth}
-      displayUnit={displayUnit}
-      isSelected={isSelected}
-      showHandles={showHandles && !!scale}
-      isEditing={isEditingLength}
-      interactive={interactive}
-      showEndpointHandles={showHandles && isSelected}
-      showArrows={!measurement.plain}
-      onSelect={(additive) => onSelect(measurement.id, additive ?? false)}
-      onBodyPointerDown={(event) => {
-        onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);
-        onBodyPointerDown(measurement.id, event);
-      }}
-      onEndpointPointerDown={(endpoint, event) =>
-        onEndpointPointerDown(measurement.id, endpoint, event)
-      }
-      onStartEdit={() => onStartEditLength(measurement.id)}
-      onCommit={(value) => onCommitLength(measurement.id, value)}
-      onCancel={onCancelEdit}
-      onDragStart={(event) => onLabelDragStart(measurement.id, event)}
-    />
+    <>
+      <InlineDimensionLine
+        start={start}
+        end={end}
+        label={label}
+        valueInDisplayUnit={labelValueInDisplayUnit}
+        color={color}
+        strokeWidth={strokeWidth}
+        displayUnit={displayUnit}
+        isSelected={isSelected}
+        showHandles={showHandles && !!scale}
+        isEditing={isEditingLength}
+        interactive={interactive}
+        showEndpointHandles={showHandles && isSelected}
+        showArrows={!measurement.plain}
+        onSelect={(additive) => onSelect(measurement.id, additive ?? false)}
+        onBodyPointerDown={(event) => {
+          onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);
+          onBodyPointerDown(measurement.id, event);
+        }}
+        onEndpointPointerDown={(endpoint, event) =>
+          onEndpointPointerDown(measurement.id, endpoint, event)
+        }
+        onStartEdit={() => onStartEditLength(measurement.id)}
+        onCommit={(value) => onCommitLength(measurement.id, value)}
+        onCancel={onCancelEdit}
+        onDragStart={(event) => onLabelDragStart(measurement.id, event)}
+      />
+      {tick && (
+        <line
+          x1={tick[0].x}
+          y1={tick[0].y}
+          x2={tick[1].x}
+          y2={tick[1].y}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="butt"
+          style={{ pointerEvents: "none" }}
+        />
+      )}
+    </>
   );
 }

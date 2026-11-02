@@ -14,7 +14,6 @@ import {
   distanceToSegment,
   docDistance,
   estimateLabelWidth,
-  linePoints,
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
@@ -243,12 +242,10 @@ export function findAnnotationsInMarquee(
   for (const measurement of measurements) {
     if (measurement.isCalibration) continue;
 
-    const points = linePoints(measurement).map((p) => toScreenPoint(viewport, p.x, p.y));
-    const matches = points
-      .slice(1)
-      .some((end, i) => lineMatchesMarquee(points[i], end, selectionRect, mode));
+    const start = toScreenPoint(viewport, measurement.start.x, measurement.start.y);
+    const end = toScreenPoint(viewport, measurement.end.x, measurement.end.y);
 
-    if (matches) {
+    if (lineMatchesMarquee(start, end, selectionRect, mode)) {
       ids.push(measurement.id);
     }
   }
@@ -325,14 +322,12 @@ export function hitTestAnnotations(
 
     const start = toScreenPoint(viewport, measurement.start.x, measurement.start.y);
     const end = toScreenPoint(viewport, measurement.end.x, measurement.end.y);
-    const points = linePoints(measurement).map((p) => toScreenPoint(viewport, p.x, p.y));
-    const segments = points.slice(1).map((b, i) => [points[i], b] as const);
-    const dist = Math.min(...segments.map(([a, b]) => distanceToSegment(point, a, b)));
+    const dist = distanceToSegment(point, start, end);
 
     if (dist <= LINE_HIT_SLOP) {
       candidates.push({
         id: measurement.id,
-        area: segments.reduce((sum, [a, b]) => sum + Math.hypot(b.x - a.x, b.y - a.y), 0) * 12,
+        area: Math.hypot(end.x - start.x, end.y - start.y) * 12,
         dist,
       });
     }

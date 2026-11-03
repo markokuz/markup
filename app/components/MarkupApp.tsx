@@ -146,6 +146,15 @@ function MarkupShell() {
         return;
       }
 
+      // Ctrl+G groups the selection, Ctrl+Shift+G ungroups it.
+      if (ctrl && key === "g" && !isTextEntry) {
+        const current = stateRef.current;
+        if (current.selectedIds.length === 0) return;
+        event.preventDefault();
+        dispatch({ type: event.shiftKey ? "UNGROUP_SELECTED" : "GROUP_SELECTED" });
+        return;
+      }
+
       if (event.key === "Enter" && !isEditing && stateRef.current.drawingShapeId) {
         event.preventDefault();
         dispatch({ type: "FINISH_SHAPE" });

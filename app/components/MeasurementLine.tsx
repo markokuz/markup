@@ -153,9 +153,11 @@ export function MeasurementLine({
         displayUnit={displayUnit}
         isSelected={isSelected}
         showHandles={showHandles && !!scale}
+        // Plain and uncalibrated lines have no editable label but still move.
+        bodyDraggable={showHandles && !measurement.locked}
         isEditing={isEditingLength}
         interactive={interactive}
-        showEndpointHandles={showHandles && isSelected}
+        showEndpointHandles={showHandles && isSelected && !measurement.locked}
         showArrows={!measurement.plain}
         onSelect={(additive) => onSelect(measurement.id, additive ?? false)}
         onBodyPointerDown={(event) => {

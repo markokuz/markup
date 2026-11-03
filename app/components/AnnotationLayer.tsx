@@ -34,6 +34,8 @@ import {
   applyRectHorizontalEdgeLength,
   applyRectVerticalEdgeLength,
   normalizeRect,
+  parseDimensionInput,
+  toDocLength,
 } from "@/app/utils/dimensions";
 import {
   RectangleAnnotation,
@@ -43,6 +45,7 @@ import {
 import { MeasurementLine } from "@/app/components/MeasurementLine";
 import { NoteAnnotation } from "@/app/components/NoteAnnotation";
 import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
+import { FloatingMenu } from "@/app/components/FloatingMenu";
 import {
   boxCorners,
   cloudPath,
@@ -60,6 +63,7 @@ import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 import { copySelection } from "@/app/utils/clipboard";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { promptCalibration } from "@/app/utils/calibrationPrompt";
+import { expandToGroups, groupActions, groupOf } from "@/app/utils/groups";
 import { captureSnapshot } from "@/app/utils/snapshot";
 import {
   getTransformFrame,
@@ -139,11 +143,17 @@ const TEXT_TOOL_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
     '<path d="M5 2.5h6M8 2.5v19M5 21.5h6" fill="none" stroke-linecap="round" stroke="#000" stroke-width="1.5"/>' +
     "</svg>",
 )}") 8 12, text`;
-/** Right-click menu on a plain line. */
-interface LineMenu {
+/** Right-click menu for the markup `id` (or the selection it belongs to). */
+interface ContextMenu {
   id: string;
-  /** Doc point clicked, so the menu stays by the line when the view pans or zooms. */
-  at: Point2D;
+  /** Window point clicked; the menu closes if the view scrolls or zooms. */
+  clientX: number;
+  clientY: number;
+}
+
+interface ContextMenuItem {
+  label: string;
+  run: () => void;
 }
 
 function createId() {
@@ -162,43 +172,55 @@ export function AnnotationLayer({
   );
   const dispatch = useAppDispatch();
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
+  // Length typed after a line's first click; it belongs to that start point only.
+  const [typed, setTyped] = useState<{ start: Point2D; text: string } | null>(null);
+  const typedLength =
+    typed && state.tool === "measure" && typed.start === state.pendingPoint ? typed.text : "";
   /** Screen points of the freehand cloud being drawn. */
   const [freehandStroke, setFreehandStroke] = useState<Point2D[] | null>(null);
   const dragRef = useRef<DragMode | null>(null);
-  const [lineMenu, setLineMenu] = useState<LineMenu | null>(null);
-  const lineMenuRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!lineMenu) return;
+    if (!contextMenu) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!lineMenuRef.current?.contains(event.target as Node)) setLineMenu(null);
+      if (!contextMenuRef.current?.contains(event.target as Node)) setContextMenu(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLineMenu(null);
+      if (event.key === "Escape") setContextMenu(null);
     };
+    // The menu sits at a fixed window point, so it can't follow the drawing.
+    const close = () => setContextMenu(null);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("wheel", close, { passive: true });
+    window.addEventListener("resize", close);
     return () => {
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("wheel", close);
+      window.removeEventListener("resize", close);
     };
-  }, [lineMenu]);
+  }, [contextMenu]);
 
   const handleSelect = useCallback(
     (id: string, additive: boolean) => {
       if (additive) {
+        // Ctrl/Shift-click adds or removes the clicked markup's whole group.
+        const members = expandToGroups([id], state);
         const isSelected = state.selectedIds.includes(id);
         dispatch({
           type: "SET_SELECTION",
           ids: isSelected
-            ? state.selectedIds.filter((selectedId) => selectedId !== id)
-            : [...state.selectedIds, id],
+            ? state.selectedIds.filter((selectedId) => !members.includes(selectedId))
+            : [...state.selectedIds, ...members],
         });
       } else {
         dispatch({ type: "SET_SELECTION", ids: [id] });
       }
     },
-    [dispatch, state.selectedIds],
+    [dispatch, state],
   );
 
   /** Doc point under the cursor, snapped straight from `anchorDoc` when snapping is on. */
@@ -219,6 +241,7 @@ export function AnnotationLayer({
 
   const startShapeDrag = useCallback(
     (shape: ShapeAnnotationType, originPdf: Point2D, event: React.PointerEvent) => {
+      if (shape.locked) return;
       dispatch({ type: "RECORD_UNDO" });
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
@@ -274,14 +297,93 @@ export function AnnotationLayer({
     [state.fileBytes, state.fileMimeType, state.fileName, state.fileType, state.scale, state.zoom, viewport],
   );
 
+  /** Add a finished Line-tool line (second click or a typed length). */
+  const placeLine = useCallback(
+    (start: Point2D, end: Point2D) => {
+      dispatch({
+        type: "ADD_MEASUREMENT",
+        measurement: {
+          id: createId(),
+          start,
+          end,
+          labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
+          color: toolColors.measure,
+          ...(state.lineMode === "plain" ? { plain: true } : {}),
+        },
+      });
+    },
+    [dispatch, state.lineMode, toolColors.measure, viewport],
+  );
+
+  /** End of a line `text` long (display units) from `start` toward `toward`; null if unreadable. */
+  const typedLineEnd = useCallback(
+    (start: Point2D, toward: Point2D | null, text: string): Point2D | null => {
+      const value = parseDimensionInput(text, state.displayUnit);
+      if (value === null || !state.scale) return null;
+      let dx = toward ? toward.x - start.x : 0;
+      let dy = toward ? toward.y - start.y : 0;
+      if (Math.hypot(dx, dy) < 1e-9) {
+        // Cursor on the start point: go screen-right.
+        const s = toScreenPoint(viewport, start.x, start.y);
+        const right = toDocPoint(viewport, s.x + 1, s.y);
+        dx = right.x - start.x;
+        dy = right.y - start.y;
+      }
+      const length = toDocLength(value, state.scale, state.displayUnit);
+      const k = length / Math.hypot(dx, dy);
+      return { x: start.x + dx * k, y: start.y + dy * k };
+    },
+    [state.displayUnit, state.scale, viewport],
+  );
+
+  // After a line's first click, typing a length and pressing Enter places it at that length.
+  useEffect(() => {
+    if (state.tool !== "measure" || !state.pendingPoint) return;
+    const start = state.pendingPoint;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName ?? "")) {
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const consume = () => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      if (/^[0-9.'"/ -]$/.test(event.key)) {
+        if (event.key === " " && !typedLength) return;
+        consume();
+        setTyped({ start, text: typedLength + event.key });
+      } else if (event.key === "Backspace" && typedLength) {
+        consume();
+        setTyped({ start, text: typedLength.slice(0, -1) });
+      } else if (event.key === "Escape" && typedLength) {
+        consume();
+        setTyped(null);
+      } else if (event.key === "Enter" && typedLength) {
+        consume();
+        if (!state.scale) {
+          promptCalibration(CALIBRATE_TO_MEASURE);
+          return;
+        }
+        const end = typedLineEnd(start, previewEnd, typedLength);
+        if (!end) return;
+        setTyped(null);
+        placeLine(start, end);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [placeLine, previewEnd, state.pendingPoint, state.scale, state.tool, typedLength, typedLineEnd]);
+
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
       if (state.tool === "pan") return;
       // A click outside a note/text being typed only finishes it (its blur saves it).
       if (state.editingNoteId) return;
       // The click that closes the line menu does nothing else.
-      if (lineMenu) {
-        setLineMenu(null);
+      if (contextMenu) {
+        setContextMenu(null);
         return;
       }
       // Right-click opens the line menu instead of placing a line point.
@@ -541,18 +643,7 @@ export function AnnotationLayer({
               line: { start, end },
             });
           } else if (state.scale || state.lineMode === "plain") {
-            const anchorDoc = midpoint(start, end);
-            dispatch({
-              type: "ADD_MEASUREMENT",
-              measurement: {
-                id: createId(),
-                start,
-                end,
-                labelOffset: defaultScreenLabelOffsetDoc(viewport, anchorDoc),
-                color: toolColors.measure,
-                ...(state.lineMode === "plain" ? { plain: true } : {}),
-              },
-            });
+            placeLine(start, end);
           } else {
             dispatch({ type: "SET_PENDING_POINT", point: null });
             setPreviewEnd(null);
@@ -563,8 +654,9 @@ export function AnnotationLayer({
     [
       dispatch,
       handleSelect,
-      lineMenu,
+      contextMenu,
       overlayRef,
+      placeLine,
       startShapeDrag,
       snapToLine,
       takeSnapshot,
@@ -803,7 +895,7 @@ export function AnnotationLayer({
    */
   const handlePointerDownCapture = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
-      if (state.tool !== "select" || state.selectedIds.length < 2 || event.button !== 0) return;
+      if (state.tool !== "select" || (event.button !== 0 && event.button !== 2)) return;
       if (event.shiftKey || event.ctrlKey || event.metaKey) return;
       const overlay = overlayRef.current;
       if (!overlay) return;
@@ -818,9 +910,19 @@ export function AnnotationLayer({
         state.scale,
         state.displayUnit,
       );
-      if (!hitId || !state.selectedIds.includes(hitId)) return;
+      if (!hitId) return;
+      if (event.button === 2) {
+        // Right-pressing a selected markup keeps the selection for the Group menu.
+        if (state.selectedIds.includes(hitId)) event.stopPropagation();
+        return;
+      }
+      const inSelection = state.selectedIds.length >= 2 && state.selectedIds.includes(hitId);
+      // A grouped markup always moves with its group, selected yet or not.
+      const grouped = !inSelection && groupOf(state).has(hitId);
+      if (!inSelection && !grouped) return;
       event.stopPropagation();
       event.preventDefault();
+      if (grouped) dispatch({ type: "SET_SELECTION", ids: [hitId] });
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
         type: "group",
@@ -829,7 +931,7 @@ export function AnnotationLayer({
         moved: false,
       };
     },
-    [overlayRef, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
+    [dispatch, overlayRef, state, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -919,37 +1021,89 @@ export function AnnotationLayer({
     endpoint: "start" | "end",
     event: React.PointerEvent,
   ) => {
+    if (state.measurements.find((m) => m.id === id)?.locked) return;
     dispatch({ type: "RECORD_UNDO" });
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { type: "endpoint", id, endpoint };
   };
 
+  /** What the right-click menu offers for markup `id`, given the selection it opens with. */
+  const contextMenuItems = (id: string, selection: string[]): ContextMenuItem[] => {
+    const close = (run: () => void) => () => {
+      setContextMenu(null);
+      run();
+    };
+    const byId = new Map(
+      [...state.measurements.filter((m) => !m.isCalibration), ...state.rectangles, ...state.notes, ...state.shapes].map(
+        (a) => [a.id, a],
+      ),
+    );
+    /** Lock everything in `ids` unless all of it already is; then offer Unlock. */
+    const lockItem = (ids: string[]): ContextMenuItem => {
+      const allLocked = ids.every((lockId) => byId.get(lockId)?.locked);
+      return {
+        label: allLocked ? "Unlock" : "Lock",
+        run: close(() => dispatch({ type: "SET_LOCKED", ids, locked: !allLocked })),
+      };
+    };
+    if (state.tool === "select" && selection.length >= 2 && selection.includes(id)) {
+      const { canGroup, canUngroup } = groupActions(selection, state);
+      return [
+        ...(canGroup ? [{ label: "Group", run: close(() => dispatch({ type: "GROUP_SELECTED" })) }] : []),
+        ...(canUngroup ? [{ label: "Ungroup", run: close(() => dispatch({ type: "UNGROUP_SELECTED" })) }] : []),
+        lockItem(selection.filter((selected) => byId.has(selected))),
+      ];
+    }
+    if (!byId.has(id)) return [];
+    const line = state.measurements.find((m) => m.id === id);
+    return [
+      ...(line?.plain
+        ? [
+            {
+              label: line.midpointTick ? "Remove midpoint" : "Add midpoint",
+              run: close(() => toggleMidpointTick(line)),
+            },
+          ]
+        : []),
+      lockItem([id]),
+    ];
+  };
+
   const handleContextMenu = (event: React.MouseEvent<SVGSVGElement>) => {
-    setLineMenu(null);
+    setContextMenu(null);
     if (state.tool !== "select" && state.tool !== "measure") return;
     const overlay = overlayRef.current;
     if (!overlay) return;
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
-    const hitId = hitTestAnnotations(
-      local,
-      state.measurements.filter((m) => m.plain && !m.isCalibration),
-      [],
-      [],
-      [],
-      viewport,
-      state.scale,
-      state.displayUnit,
-    );
-    const line = hitId ? state.measurements.find((m) => m.id === hitId) : null;
-    if (!line) return;
+    const lines = state.measurements.filter((m) => !m.isCalibration);
+    // The Line tool's menu is for lines; Select offers it for anything.
+    const hitId =
+      state.tool === "select"
+        ? hitTestAnnotations(
+            local,
+            lines,
+            state.rectangles,
+            state.notes,
+            state.shapes,
+            viewport,
+            state.scale,
+            state.displayUnit,
+          )
+        : hitTestAnnotations(local, lines, [], [], [], viewport, state.scale, state.displayUnit);
+    if (!hitId) return;
+    let selection = state.selectedIds;
+    // Right-clicking outside the selection selects what was clicked (and its group) first.
+    if (state.tool === "select" && !selection.includes(hitId)) {
+      selection = expandToGroups([hitId], state);
+      dispatch({ type: "SET_SELECTION", ids: [hitId] });
+    }
+    if (contextMenuItems(hitId, selection).length === 0) return;
     event.preventDefault();
-    if (state.tool === "select") dispatch({ type: "SET_SELECTION", ids: [line.id] });
-    setLineMenu({ id: line.id, at: toDocPoint(viewport, local.x, local.y) });
+    setContextMenu({ id: hitId, clientX: event.clientX, clientY: event.clientY });
   };
 
   /** Show or hide the tick marking the line's centre. */
   const toggleMidpointTick = (line: Measurement) => {
-    setLineMenu(null);
     dispatch({ type: "RECORD_UNDO" });
     dispatch({
       type: "UPDATE_MEASUREMENT",
@@ -958,38 +1112,29 @@ export function AnnotationLayer({
     });
   };
 
-  const renderLineMenu = (menu: LineMenu, line: Measurement) => {
-    const at = toScreenPoint(viewport, menu.at.x, menu.at.y);
-    const item = (label: string, onClick: () => void) => (
-      <button
-        type="button"
-        role="menuitem"
-        className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary hover:bg-surface-muted"
-        onClick={onClick}
-      >
-        {label}
-      </button>
-    );
+  const renderContextMenu = (menu: ContextMenu) => {
+    const items = contextMenuItems(menu.id, state.selectedIds);
+    if (items.length === 0) return null;
     return (
-      <foreignObject x={at.x + 4} y={at.y + 4} width={180} height={80} style={{ overflow: "visible" }}>
-        <div
-          ref={lineMenuRef}
-          role="menu"
-          className="inline-block min-w-[150px] rounded-lg border border-border bg-surface p-1 shadow-lg"
-          onPointerDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {item(line.midpointTick ? "Remove midpoint" : "Add midpoint", () =>
-            toggleMidpointTick(line),
-          )}
-        </div>
-      </foreignObject>
+      <FloatingMenu x={menu.clientX + 4} y={menu.clientY + 4} menuRef={contextMenuRef}>
+        {items.map((menuItem) => (
+          <button
+            key={menuItem.label}
+            type="button"
+            role="menuitem"
+            className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary hover:bg-surface-muted"
+            onClick={menuItem.run}
+          >
+            {menuItem.label}
+          </button>
+        ))}
+      </FloatingMenu>
     );
   };
 
   const onBodyPointerDown = (id: string, event: React.PointerEvent) => {
     const measurement = state.measurements.find((m) => m.id === id);
-    if (!measurement) return;
+    if (!measurement || measurement.locked) return;
 
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -1017,7 +1162,7 @@ export function AnnotationLayer({
 
   const onRectBodyPointerDown = (id: string, event: React.PointerEvent) => {
     const rectangle = state.rectangles.find((r) => r.id === id);
-    if (!rectangle) return;
+    if (!rectangle || rectangle.locked) return;
 
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -1043,7 +1188,7 @@ export function AnnotationLayer({
     event: React.PointerEvent,
   ) => {
     const rectangle = state.rectangles.find((r) => r.id === id);
-    if (!rectangle) return;
+    if (!rectangle || rectangle.locked) return;
 
     const screenRect = toScreenRect(
       viewport,
@@ -1068,7 +1213,7 @@ export function AnnotationLayer({
 
   const onRectEdgePointerDown = (id: string, edge: RectEdge, event: React.PointerEvent) => {
     const rectangle = state.rectangles.find((r) => r.id === id);
-    if (!rectangle) return;
+    if (!rectangle || rectangle.locked) return;
     const r = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
     const left = Math.min(r.x, r.x + r.width);
     const right = Math.max(r.x, r.x + r.width);
@@ -1093,6 +1238,7 @@ export function AnnotationLayer({
 
   const onShapePointPointerDown = (id: string, index: number, event: React.PointerEvent) => {
     event.stopPropagation();
+    if (state.shapes.find((s) => s.id === id)?.locked) return;
     dispatch({ type: "RECORD_UNDO" });
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { type: "shapePoint", id, index };
@@ -1112,7 +1258,7 @@ export function AnnotationLayer({
 
   const onNoteBodyPointerDown = (id: string, event: React.PointerEvent) => {
     const note = state.notes.find((n) => n.id === id);
-    if (!note) return;
+    if (!note || note.locked) return;
 
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -1325,12 +1471,13 @@ export function AnnotationLayer({
   // Resize/rotate handles for the one selected markup that supports them.
   const transformTarget: Transformable | null = (() => {
     if (!showEditHandles || !singleSelectedId || state.editingNoteId) return null;
+    // Locked markups get no resize or rotate handles.
     const shape = state.shapes.find((s) => s.id === singleSelectedId);
-    if (shape) return { kind: "shape", item: shape };
+    if (shape) return shape.locked ? null : { kind: "shape", item: shape };
     const note = state.notes.find((n) => n.id === singleSelectedId);
-    if (note) return { kind: "note", item: note };
+    if (note) return note.locked ? null : { kind: "note", item: note };
     const rectangle = state.rectangles.find((r) => r.id === singleSelectedId);
-    return rectangle ? { kind: "rect", item: rectangle } : null;
+    return rectangle && !rectangle.locked ? { kind: "rect", item: rectangle } : null;
   })();
   const transformFrame = transformTarget ? getTransformFrame(transformTarget, viewport) : null;
 
@@ -1452,11 +1599,6 @@ export function AnnotationLayer({
     );
   };
 
-  const menuLine =
-    lineMenu && (state.tool === "select" || state.tool === "measure")
-      ? state.measurements.find((m) => m.id === lineMenu.id)
-      : undefined;
-
   const selectedSet = new Set(state.selectedIds);
   const callouts = state.shapes.filter((s) => s.kind === "callout");
   const visibleMeasurements = state.settings.showCalibrationLine
@@ -1469,7 +1611,9 @@ export function AnnotationLayer({
   const unselectedNotes = state.notes.filter((n) => !selectedSet.has(n.id));
   const selectedNotes = state.notes.filter((n) => selectedSet.has(n.id));
 
+  // A locked markup's lengths can't be retyped either.
   const handleStartEditLength = (id: string) => {
+    if (state.measurements.find((m) => m.id === id)?.locked) return;
     dispatch({
       type: "SET_EDITING_DIMENSION",
       editing: { target: "line", id, field: "length" },
@@ -1477,6 +1621,7 @@ export function AnnotationLayer({
   };
 
   const handleStartEditWidth = (id: string) => {
+    if (state.rectangles.find((r) => r.id === id)?.locked) return;
     dispatch({
       type: "SET_EDITING_DIMENSION",
       editing: { target: "rectangle", id, field: "width" },
@@ -1484,6 +1629,7 @@ export function AnnotationLayer({
   };
 
   const handleStartEditHeight = (id: string) => {
+    if (state.rectangles.find((r) => r.id === id)?.locked) return;
     dispatch({
       type: "SET_EDITING_DIMENSION",
       editing: { target: "rectangle", id, field: "height" },
@@ -1544,9 +1690,11 @@ export function AnnotationLayer({
   const previewStart = state.pendingPoint
     ? toScreenPoint(viewport, state.pendingPoint.x, state.pendingPoint.y)
     : null;
-  const previewEndScreen = previewEnd
-    ? toScreenPoint(viewport, previewEnd.x, previewEnd.y)
-    : null;
+  // A typed length pins the line preview's end along the cursor's direction.
+  const typedEnd =
+    typedLength && state.pendingPoint ? typedLineEnd(state.pendingPoint, previewEnd, typedLength) : null;
+  const lineEnd = state.tool === "measure" && typedEnd ? typedEnd : previewEnd;
+  const previewEndScreen = lineEnd ? toScreenPoint(viewport, lineEnd.x, lineEnd.y) : null;
 
   const rectPreview =
     (state.tool === "rectangle" || state.tool === "snapshot") && state.pendingPoint && previewEnd
@@ -1632,9 +1780,9 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
-        {lineMenu && menuLine && renderLineMenu(lineMenu, menuLine)}
+        {contextMenu && (state.tool === "select" || state.tool === "measure") && renderContextMenu(contextMenu)}
         {callouts
-          .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length === 2)
+          .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length === 2 && !c.locked)
           .map((c) => {
             const tip = toScreenPoint(viewport, c.points[0].x, c.points[0].y);
             return (
@@ -1670,13 +1818,13 @@ export function AnnotationLayer({
           state.lineMode === "measure" &&
           state.scale &&
           state.pendingPoint &&
-          previewEnd && (
+          lineEnd && (
             <PreviewDimensionLine
               start={previewStart}
               end={previewEndScreen}
               label={formatDistance(
                 convertUnits(
-                  docDistance(state.pendingPoint, previewEnd) *
+                  docDistance(state.pendingPoint, lineEnd) *
                     state.scale.unitsPerPdfPoint,
                   state.scale.calibrationUnit,
                   state.displayUnit,
@@ -1710,6 +1858,27 @@ export function AnnotationLayer({
             strokeLinejoin="round"
             pointerEvents="none"
           />
+        )}
+        {typedLength && previewEndScreen && (
+          <foreignObject
+            x={previewEndScreen.x + 12}
+            y={previewEndScreen.y + 12}
+            width={1}
+            height={1}
+            style={{ overflow: "visible" }}
+            pointerEvents="none"
+          >
+            <div
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border bg-surface px-2 py-1 font-mono text-xs shadow-md ${
+                typedEnd ? "border-accent text-text-primary" : "border-border text-text-muted"
+              }`}
+            >
+              {typedLength}
+              <span className="font-sans text-[10px] text-text-muted">
+                {typedEnd ? "Enter to place" : state.scale ? "not a length" : "set the scale first"}
+              </span>
+            </div>
+          </foreignObject>
         )}
         {freehandPreview && (
           <polyline

@@ -417,7 +417,8 @@ export function RectangleAnnotation({
           />
         </g>
       )}
-      {showHandles && isSelected && (
+      {/* A locked rectangle shows no resize handles. */}
+      {showHandles && isSelected && !rectangle.locked && (
         <>
           {edgeHandles.map((handle) => (
             <rect

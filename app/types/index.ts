@@ -27,7 +27,16 @@ export interface Point2D {
   y: number;
 }
 
-export interface Measurement {
+/** Fields every markup kind shares. */
+export interface MarkupFlags {
+  /** Markups sharing a `groupId` select and move together; each member carries the group's name. */
+  groupId?: string;
+  groupName?: string;
+  /** Can't be moved, resized or rotated until unlocked (it can still be edited and deleted). */
+  locked?: boolean;
+}
+
+export interface Measurement extends MarkupFlags {
   id: string;
   start: Point2D;
   end: Point2D;
@@ -42,7 +51,7 @@ export interface Measurement {
   midpointTick?: boolean;
 }
 
-export interface RectMeasurement {
+export interface RectMeasurement extends MarkupFlags {
   id: string;
   topLeft: Point2D;
   bottomRight: Point2D;
@@ -56,7 +65,7 @@ export interface RectMeasurement {
   rotation?: number;
 }
 
-export interface NoteAnnotation {
+export interface NoteAnnotation extends MarkupFlags {
   id: string;
   position: Point2D;
   text: string;
@@ -71,7 +80,7 @@ export interface NoteAnnotation {
 export type ShapeKind = "area" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
 
 /** Generic multi-point markup: area polygon, count group, revision cloud, freehand drawing or callout. */
-export interface ShapeAnnotation {
+export interface ShapeAnnotation extends MarkupFlags {
   id: string;
   kind: ShapeKind;
   /** area: vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor] */
@@ -280,8 +289,14 @@ export type AppAction =
   | { type: "SET_SELECTION"; ids: string[] }
   | { type: "NUDGE_SELECTED"; dx: number; dy: number; recordUndo: boolean }
   | { type: "DELETE_SELECTED" }
+  /** Delete these markups (e.g. from the Markups panel), whatever is selected. */
+  | { type: "DELETE_ANNOTATIONS"; ids: string[] }
   | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string; recordUndo?: boolean }
   | { type: "SET_ANNOTATION_LABEL"; id: string; label: string }
+  | { type: "GROUP_SELECTED" }
+  | { type: "UNGROUP_SELECTED" }
+  | { type: "RENAME_GROUP"; groupId: string; name: string }
+  | { type: "SET_LOCKED"; ids: string[]; locked: boolean }
   | { type: "SET_CLOUD_MODE"; mode: CloudMode }
   | { type: "SET_LINE_MODE"; mode: DrawMode }
   | { type: "SET_RECT_MODE"; mode: DrawMode }

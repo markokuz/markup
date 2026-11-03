@@ -23,6 +23,8 @@ interface InlineDimensionLineProps {
   displayUnit?: import("@/app/types").Unit;
   isSelected?: boolean;
   showHandles?: boolean;
+  /** Pressing the line drags it; defaults to `showHandles` (which also governs the label). */
+  bodyDraggable?: boolean;
   isEditing?: boolean;
   interactive?: boolean;
   onSelect?: (additive?: boolean) => void;
@@ -51,6 +53,7 @@ export function InlineDimensionLine({
   displayUnit = "ft",
   isSelected = false,
   showHandles = false,
+  bodyDraggable = showHandles,
   isEditing = false,
   interactive = false,
   onSelect,
@@ -69,7 +72,7 @@ export function InlineDimensionLine({
   const handleLinePointerDown = (event: React.PointerEvent) => {
     if (!interactive) return;
     event.stopPropagation();
-    if (showHandles && onBodyPointerDown) {
+    if (bodyDraggable && onBodyPointerDown) {
       onBodyPointerDown(event);
     } else {
       onSelect?.(event.shiftKey || event.ctrlKey || event.metaKey);
@@ -168,7 +171,7 @@ export function InlineDimensionLine({
               strokeLinecap="round"
               style={{
                 pointerEvents: "stroke",
-                cursor: showHandles ? "move" : "pointer",
+                cursor: bodyDraggable ? "move" : "pointer",
               }}
               onPointerDown={handleLinePointerDown}
             />
@@ -182,7 +185,7 @@ export function InlineDimensionLine({
               strokeLinecap="round"
               style={{
                 pointerEvents: "stroke",
-                cursor: showHandles ? "move" : "pointer",
+                cursor: bodyDraggable ? "move" : "pointer",
               }}
               onPointerDown={handleLinePointerDown}
             />
@@ -198,7 +201,7 @@ export function InlineDimensionLine({
             strokeLinecap="round"
             style={{
               pointerEvents: "stroke",
-              cursor: showHandles ? "move" : "pointer",
+              cursor: bodyDraggable ? "move" : "pointer",
             }}
             onPointerDown={handleLinePointerDown}
           />

@@ -26,6 +26,7 @@ import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
 import { isColorTool } from "@/app/utils/settings";
 import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
+import { groupActions } from "@/app/utils/groups";
 
 /** How long the "set the scale first" popup stays under Calibrate. */
 const CALIBRATION_PROMPT_MS = 4500;
@@ -339,6 +340,7 @@ export function StatusBar() {
 
   if (!state.fileBytes) return null;
 
+  const { canGroup, canUngroup } = groupActions(state.selectedIds, state);
   const selectedLine =
     state.selectedIds.length === 1
       ? state.measurements.find((m) => m.id === state.selectedIds[0])
@@ -593,6 +595,27 @@ export function StatusBar() {
             ))}
           </select>
         </label>
+
+        {canGroup && (
+          <button
+            type="button"
+            title="Group the selected markups (Ctrl+G)"
+            onClick={() => dispatch({ type: "GROUP_SELECTED" })}
+            className="btn-secondary px-2 py-1 text-xs"
+          >
+            Group
+          </button>
+        )}
+        {canUngroup && (
+          <button
+            type="button"
+            title="Ungroup (Ctrl+Shift+G)"
+            onClick={() => dispatch({ type: "UNGROUP_SELECTED" })}
+            className="btn-secondary px-2 py-1 text-xs"
+          >
+            Ungroup
+          </button>
+        )}
 
         {state.selectedIds.length > 0 && (
           <button

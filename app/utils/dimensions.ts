@@ -65,7 +65,8 @@ export function parseDimensionInput(text: string, displayUnit: Unit): number | n
   return value;
 }
 
-function toDocLength(value: number, scale: Scale, displayUnit: Unit): number {
+/** A length typed in display units, as a distance in document units. */
+export function toDocLength(value: number, scale: Scale, displayUnit: Unit): number {
   return convertUnits(value, displayUnit, scale.calibrationUnit) / scale.unitsPerPdfPoint;
 }
 

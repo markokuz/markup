@@ -31,8 +31,6 @@ interface MarkupClipboard {
     plain?: boolean;
     midpointTick?: boolean;
     locked?: boolean;
-    groupId?: string;
-    groupName?: string;
   }[];
   rects: {
     cornerA: Point2D;
@@ -42,8 +40,6 @@ interface MarkupClipboard {
     rotation?: number;
     plain?: boolean;
     locked?: boolean;
-    groupId?: string;
-    groupName?: string;
   }[];
   notes: Omit<NoteAnnotation, "id">[];
   shapes: Omit<ShapeAnnotation, "id">[];
@@ -93,8 +89,6 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       plain: m.plain,
       midpointTick: m.midpointTick,
       locked: m.locked,
-      groupId: m.groupId,
-      groupName: m.groupName,
     }));
   const rects = source.rectangles
     .filter((r) => selected.has(r.id))
@@ -106,8 +100,6 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       rotation: r.rotation,
       plain: r.plain,
       locked: r.locked,
-      groupId: r.groupId,
-      groupName: r.groupName,
     }));
   const notes = source.notes
     .filter((n) => selected.has(n.id))
@@ -167,13 +159,6 @@ export function buildPaste(target: PasteTarget): {
   const destMetersPerUnit = metersPerDocUnit(target.scale);
   const sizeFactor =
     clip.metersPerUnit && destMetersPerUnit ? clip.metersPerUnit / destMetersPerUnit : 1;
-  // A pasted group is a new group (same name), separate from the one it was copied from.
-  const newGroupIds = new Map<string, string>();
-  const regroup = (markup: { groupId?: string; groupName?: string }) => {
-    if (!markup.groupId) return {};
-    if (!newGroupIds.has(markup.groupId)) newGroupIds.set(markup.groupId, crypto.randomUUID());
-    return { groupId: newGroupIds.get(markup.groupId)!, groupName: markup.groupName };
-  };
   const toDoc = (p: Point2D): Point2D =>
     viewport.convertToDocPoint(
       targetScreen.x + (p.x - clip.center.x) * sizeFactor * zoom,
@@ -193,7 +178,6 @@ export function buildPaste(target: PasteTarget): {
       ...(line.plain ? { plain: true } : {}),
       ...(line.midpointTick ? { midpointTick: true } : {}),
       ...(line.locked ? { locked: true } : {}),
-      ...regroup(line),
     };
   });
 
@@ -209,7 +193,6 @@ export function buildPaste(target: PasteTarget): {
       ...(rect.rotation ? { rotation: rect.rotation } : {}),
       ...(rect.plain ? { plain: true } : {}),
       ...(rect.locked ? { locked: true } : {}),
-      ...regroup(rect),
     };
     return {
       ...base,
@@ -230,7 +213,6 @@ export function buildPaste(target: PasteTarget): {
     ...note,
     id: crypto.randomUUID(),
     position: toDoc(note.position),
-    ...regroup(note),
   }));
 
   const shapes: ShapeAnnotation[] = clip.shapes.map((shape) => ({
@@ -239,7 +221,6 @@ export function buildPaste(target: PasteTarget): {
     points: shape.points.map(toDoc),
     // Text size is in doc units, so it follows the same real-world resize as the geometry.
     ...(shape.fontSize ? { fontSize: shape.fontSize * sizeFactor } : {}),
-    ...regroup(shape),
   }));
 
   return { measurements, rectangles, notes, shapes };

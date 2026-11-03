@@ -63,7 +63,7 @@ import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 import { copySelection } from "@/app/utils/clipboard";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { promptCalibration } from "@/app/utils/calibrationPrompt";
-import { expandToGroups, groupActions, groupOf } from "@/app/utils/groups";
+import { nextGroupName } from "@/app/utils/groups";
 import { captureSnapshot } from "@/app/utils/snapshot";
 import {
   getTransformFrame,
@@ -207,20 +207,18 @@ export function AnnotationLayer({
   const handleSelect = useCallback(
     (id: string, additive: boolean) => {
       if (additive) {
-        // Ctrl/Shift-click adds or removes the clicked markup's whole group.
-        const members = expandToGroups([id], state);
         const isSelected = state.selectedIds.includes(id);
         dispatch({
           type: "SET_SELECTION",
           ids: isSelected
-            ? state.selectedIds.filter((selectedId) => !members.includes(selectedId))
-            : [...state.selectedIds, ...members],
+            ? state.selectedIds.filter((selectedId) => selectedId !== id)
+            : [...state.selectedIds, id],
         });
       } else {
         dispatch({ type: "SET_SELECTION", ids: [id] });
       }
     },
-    [dispatch, state],
+    [dispatch, state.selectedIds],
   );
 
   /** Doc point under the cursor, snapped straight from `anchorDoc` when snapping is on. */
@@ -912,17 +910,13 @@ export function AnnotationLayer({
       );
       if (!hitId) return;
       if (event.button === 2) {
-        // Right-pressing a selected markup keeps the selection for the Group menu.
+        // Right-pressing a selected markup keeps the selection for the right-click menu.
         if (state.selectedIds.includes(hitId)) event.stopPropagation();
         return;
       }
-      const inSelection = state.selectedIds.length >= 2 && state.selectedIds.includes(hitId);
-      // A grouped markup always moves with its group, selected yet or not.
-      const grouped = !inSelection && groupOf(state).has(hitId);
-      if (!inSelection && !grouped) return;
+      if (state.selectedIds.length < 2 || !state.selectedIds.includes(hitId)) return;
       event.stopPropagation();
       event.preventDefault();
-      if (grouped) dispatch({ type: "SET_SELECTION", ids: [hitId] });
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
         type: "group",
@@ -931,7 +925,7 @@ export function AnnotationLayer({
         moved: false,
       };
     },
-    [dispatch, overlayRef, state, viewport],
+    [overlayRef, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -1047,11 +1041,18 @@ export function AnnotationLayer({
       };
     };
     if (state.tool === "select" && selection.length >= 2 && selection.includes(id)) {
-      const { canGroup, canUngroup } = groupActions(selection, state);
+      const markups = selection.filter((selected) => byId.has(selected));
       return [
-        ...(canGroup ? [{ label: "Group", run: close(() => dispatch({ type: "GROUP_SELECTED" })) }] : []),
-        ...(canUngroup ? [{ label: "Ungroup", run: close(() => dispatch({ type: "UNGROUP_SELECTED" })) }] : []),
-        lockItem(selection.filter((selected) => byId.has(selected))),
+        {
+          // A new Markups-panel group; it doesn't change what's selected or drawn.
+          label: "Create group",
+          run: close(() => {
+            const name = nextGroupName(state.groups);
+            dispatch({ type: "CREATE_GROUP", groupId: crypto.randomUUID(), memberIds: markups });
+            showSaveStatus("success", `Created ${name} with ${markups.length} items`);
+          }),
+        },
+        lockItem(markups),
       ];
     }
     if (!byId.has(id)) return [];
@@ -1092,9 +1093,9 @@ export function AnnotationLayer({
         : hitTestAnnotations(local, lines, [], [], [], viewport, state.scale, state.displayUnit);
     if (!hitId) return;
     let selection = state.selectedIds;
-    // Right-clicking outside the selection selects what was clicked (and its group) first.
+    // Right-clicking outside the selection selects what was clicked first.
     if (state.tool === "select" && !selection.includes(hitId)) {
-      selection = expandToGroups([hitId], state);
+      selection = [hitId];
       dispatch({ type: "SET_SELECTION", ids: [hitId] });
     }
     if (contextMenuItems(hitId, selection).length === 0) return;

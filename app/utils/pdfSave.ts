@@ -12,6 +12,7 @@ import {
 } from "pdf-lib";
 import type {
   DocumentRotation,
+  MarkupGroup,
   Measurement,
   NoteAnnotation,
   Point2D,
@@ -41,6 +42,8 @@ export interface PdfMarkupData {
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
+  /** Absent in PDFs saved before Markups-panel groups. */
+  groups?: MarkupGroup[];
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;

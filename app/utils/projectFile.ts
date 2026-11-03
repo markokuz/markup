@@ -3,11 +3,13 @@ import type {
   DocumentType,
   Measurement,
   NoteAnnotation,
+  MarkupGroup,
   RectMeasurement,
   ShapeAnnotation,
   Scale,
   Unit,
 } from "@/app/types";
+import { withGroups } from "@/app/utils/groups";
 import type { ColorTool } from "@/app/utils/settings";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
@@ -35,6 +37,8 @@ export interface ProjectFilePayload {
   notes: NoteAnnotation[];
   /** Absent in projects saved before area/count/cloud/callout existed. */
   shapes?: ShapeAnnotation[];
+  /** Absent in projects saved before Markups-panel groups. */
+  groups?: MarkupGroup[];
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
@@ -52,6 +56,7 @@ export interface LoadedProject {
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
+  groups: MarkupGroup[];
   displayUnit: Unit;
   zoom: number;
   rotation: DocumentRotation;
@@ -118,16 +123,20 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     );
   }
 
+  const markups = withGroups({
+    measurements: payload.measurements,
+    rectangles: payload.rectangles,
+    notes: payload.notes,
+    shapes: payload.shapes ?? [],
+    groups: payload.groups,
+  });
   return {
     bytes: base64ToBytes(payload.fileBytesBase64),
     fileName: payload.fileName,
     fileType: payload.fileType,
     mimeType: payload.mimeType,
     scale: payload.scale,
-    measurements: payload.measurements,
-    rectangles: payload.rectangles,
-    notes: payload.notes,
-    shapes: payload.shapes ?? [],
+    ...markups,
     displayUnit: payload.displayUnit,
     zoom: payload.zoom,
     rotation: payload.rotation,

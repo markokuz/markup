@@ -1,36 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { downloadBlob } from "@/app/utils/exportDocument";
+import { liveMembers, markupIds, nextGroupName } from "@/app/utils/groups";
 import { buildMarkupRows, rowsToCsv, summarizeRows, type MarkupRow } from "@/app/utils/markupList";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 
 /** Group rename targets share the rename box with rows; their ids carry this prefix. */
 const GROUP_KEY = "group:";
-
-type ListEntry =
-  | { kind: "row"; row: MarkupRow }
-  | { kind: "group"; groupId: string; name: string; rows: MarkupRow[] };
-
-/** Rows in list order, with each group's members gathered where its first member sits. */
-function groupEntries(rows: MarkupRow[]): ListEntry[] {
-  const entries: ListEntry[] = [];
-  const groups = new Map<string, Extract<ListEntry, { kind: "group" }>>();
-  for (const row of rows) {
-    if (!row.groupId) {
-      entries.push({ kind: "row", row });
-      continue;
-    }
-    let group = groups.get(row.groupId);
-    if (!group) {
-      group = { kind: "group", groupId: row.groupId, name: row.groupName || "Group", rows: [] };
-      groups.set(row.groupId, group);
-      entries.push(group);
-    }
-    group.rows.push(row);
-  }
-  return entries;
-}
 
 function PencilIcon() {
   return (
@@ -54,7 +32,7 @@ function TrashIcon() {
   );
 }
 
-/** Rename, lock and delete buttons, shown on hover at the right of a row. */
+/** Rename, lock, remove-from-group and delete buttons, shown on hover at the right of a row. */
 function RowActions({
   label,
   renameTitle,
@@ -62,6 +40,7 @@ function RowActions({
   locked,
   onRename,
   onToggleLock,
+  onRemove,
   onDelete,
 }: {
   label: string;
@@ -70,6 +49,8 @@ function RowActions({
   locked: boolean;
   onRename: () => void;
   onToggleLock: () => void;
+  /** Rows inside a group: take the markup out of that group only. */
+  onRemove?: () => void;
   onDelete: () => void;
 }) {
   const button =
@@ -89,6 +70,19 @@ function RowActions({
       >
         <LockIcon open={!locked} size={14} />
       </button>
+      {onRemove && (
+        <button
+          type="button"
+          title="Remove from this group (keeps the markup)"
+          aria-label={`Remove ${label} from this group`}
+          onClick={onRemove}
+          className={button}
+        >
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+            <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       <button
         type="button"
         title={deleteTitle}
@@ -112,6 +106,32 @@ function LockIcon({ open = false, size = 11 }: { open?: boolean; size?: number }
   );
 }
 
+interface MembershipClip {
+  ids: string[];
+  /** Set by Ctrl+X: pasting moves the markups out of this group. */
+  cutFrom: string | null;
+}
+
+/** Copied or cut group memberships (Ctrl+C / Ctrl+X in the panel); never duplicates markups. */
+let membershipClipboard: MembershipClip | null = null;
+
+function setMembershipClipboard(clip: MembershipClip | null) {
+  membershipClipboard = clip;
+}
+
+function getMembershipClipboard(): MembershipClip | null {
+  return membershipClipboard;
+}
+
+/** Drag payload: the markups being dragged and the list they were dragged from. */
+interface RowDrag {
+  ids: string[];
+  /** A group id, or ALL_LIST for the "All markups" list. */
+  from: string;
+}
+
+const ALL_LIST = "all";
+
 /** Right-hand list of every markup with quantities and totals, exportable to CSV. */
 export function MarkupsPanel() {
   const state = useAppState();
@@ -121,8 +141,29 @@ export function MarkupsPanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Shift-click ranges run from here, within the list it was clicked in.
+  const [anchor, setAnchor] = useState<{ list: string; id: string } | null>(null);
+  // Ctrl+V pastes into the group last clicked (its header or one of its rows).
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [drag, setDrag] = useState<RowDrag | null>(null);
   // Enter then blur both commit; the ref lets only the first one apply.
   const renamingRef = useRef<string | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+
+  // Ctrl+C/V act on group memberships only while the panel has focus; clicking the
+  // drawing (which takes no focus itself) hands copy/paste back to the canvas.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const aside = asideRef.current;
+      const active = document.activeElement;
+      if (aside && active instanceof HTMLElement && aside.contains(active) && !aside.contains(event.target as Node)) {
+        active.blur();
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
 
   if (!state.fileBytes) return null;
 
@@ -163,8 +204,17 @@ export function MarkupsPanel() {
   }
 
   const rows = buildMarkupRows(state);
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
   const totals = summarizeRows(rows, state.displayUnit);
   const selected = new Set(state.selectedIds);
+  const existing = markupIds(state);
+  const groups = state.groups.map((group) => ({
+    group,
+    rows: liveMembers(group, existing).flatMap((id) => rowsById.get(id) ?? []),
+  }));
+  const listIds = (list: string) =>
+    list === ALL_LIST ? rows.map((row) => row.id) : (groups.find((g) => g.group.id === list)?.rows ?? []).map((r) => r.id);
+  const groupName = (groupId: string) => state.groups.find((g) => g.id === groupId)?.name ?? "the group";
 
   const toggleGroup = (groupId: string) =>
     setCollapsedGroups((prev) => {
@@ -174,10 +224,115 @@ export function MarkupsPanel() {
       return next;
     });
 
-  /** Selecting any member selects the whole group (the reducer expands it). */
-  const select = (id: string) => {
+  /** Explorer-style: click picks one, Ctrl+click toggles, Shift+click picks a range. */
+  const selectRow = (id: string, list: string, event: React.MouseEvent) => {
     dispatch({ type: "SET_TOOL", tool: "select" });
-    dispatch({ type: "SET_SELECTION", ids: [id] });
+    setActiveGroupId(list === ALL_LIST ? null : list);
+    const additive = event.ctrlKey || event.metaKey;
+    if (event.shiftKey && anchor && anchor.list === list) {
+      const ids = listIds(list);
+      const [a, b] = [ids.indexOf(anchor.id), ids.indexOf(id)].sort((x, y) => x - y);
+      const range = a >= 0 ? ids.slice(a, b + 1) : [id];
+      dispatch({
+        type: "SET_SELECTION",
+        ids: additive ? [...new Set([...state.selectedIds, ...range])] : range,
+      });
+      return;
+    }
+    setAnchor({ list, id });
+    if (additive) {
+      dispatch({
+        type: "SET_SELECTION",
+        ids: selected.has(id) ? state.selectedIds.filter((s) => s !== id) : [...state.selectedIds, id],
+      });
+    } else {
+      dispatch({ type: "SET_SELECTION", ids: [id] });
+    }
+  };
+
+  /** The only way to select a whole group: click the group itself. */
+  const selectGroup = (groupId: string, memberIds: string[]) => {
+    dispatch({ type: "SET_TOOL", tool: "select" });
+    dispatch({ type: "SET_SELECTION", ids: memberIds });
+    setActiveGroupId(groupId);
+    setAnchor(null);
+  };
+
+  const createGroup = (memberIds: string[]) => {
+    const groupId = crypto.randomUUID();
+    const name = nextGroupName(state.groups);
+    dispatch({ type: "CREATE_GROUP", groupId, memberIds });
+    setActiveGroupId(groupId);
+    startRename(`${GROUP_KEY}${groupId}`, name);
+  };
+
+  // ---- Drag and drop rows between lists.
+  const startDrag = (event: React.DragEvent, id: string, from: string) => {
+    const ids = selected.has(id) ? state.selectedIds.filter((s) => existing.has(s)) : [id];
+    setDrag({ ids, from });
+    event.dataTransfer.effectAllowed = "copyMove";
+    // Firefox only starts a drag with some data set.
+    event.dataTransfer.setData("text/plain", ids.join(","));
+  };
+  const endDrag = () => {
+    setDrag(null);
+    setDropTarget(null);
+  };
+  const dropZone = (target: string) => ({
+    onDragOver: (event: React.DragEvent) => {
+      if (!drag) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = event.ctrlKey || drag.from === ALL_LIST ? "copy" : "move";
+      if (dropTarget !== target) setDropTarget(target);
+    },
+    onDragLeave: (event: React.DragEvent) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
+    },
+    onDrop: (event: React.DragEvent) => {
+      endDrag();
+      if (!drag) return;
+      event.preventDefault();
+      if (target === ALL_LIST) {
+        // Dragged out of a group onto the master list: leaves that group.
+        if (drag.from !== ALL_LIST) dispatch({ type: "REMOVE_FROM_GROUP", groupId: drag.from, ids: drag.ids });
+      } else if (drag.from === ALL_LIST || event.ctrlKey) {
+        dispatch({ type: "ADD_TO_GROUP", groupId: target, ids: drag.ids });
+      } else if (drag.from !== target) {
+        dispatch({ type: "MOVE_TO_GROUP", fromGroupId: drag.from, toGroupId: target, ids: drag.ids });
+      }
+    },
+  });
+
+  // ---- Copy / cut / paste group memberships while the panel has focus.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const key = event.key.toLowerCase();
+    if (key !== "c" && key !== "x" && key !== "v") return;
+    // Keep the canvas from copying or pasting markups as well.
+    event.preventDefault();
+    event.stopPropagation();
+    if (key === "c" || key === "x") {
+      const ids = state.selectedIds.filter((id) => existing.has(id));
+      if (ids.length === 0) return;
+      setMembershipClipboard({ ids, cutFrom: key === "x" ? activeGroupId : null });
+      showSaveStatus("info", `${key === "x" ? "Cut" : "Copied"} ${ids.length} — click a group and press Ctrl+V`);
+      return;
+    }
+    const clip = getMembershipClipboard();
+    if (!clip) return;
+    if (!activeGroupId) {
+      showSaveStatus("info", "Click a group first, then paste");
+      return;
+    }
+    if (clip.cutFrom && clip.cutFrom !== activeGroupId) {
+      dispatch({ type: "MOVE_TO_GROUP", fromGroupId: clip.cutFrom, toGroupId: activeGroupId, ids: clip.ids });
+      setMembershipClipboard(null);
+    } else {
+      dispatch({ type: "ADD_TO_GROUP", groupId: activeGroupId, ids: clip.ids });
+    }
+    showSaveStatus("success", `Added ${clip.ids.length} to ${groupName(activeGroupId)}`);
   };
 
   const renameInput = (id: string, current: string, placeholder: string, indent: boolean) => (
@@ -199,80 +354,99 @@ export function MarkupsPanel() {
     </div>
   );
 
-  const renderRow = (row: MarkupRow, indent: boolean) => (
-    <li
-      key={row.id}
-      className={`group relative transition ${
-        selected.has(row.id) ? "bg-accent/10" : "hover:bg-surface-muted"
-      }`}
-    >
-      {renamingId === row.id ? (
-        renameInput(row.id, row.name, row.type, indent)
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={() => select(row.id)}
-            onDoubleClick={() => startRename(row.id, row.name)}
-            className={`flex w-full items-start gap-2 py-2 pr-24 text-left text-sm ${indent ? "pl-7" : "pl-3"}`}
-          >
-            <span
-              className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: row.color }}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1 truncate text-xs font-medium text-text-secondary">
-                {row.name ? (
-                  <>
-                    <span className="font-semibold text-text-primary">{row.name}</span>
-                    <span> · {row.type}</span>
-                  </>
-                ) : (
-                  row.type
-                )}
-                {row.locked && (
-                  <span title="Locked" className="text-text-muted">
-                    <LockIcon />
-                  </span>
-                )}
-              </span>
-              <span className="block truncate text-text-primary">{row.display}</span>
-            </span>
-          </button>
-          <RowActions
-            label={row.name || row.type}
-            renameTitle="Rename"
-            deleteTitle="Delete"
-            locked={!!row.locked}
-            onRename={() => startRename(row.id, row.name)}
-            onToggleLock={() => dispatch({ type: "SET_LOCKED", ids: [row.id], locked: !row.locked })}
-            onDelete={() => dispatch({ type: "DELETE_ANNOTATIONS", ids: [row.id] })}
-          />
-        </>
-      )}
-    </li>
-  );
-
-  const renderGroup = (entry: Extract<ListEntry, { kind: "group" }>) => {
-    const key = `${GROUP_KEY}${entry.groupId}`;
-    const collapsed = collapsedGroups.has(entry.groupId);
-    const isSelected = entry.rows.every((row) => selected.has(row.id));
-    const allLocked = entry.rows.every((row) => row.locked);
+  /** A markup's row in the list `list` (a group id, or the master list). */
+  const renderRow = (row: MarkupRow, list: string) => {
+    const inGroup = list !== ALL_LIST;
     return (
-      <li key={key}>
+      <li
+        key={`${list}:${row.id}`}
+        draggable={renamingId !== row.id}
+        onDragStart={(event) => startDrag(event, row.id, list)}
+        onDragEnd={endDrag}
+        className={`group relative transition ${
+          selected.has(row.id) ? "bg-accent/10" : "hover:bg-surface-muted"
+        }`}
+      >
+        {renamingId === row.id ? (
+          renameInput(row.id, row.name, row.type, inGroup)
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={(event) => selectRow(row.id, list, event)}
+              onDoubleClick={() => startRename(row.id, row.name)}
+              className={`flex w-full items-start gap-2 py-2 text-left text-sm ${inGroup ? "pl-7 pr-28" : "pl-3 pr-24"}`}
+            >
+              <span
+                className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: row.color }}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1 truncate text-xs font-medium text-text-secondary">
+                  {row.name ? (
+                    <>
+                      <span className="font-semibold text-text-primary">{row.name}</span>
+                      <span> · {row.type}</span>
+                    </>
+                  ) : (
+                    row.type
+                  )}
+                  {row.locked && (
+                    <span title="Locked" className="text-text-muted">
+                      <LockIcon />
+                    </span>
+                  )}
+                </span>
+                <span className="block truncate text-text-primary">{row.display}</span>
+              </span>
+            </button>
+            <RowActions
+              label={row.name || row.type}
+              renameTitle="Rename"
+              deleteTitle="Delete this markup"
+              locked={!!row.locked}
+              onRename={() => startRename(row.id, row.name)}
+              onToggleLock={() => dispatch({ type: "SET_LOCKED", ids: [row.id], locked: !row.locked })}
+              onRemove={
+                inGroup
+                  ? () => dispatch({ type: "REMOVE_FROM_GROUP", groupId: list, ids: [row.id] })
+                  : undefined
+              }
+              onDelete={() => dispatch({ type: "DELETE_ANNOTATIONS", ids: [row.id] })}
+            />
+          </>
+        )}
+      </li>
+    );
+  };
+
+  const renderGroup = ({ group, rows: members }: (typeof groups)[number]) => {
+    const key = `${GROUP_KEY}${group.id}`;
+    const collapsed = collapsedGroups.has(group.id);
+    const memberIds = members.map((row) => row.id);
+    const isSelected = members.length > 0 && members.every((row) => selected.has(row.id));
+    const allLocked = members.length > 0 && members.every((row) => row.locked);
+    return (
+      <li
+        key={key}
+        {...dropZone(group.id)}
+        className={dropTarget === group.id ? "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent" : ""}
+      >
         <div
-          className={`group relative transition ${isSelected ? "bg-accent/10" : "hover:bg-surface-muted"}`}
+          className={`group relative transition ${
+            isSelected || activeGroupId === group.id ? "bg-accent/10" : "hover:bg-surface-muted"
+          }`}
         >
           {renamingId === key ? (
-            renameInput(key, entry.name, "Group", false)
+            renameInput(key, group.name, "Group", false)
           ) : (
             <>
               <div className="flex items-center">
                 <button
                   type="button"
                   aria-expanded={!collapsed}
-                  aria-label={collapsed ? `Expand ${entry.name}` : `Collapse ${entry.name}`}
-                  onClick={() => toggleGroup(entry.groupId)}
+                  aria-label={collapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
+                  onClick={() => toggleGroup(group.id)}
                   className="py-2 pl-3 pr-1 text-text-secondary hover:text-text-primary"
                 >
                   <span aria-hidden className={`inline-block transition ${collapsed ? "" : "rotate-90"}`}>
@@ -281,39 +455,39 @@ export function MarkupsPanel() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => select(entry.rows[0].id)}
-                  onDoubleClick={() => startRename(key, entry.name)}
+                  title="Select everything in this group"
+                  onClick={() => selectGroup(group.id, memberIds)}
+                  onDoubleClick={() => startRename(key, group.name)}
                   className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-24 text-left text-sm"
                 >
-                  <span className="truncate font-semibold text-text-primary">{entry.name}</span>
-                  <span className="shrink-0 text-xs text-text-muted">{entry.rows.length} items</span>
+                  <span className="truncate font-semibold text-text-primary">{group.name}</span>
+                  <span className="shrink-0 text-xs text-text-muted">
+                    {members.length} item{members.length === 1 ? "" : "s"}
+                  </span>
                 </button>
               </div>
               <RowActions
-                label={entry.name}
+                label={group.name}
                 renameTitle="Rename group"
-                deleteTitle="Delete the group and everything in it"
+                deleteTitle="Delete this group (its markups stay)"
                 locked={allLocked}
-                onRename={() => startRename(key, entry.name)}
-                onToggleLock={() =>
-                  dispatch({
-                    type: "SET_LOCKED",
-                    ids: entry.rows.map((row) => row.id),
-                    locked: !allLocked,
-                  })
-                }
-                onDelete={() =>
-                  dispatch({ type: "DELETE_ANNOTATIONS", ids: entry.rows.map((row) => row.id) })
-                }
+                onRename={() => startRename(key, group.name)}
+                onToggleLock={() => dispatch({ type: "SET_LOCKED", ids: memberIds, locked: !allLocked })}
+                onDelete={() => dispatch({ type: "DELETE_GROUP", groupId: group.id })}
               />
             </>
           )}
         </div>
-        {!collapsed && (
-          <ul className="divide-y divide-border border-t border-border">
-            {entry.rows.map((row) => renderRow(row, true))}
-          </ul>
-        )}
+        {!collapsed &&
+          (members.length === 0 ? (
+            <p className="border-t border-border py-2 pl-7 pr-3 text-xs text-text-muted">
+              Drag markups here, or copy them and paste with Ctrl+V.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {members.map((row) => renderRow(row, group.id))}
+            </ul>
+          ))}
       </li>
     );
   };
@@ -327,13 +501,35 @@ export function MarkupsPanel() {
     downloadBlob(blob, `${base}-markups.csv`);
   };
 
+  const sectionLabel = "px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-text-muted";
+
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-border bg-surface">
+    <aside
+      ref={asideRef}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className="flex w-72 shrink-0 flex-col border-l border-border bg-surface outline-none"
+    >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold text-text-primary">
           Markups <span className="font-normal text-text-secondary">({rows.length})</span>
         </h2>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => createGroup(state.selectedIds)}
+            {...dropZone("new")}
+            onDrop={(event) => {
+              endDrag();
+              if (!drag) return;
+              event.preventDefault();
+              createGroup(drag.ids);
+            }}
+            className={`btn-secondary px-2 py-1 text-xs ${dropTarget === "new" ? "border-accent text-accent" : ""}`}
+            title="New group (with the selected markups). You can also drop markups here."
+          >
+            + Group
+          </button>
           <button
             type="button"
             onClick={exportCsv}
@@ -355,16 +551,24 @@ export function MarkupsPanel() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {groups.length > 0 && (
+          <>
+            <div className={sectionLabel}>Groups</div>
+            <ul className="divide-y divide-border border-y border-border">{groups.map(renderGroup)}</ul>
+          </>
+        )}
         {rows.length === 0 ? (
           <p className="p-4 text-sm text-text-secondary">
             Markups you draw show up here with their measurements.
           </p>
         ) : (
-          <ul className="divide-y divide-border">
-            {groupEntries(rows).map((entry) =>
-              entry.kind === "group" ? renderGroup(entry) : renderRow(entry.row, false),
-            )}
-          </ul>
+          <div
+            {...dropZone(ALL_LIST)}
+            className={dropTarget === ALL_LIST ? "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent" : ""}
+          >
+            {groups.length > 0 && <div className={sectionLabel}>All markups</div>}
+            <ul className="divide-y divide-border">{rows.map((row) => renderRow(row, ALL_LIST))}</ul>
+          </div>
         )}
       </div>
 

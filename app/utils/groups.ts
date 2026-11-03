@@ -1,79 +1,80 @@
 import type {
-  MarkupFlags,
+  MarkupGroup,
   Measurement,
   NoteAnnotation,
   RectMeasurement,
   ShapeAnnotation,
 } from "@/app/types";
 
-interface GroupSource {
+interface MarkupSource {
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
 }
 
-function allMarkups(source: GroupSource): (MarkupFlags & { id: string })[] {
-  return [
-    ...source.measurements.filter((m) => !m.isCalibration),
-    ...source.rectangles,
-    ...source.notes,
-    ...source.shapes,
-  ];
+/** Ids of every markup that can be in a group (the calibration line can't). */
+export function markupIds(source: MarkupSource): Set<string> {
+  return new Set([
+    ...source.measurements.filter((m) => !m.isCalibration).map((m) => m.id),
+    ...source.rectangles.map((r) => r.id),
+    ...source.notes.map((n) => n.id),
+    ...source.shapes.map((s) => s.id),
+  ]);
 }
 
-/** groupId → member ids. A group left with one member counts as ungrouped. */
-export function groupMembers(source: GroupSource): Map<string, string[]> {
-  const groups = new Map<string, string[]>();
-  for (const markup of allMarkups(source)) {
-    if (!markup.groupId) continue;
-    groups.set(markup.groupId, [...(groups.get(markup.groupId) ?? []), markup.id]);
-  }
-  for (const [groupId, ids] of groups) {
-    if (ids.length < 2) groups.delete(groupId);
-  }
-  return groups;
-}
-
-/** The group each grouped markup is in (only groups of two or more). */
-export function groupOf(source: GroupSource): Map<string, string> {
-  const byId = new Map<string, string>();
-  for (const [groupId, ids] of groupMembers(source)) {
-    for (const id of ids) byId.set(id, groupId);
-  }
-  return byId;
-}
-
-/** `ids` plus every other member of any group they touch, in a stable order. */
-export function expandToGroups(ids: string[], source: GroupSource): string[] {
-  const members = groupMembers(source);
-  const groupById = groupOf(source);
-  const result = new Set<string>();
-  for (const id of ids) {
-    const groupId = groupById.get(id);
-    for (const member of groupId ? members.get(groupId)! : [id]) result.add(member);
-  }
-  return [...result];
-}
-
-/** Whether Group / Ungroup apply to `selection` (Group needs 2+ markups not already one group). */
-export function groupActions(
-  selection: string[],
-  source: GroupSource,
-): { canGroup: boolean; canUngroup: boolean } {
-  if (selection.length < 2) return { canGroup: false, canUngroup: false };
-  const groupById = groupOf(source);
-  const groups = new Set(selection.map((id) => groupById.get(id)).filter(Boolean));
-  const isOneGroup = groups.size === 1 && selection.every((id) => groupById.has(id));
-  return { canGroup: !isOneGroup, canUngroup: groups.size > 0 };
+/** A group's members that still exist (a deleted markup drops out; undo brings it back). */
+export function liveMembers(group: MarkupGroup, existing: Set<string>): string[] {
+  return group.memberIds.filter((id) => existing.has(id));
 }
 
 /** "Group N", one past the highest number already used in this document. */
-export function nextGroupName(source: GroupSource): string {
+export function nextGroupName(groups: MarkupGroup[]): string {
   let highest = 0;
-  for (const markup of allMarkups(source)) {
-    const match = /^Group (\d+)$/.exec(markup.groupName ?? "");
+  for (const group of groups) {
+    const match = /^Group (\d+)$/.exec(group.name);
     if (match) highest = Math.max(highest, Number(match[1]));
   }
   return `Group ${highest + 1}`;
+}
+
+type LegacyGrouped = { id: string; groupId?: string; groupName?: string };
+
+/** Loaded markups plus their groups, converting files saved before groups were a list. */
+export function withGroups<T extends MarkupSource & { groups?: MarkupGroup[] }>(
+  data: T,
+): T & { groups: MarkupGroup[] } {
+  if (data.groups) return { ...data, groups: data.groups };
+  const { groups, markups } = groupsFromLegacy(data);
+  return { ...markups, groups };
+}
+
+/**
+ * Groups from files saved when each markup carried its own `groupId`/`groupName`,
+ * plus the markups with those fields stripped.
+ */
+export function groupsFromLegacy<T extends MarkupSource>(
+  source: T,
+): { groups: MarkupGroup[]; markups: T } {
+  const groups = new Map<string, MarkupGroup>();
+  const strip = <M extends LegacyGrouped>(markup: M): M => {
+    if (!markup.groupId) return markup;
+    const group = groups.get(markup.groupId) ?? {
+      id: markup.groupId,
+      name: markup.groupName || "Group",
+      memberIds: [],
+    };
+    group.memberIds.push(markup.id);
+    groups.set(markup.groupId, group);
+    // JSON drops the undefined fields when the file is next saved.
+    return { ...markup, groupId: undefined, groupName: undefined };
+  };
+  const markups = {
+    ...source,
+    measurements: source.measurements.map(strip),
+    rectangles: source.rectangles.map(strip),
+    notes: source.notes.map(strip),
+    shapes: source.shapes.map(strip),
+  };
+  return { groups: [...groups.values()], markups };
 }

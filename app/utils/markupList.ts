@@ -1,4 +1,5 @@
 import type {
+  MarkupGroup,
   Measurement,
   NoteAnnotation,
   RectMeasurement,
@@ -11,7 +12,6 @@ import { docDistance } from "@/app/utils/coordinates";
 import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { formatArea } from "@/app/utils/geometry";
 import { countStartAt, getAreaMetrics, SHAPE_KIND_LABELS } from "@/app/utils/shapeMetrics";
-import { groupOf } from "@/app/utils/groups";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
 /** One row of the Markups list / CSV, like Bluebeam's Markups List. */
@@ -30,9 +30,8 @@ export interface MarkupRow {
   count?: number;
   /** Count only: first marker number. */
   startAt?: number;
-  /** Group the markup belongs to (only groups of two or more). */
-  groupId?: string;
-  groupName?: string;
+  /** Names of the Markups-panel groups it is in (CSV only). */
+  groups?: string[];
   /** Locked in place (no move, resize or rotate). */
   locked?: boolean;
 }
@@ -48,6 +47,7 @@ interface MarkupSource {
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
+  groups?: MarkupGroup[];
   scale: Scale | null;
   displayUnit: Unit;
 }
@@ -147,17 +147,20 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
     });
   }
 
-  // Tag each row with its group and lock so the panel can nest and badge it.
-  const groupById = groupOf(source);
-  const markups = new Map<string, { groupName?: string; locked?: boolean }>(
+  // Tag each row with its lock and group names so the panel and CSV can show them.
+  const groupNames = new Map<string, string[]>();
+  for (const group of source.groups ?? []) {
+    for (const id of group.memberIds) groupNames.set(id, [...(groupNames.get(id) ?? []), group.name]);
+  }
+  const markups = new Map<string, { locked?: boolean }>(
     [...source.measurements, ...source.rectangles, ...source.notes, ...source.shapes].map((m) => [m.id, m]),
   );
   return rows.map((row) => {
     const markup = markups.get(row.id);
-    const groupId = groupById.get(row.id);
+    const names = groupNames.get(row.id);
     return {
       ...row,
-      ...(groupId ? { groupId, groupName: markup?.groupName } : {}),
+      ...(names ? { groups: names } : {}),
       ...(markup?.locked ? { locked: true } : {}),
     };
   });
@@ -196,7 +199,7 @@ function csvCell(value: string | number | undefined): string {
 
 export function rowsToCsv(rows: MarkupRow[], unit: Unit): string {
   const header = [
-    "Group",
+    "Groups",
     "Type",
     "Name",
     "Text",
@@ -208,7 +211,7 @@ export function rowsToCsv(rows: MarkupRow[], unit: Unit): string {
     "Color",
   ];
   const lines = rows.map((r) =>
-    [r.groupName ?? "", r.type, r.name, r.text, r.length, r.area, r.perimeter, r.count, r.startAt, r.color]
+    [(r.groups ?? []).join("; "), r.type, r.name, r.text, r.length, r.area, r.perimeter, r.count, r.startAt, r.color]
       .map(csvCell)
       .join(","),
   );

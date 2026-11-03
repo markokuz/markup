@@ -25,7 +25,7 @@ import {
   type AppSettings,
 } from "@/app/utils/settings";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
-import { expandToGroups, nextGroupName } from "@/app/utils/groups";
+import { markupIds, nextGroupName } from "@/app/utils/groups";
 import { deleteSession } from "@/app/utils/sessionStore";
 import {
   loadAutoOrientPortrait,
@@ -128,34 +128,56 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           shapes: tab.shapes.map(rename),
         };
       });
-    case "GROUP_SELECTED":
+    case "CREATE_GROUP":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        groups: [
+          ...tab.groups,
+          {
+            id: action.groupId,
+            name: nextGroupName(tab.groups),
+            memberIds: uniqueMarkupIds(action.memberIds, tab),
+          },
+        ],
+      }));
+    case "RENAME_GROUP":
       return updateActiveTab(state, (tab) => {
-        const calibrationIds = new Set(tab.measurements.filter((m) => m.isCalibration).map((m) => m.id));
-        const ids = new Set(tab.selectedIds.filter((id) => !calibrationIds.has(id)));
-        if (ids.size < 2) return tab;
-        const group = { groupId: crypto.randomUUID(), groupName: nextGroupName(tab) };
-        const join = <T extends { id: string }>(a: T): T => (ids.has(a.id) ? { ...a, ...group } : a);
+        const name = action.name.trim();
+        if (!name) return tab;
         return {
           ...tab,
           history: appendHistory(tab),
-          measurements: tab.measurements.map(join),
-          rectangles: tab.rectangles.map(join),
-          notes: tab.notes.map(join),
-          shapes: tab.shapes.map(join),
+          groups: tab.groups.map((g) => (g.id === action.groupId ? { ...g, name } : g)),
         };
       });
-    case "UNGROUP_SELECTED":
+    case "DELETE_GROUP":
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        history: appendHistory(tab),
+        groups: tab.groups.filter((g) => g.id !== action.groupId),
+      }));
+    case "ADD_TO_GROUP":
+    case "REMOVE_FROM_GROUP":
+    case "MOVE_TO_GROUP":
       return updateActiveTab(state, (tab) => {
-        const ids = new Set(tab.selectedIds);
-        const leave = <T extends { id: string; groupId?: string }>(a: T): T =>
-          ids.has(a.id) && a.groupId ? { ...a, groupId: undefined, groupName: undefined } : a;
+        const ids = uniqueMarkupIds(action.ids, tab);
+        if (ids.length === 0) return tab;
+        const into = action.type === "ADD_TO_GROUP" ? action.groupId : action.type === "MOVE_TO_GROUP" ? action.toGroupId : null;
+        const outOf =
+          action.type === "REMOVE_FROM_GROUP" ? action.groupId : action.type === "MOVE_TO_GROUP" ? action.fromGroupId : null;
+        if (into && into === outOf) return tab;
+        const moving = new Set(ids);
         return {
           ...tab,
           history: appendHistory(tab),
-          measurements: tab.measurements.map(leave),
-          rectangles: tab.rectangles.map(leave),
-          notes: tab.notes.map(leave),
-          shapes: tab.shapes.map(leave),
+          groups: tab.groups.map((g) => {
+            if (g.id === into) {
+              return { ...g, memberIds: [...g.memberIds, ...ids.filter((id) => !g.memberIds.includes(id))] };
+            }
+            if (g.id === outOf) return { ...g, memberIds: g.memberIds.filter((id) => !moving.has(id)) };
+            return g;
+          }),
         };
       });
     case "SET_LOCKED":
@@ -170,21 +192,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           rectangles: tab.rectangles.map(set),
           notes: tab.notes.map(set),
           shapes: tab.shapes.map(set),
-        };
-      });
-    case "RENAME_GROUP":
-      return updateActiveTab(state, (tab) => {
-        const groupName = action.name.trim();
-        if (!groupName) return tab;
-        const rename = <T extends { groupId?: string }>(a: T): T =>
-          a.groupId === action.groupId ? { ...a, groupName } : a;
-        return {
-          ...tab,
-          history: appendHistory(tab),
-          measurements: tab.measurements.map(rename),
-          rectangles: tab.rectangles.map(rename),
-          notes: tab.notes.map(rename),
-          shapes: tab.shapes.map(rename),
         };
       });
     case "SET_DISPLAY_UNIT":
@@ -228,6 +235,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         rectangles: action.rectangles,
         notes: action.notes,
         shapes: action.shapes,
+        groups: action.groups ?? [],
         zoom: action.zoom,
         rotation: action.rotation,
         projectHandle: action.handle ?? null,
@@ -423,8 +431,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "SET_SELECTION":
       return updateActiveTab(state, (tab) => ({
         ...tab,
-        // Picking any member of a group picks the whole group.
-        selectedIds: expandToGroups(action.ids, tab),
+        selectedIds: action.ids,
         editingDimension: null,
         editingNoteId: null,
       }));
@@ -567,6 +574,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         rectangles: [],
         notes: [],
         shapes: [],
+        groups: [],
         drawingShapeId: null,
         selectedIds: [],
         pendingPoint: null,
@@ -593,6 +601,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           rectangles: snapshot.rectangles,
           notes: snapshot.notes,
           shapes: snapshot.shapes,
+          groups: snapshot.groups,
           scale: snapshot.scale,
           selectedIds: snapshot.selectedIds,
           pendingPoint: null,
@@ -613,6 +622,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           rectangles: snapshot.rectangles,
           notes: snapshot.notes,
           shapes: snapshot.shapes,
+          groups: snapshot.groups,
           scale: snapshot.scale,
           selectedIds: snapshot.selectedIds,
           pendingPoint: null,
@@ -704,7 +714,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
   }
 }
 
-type SavedFields = Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "scale">;
+type SavedFields = Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scale">;
 
 function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
   return (
@@ -712,6 +722,7 @@ function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
     a.rectangles !== b.rectangles ||
     a.notes !== b.notes ||
     a.shapes !== b.shapes ||
+    a.groups !== b.groups ||
     a.scale !== b.scale
   );
 }
@@ -749,6 +760,12 @@ function clearStaleRedo(prev: TabsState, next: TabsState, action: AppAction): Ta
   return changed ? { ...next, tabs } : next;
 }
 
+/** `ids` that are groupable markups in `tab`, once each. */
+function uniqueMarkupIds(ids: string[], tab: DocumentTab): string[] {
+  const existing = markupIds(tab);
+  return [...new Set(ids)].filter((id) => existing.has(id));
+}
+
 /** Remove the markups `ids` (never the calibration line) as one undo step. */
 function deleteAnnotations(tab: DocumentTab, ids: string[]): DocumentTab {
   if (ids.length === 0) return tab;
@@ -760,6 +777,9 @@ function deleteAnnotations(tab: DocumentTab, ids: string[]): DocumentTab {
     rectangles: tab.rectangles.filter((r) => !doomed.has(r.id)),
     notes: tab.notes.filter((n) => !doomed.has(n.id)),
     shapes: tab.shapes.filter((s) => !doomed.has(s.id)),
+    groups: tab.groups.map((g) =>
+      g.memberIds.some((id) => doomed.has(id)) ? { ...g, memberIds: g.memberIds.filter((id) => !doomed.has(id)) } : g,
+    ),
     drawingShapeId: tab.drawingShapeId && doomed.has(tab.drawingShapeId) ? null : tab.drawingShapeId,
     selectedIds: tab.selectedIds.filter((id) => !doomed.has(id)),
     editingDimension: tab.editingDimension && doomed.has(tab.editingDimension.id) ? null : tab.editingDimension,

@@ -29,11 +29,18 @@ export interface Point2D {
 
 /** Fields every markup kind shares. */
 export interface MarkupFlags {
-  /** Markups sharing a `groupId` select and move together; each member carries the group's name. */
-  groupId?: string;
-  groupName?: string;
   /** Can't be moved, resized or rotated until unlocked (it can still be edited and deleted). */
   locked?: boolean;
+}
+
+/**
+ * A named collection in the Markups panel. It only lists markups: one markup can be
+ * in several groups, and grouping never changes what is drawn or selected on the canvas.
+ */
+export interface MarkupGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
 }
 
 export interface Measurement extends MarkupFlags {
@@ -134,6 +141,7 @@ export interface UndoSnapshot {
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
+  groups: MarkupGroup[];
   scale: Scale | null;
   selectedIds: string[];
 }
@@ -150,6 +158,7 @@ export interface DocumentTab {
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
+  groups: MarkupGroup[];
   /** Area polygon or count group still receiving clicks. */
   drawingShapeId: string | null;
   selectedIds: string[];
@@ -246,6 +255,8 @@ export type AppAction =
       rectangles: RectMeasurement[];
       notes: NoteAnnotation[];
       shapes: ShapeAnnotation[];
+      /** Absent in files saved before Markups-panel groups. */
+      groups?: MarkupGroup[];
       displayUnit: Unit;
       zoom: number;
       rotation: DocumentRotation;
@@ -265,7 +276,7 @@ export type AppAction =
       type: "MARK_TAB_SAVED";
       tabId: string;
       /** What was written; edits made while saving keep the tab dirty. */
-      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "scale">;
+      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scale">;
     }
   | { type: "SET_CONFIRM_CLOSE_UNSAVED"; enabled: boolean }
   | { type: "SET_ZOOM"; zoom: number }
@@ -293,9 +304,14 @@ export type AppAction =
   | { type: "DELETE_ANNOTATIONS"; ids: string[] }
   | { type: "SET_ANNOTATION_COLOR"; ids: string[]; color: string; recordUndo?: boolean }
   | { type: "SET_ANNOTATION_LABEL"; id: string; label: string }
-  | { type: "GROUP_SELECTED" }
-  | { type: "UNGROUP_SELECTED" }
+  /** New "Group N" holding `memberIds`; `groupId` lets the caller rename it straight away. */
+  | { type: "CREATE_GROUP"; groupId: string; memberIds: string[] }
   | { type: "RENAME_GROUP"; groupId: string; name: string }
+  /** Removes the group only; its markups stay. */
+  | { type: "DELETE_GROUP"; groupId: string }
+  | { type: "ADD_TO_GROUP"; groupId: string; ids: string[] }
+  | { type: "REMOVE_FROM_GROUP"; groupId: string; ids: string[] }
+  | { type: "MOVE_TO_GROUP"; fromGroupId: string; toGroupId: string; ids: string[] }
   | { type: "SET_LOCKED"; ids: string[]; locked: boolean }
   | { type: "SET_CLOUD_MODE"; mode: CloudMode }
   | { type: "SET_LINE_MODE"; mode: DrawMode }

@@ -120,6 +120,13 @@ const MIN_FREEHAND_SIZE = 12;
 const ROTATION_SNAP_TOLERANCE_DEG = 5;
 /** New text starts this far right of the click, in screen px, clear of the I-beam. */
 const TEXT_CURSOR_GAP_PX = 2;
+/** Text tool I-beam whose hotspot is its exact centre (the system `text` cursor's varies by OS). */
+const TEXT_TOOL_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="24" viewBox="0 0 16 24">' +
+    '<path d="M5 2.5h6M8 2.5v19M5 21.5h6" fill="none" stroke-linecap="round" stroke="#fff" stroke-width="3.5"/>' +
+    '<path d="M5 2.5h6M8 2.5v19M5 21.5h6" fill="none" stroke-linecap="round" stroke="#000" stroke-width="1.5"/>' +
+    "</svg>",
+)}") 8 12, text`;
 /** Right-click menu on a plain line. */
 interface LineMenu {
   id: string;
@@ -1493,9 +1500,11 @@ export function AnnotationLayer({
         cursor:
           state.tool === "pan"
             ? "grab"
-            : state.tool === "note" || state.tool === "text"
-              ? "text"
-              : "crosshair",
+            : state.tool === "text"
+              ? TEXT_TOOL_CURSOR
+              : state.tool === "note"
+                ? "text"
+                : "crosshair",
       }}
       onPointerDownCapture={handlePointerDownCapture}
       onContextMenu={handleContextMenu}

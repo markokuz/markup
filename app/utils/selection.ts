@@ -289,6 +289,8 @@ export function findAnnotationsInMarquee(
 
 const LINE_HIT_SLOP = 14;
 const LABEL_HIT_PADDING = 4;
+/** Free text is hit only on (or just around) its box, so stacked lines stay separate targets. */
+const TEXT_HIT_SLOP = 2;
 
 export function hitTestAnnotations(
   point: Point2D,
@@ -393,7 +395,8 @@ export function hitTestAnnotations(
       x: (Math.min(...xs) + Math.max(...xs)) / 2,
       y: (Math.min(...ys) + Math.max(...ys)) / 2,
     };
-    const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= LINE_HIT_SLOP);
+    const slop = shape.kind === "text" ? TEXT_HIT_SLOP : LINE_HIT_SLOP;
+    const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= slop);
     const insideArea =
       (shape.kind === "area" || shape.kind === "image" || shape.kind === "text") &&
       points.length >= 3 &&

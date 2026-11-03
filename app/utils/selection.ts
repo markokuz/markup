@@ -193,7 +193,7 @@ function rectangleMatchesMarquee(
   );
 }
 
-/** Screen-space outline segments of a shape (closed for area and cloud). */
+/** Screen-space outline segments of a shape (closed for area and cloud, open for a drawing). */
 function shapeScreenSegments(
   shape: ShapeAnnotation,
   viewport: DocumentViewport,

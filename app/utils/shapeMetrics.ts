@@ -36,6 +36,7 @@ export const SHAPE_KIND_LABELS: Record<ShapeAnnotation["kind"], string> = {
   area: "Area",
   count: "Count",
   cloud: "Cloud",
+  draw: "Drawing",
   callout: "Callout",
   text: "Text",
   image: "Snapshot",

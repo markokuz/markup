@@ -14,6 +14,7 @@ const COLOR_TOOLS: { id: ColorTool; label: string }[] = [
   { id: "count", label: "Count" },
   { id: "rectangle", label: "Rectangle" },
   { id: "cloud", label: "Cloud" },
+  { id: "draw", label: "Draw" },
   { id: "callout", label: "Callout" },
   { id: "text", label: "Text" },
   { id: "note", label: "Note" },

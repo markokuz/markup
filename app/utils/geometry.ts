@@ -182,6 +182,23 @@ export function cloudPath(corners: Point2D[], arcSize: number): string {
   return `${d} Z`;
 }
 
+/**
+ * Smooth open SVG path through a freehand stroke: a quadratic curve bends at each
+ * point and the curves meet halfway between points.
+ */
+export function strokePath(points: Point2D[]): string {
+  if (points.length === 0) return "";
+  const [first] = points;
+  const last = points[points.length - 1];
+  let d = `M ${first.x} ${first.y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const p = points[i];
+    const next = points[i + 1];
+    d += ` Q ${p.x} ${p.y} ${(p.x + next.x) / 2} ${(p.y + next.y) / 2}`;
+  }
+  return `${d} L ${last.x} ${last.y}`;
+}
+
 const AREA_SUFFIX: Record<Unit, string> = {
   ft: "sq ft",
   in: "sq in",

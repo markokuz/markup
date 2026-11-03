@@ -100,3 +100,18 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
+
+/* Calibrate button pulses a few times when someone tries to measure without a scale. */
+@keyframes calibrate-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+}
+
+.calibrate-flash {
+  animation: calibrate-flash 0.45s ease-in-out 3;
+}

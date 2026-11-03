@@ -11,6 +11,7 @@ export type ToolMode =
   | "area"
   | "count"
   | "cloud"
+  | "draw"
   | "callout"
   | "text"
   | "snapshot";
@@ -67,13 +68,13 @@ export interface NoteAnnotation {
   label?: string;
 }
 
-export type ShapeKind = "area" | "count" | "cloud" | "callout" | "text" | "image";
+export type ShapeKind = "area" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
 
-/** Generic multi-point markup: area polygon, count group, revision cloud or callout. */
+/** Generic multi-point markup: area polygon, count group, revision cloud, freehand drawing or callout. */
 export interface ShapeAnnotation {
   id: string;
   kind: ShapeKind;
-  /** area: vertices · count: markers · cloud: two corners · callout: [arrow tip, text anchor] */
+  /** area: vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor] */
   points: Point2D[];
   /** Callout and free text. */
   text?: string;

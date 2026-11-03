@@ -61,7 +61,7 @@ export function getTransformFrame(
     const corners = shape.points.map(toScreen);
     return frameFrom(corners, angleOf(corners[0], corners[1]), true, true);
   }
-  if ((shape.kind === "cloud" || shape.kind === "area") && shape.points.length >= 2) {
+  if ((shape.kind === "cloud" || shape.kind === "area" || shape.kind === "draw") && shape.points.length >= 2) {
     // Bounding box in the shape's own frame, so a turned shape keeps a snug box.
     const angle = shape.rotation ?? 0;
     const origin = { x: 0, y: 0 };

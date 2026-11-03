@@ -8,6 +8,8 @@ import {
   drawObject,
   popGraphicsState,
   pushGraphicsState,
+  LineCapStyle,
+  setLineCap,
   setLineJoin,
   type PDFFont,
   type PDFPage,
@@ -55,7 +57,7 @@ import {
   textLines,
   wrapNoteText,
 } from "@/app/utils/noteLayout";
-import { cloudOutline, cloudPath, polygonCentroid } from "@/app/utils/geometry";
+import { cloudOutline, cloudPath, polygonCentroid, strokePath } from "@/app/utils/geometry";
 import { CALLOUT_LEADER_OFFSET, countStartAt, getShapeLabel } from "@/app/utils/shapeMetrics";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
@@ -791,6 +793,12 @@ function drawShapesOnCanvas(
       context.lineJoin = "round";
       context.stroke(cloud);
       context.restore();
+    } else if (shape.kind === "draw" && shape.points.length >= 2) {
+      context.save();
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.stroke(new Path2D(strokePath(shape.points)));
+      context.restore();
     } else if (shape.kind === "callout" && shape.points.length === 2) {
       const [tip, anchor] = shape.points;
       const end = {
@@ -888,6 +896,16 @@ function drawShapesOnPdf(
         y: 0,
         color,
         opacity: 0.12,
+        borderColor: color,
+        borderWidth: style.borderWidth,
+        borderOpacity: 1,
+      });
+      page.pushOperators(popGraphicsState());
+    } else if (shape.kind === "draw" && shape.points.length >= 2) {
+      page.pushOperators(pushGraphicsState(), setLineCap(LineCapStyle.Round), setLineJoin(LineJoinStyle.Round));
+      page.drawSvgPath(strokePath(shape.points.map(flip)), {
+        x: 0,
+        y: 0,
         borderColor: color,
         borderWidth: style.borderWidth,
         borderOpacity: 1,

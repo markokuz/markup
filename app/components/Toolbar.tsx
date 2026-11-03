@@ -34,6 +34,10 @@ import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
 import { isColorTool } from "@/app/utils/settings";
 import { showSaveStatus } from "@/app/utils/saveStatus";
+import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
+
+/** How long the "set the scale first" popup stays under Calibrate. */
+const CALIBRATION_PROMPT_MS = 4500;
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "calibrate", label: "Calibrate", hint: "Set scale from known dimension" },
@@ -45,6 +49,18 @@ export function Toolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
+  const calibrationPrompt = useCalibrationPrompt();
+
+  useEffect(() => {
+    if (!calibrationPrompt) return;
+    const timer = window.setTimeout(() => clearCalibrationPrompt(calibrationPrompt.id), CALIBRATION_PROMPT_MS);
+    return () => window.clearTimeout(timer);
+  }, [calibrationPrompt]);
+
+  // Once a scale is set the hint has done its job.
+  useEffect(() => {
+    if (state.scale) clearCalibrationPrompt();
+  }, [state.scale]);
 
   useEffect(() => {
     if (!saveMenuOpen) return;
@@ -187,23 +203,38 @@ export function Toolbar() {
           Upload File
         </button>
 
-        <div className="flex rounded-lg border border-border bg-surface-muted p-0.5">
+        <div className="relative flex rounded-lg border border-border bg-surface-muted p-0.5">
           {TOOLS.map((tool) => (
             <button
-              key={tool.id}
+              key={tool.id === "calibrate" && calibrationPrompt ? `${tool.id}-${calibrationPrompt.id}` : tool.id}
               type="button"
               title={tool.hint}
               disabled={!state.fileBytes && tool.id !== "calibrate"}
-              onClick={() => dispatch({ type: "SET_TOOL", tool: tool.id })}
+              onClick={() => {
+                if (tool.id === "calibrate") clearCalibrationPrompt();
+                dispatch({ type: "SET_TOOL", tool: tool.id });
+              }}
               className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-40 ${
                 state.tool === tool.id
                   ? "bg-accent text-white shadow-sm"
                   : "text-text-secondary hover:bg-surface hover:text-text-primary"
-              }`}
+              } ${tool.id === "calibrate" && calibrationPrompt ? "calibrate-flash" : ""}`}
             >
               {tool.label}
             </button>
           ))}
+          {calibrationPrompt && (
+            <div
+              role="status"
+              className="absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text-primary shadow-lg"
+            >
+              <span
+                aria-hidden
+                className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border-l border-t border-border bg-surface"
+              />
+              {calibrationPrompt.text}
+            </div>
+          )}
         </div>
 
         <div className="flex rounded-lg border border-border bg-surface-muted p-0.5">
@@ -677,10 +708,6 @@ export function StatusBar() {
           >
             Delete{state.selectedIds.length > 1 ? ` (${state.selectedIds.length})` : ""}
           </button>
-        )}
-
-        {(state.tool === "measure" || state.tool === "rectangle") && !state.scale && (
-          <span style={{ color: "var(--warning-text)" }}>Calibrate scale before measuring</span>
         )}
 
         {state.tool === "note" && (

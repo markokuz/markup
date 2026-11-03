@@ -18,6 +18,7 @@ const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   },
   { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle" },
   { id: "cloud", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
+  { id: "draw", label: "Draw", hint: "Drag to draw freehand" },
   { id: "callout", label: "Callout", hint: "Click the point to call out, then where the text goes" },
   { id: "text", label: "Text", hint: "Free text or a note card. Double-click text to edit it" },
   {
@@ -379,6 +380,18 @@ function ToolIcon({ tool }: { tool: ToolMode }) {
             d="M4 6 A2 2 0 0 1 8 5 A2 2 0 0 1 12 5 A2 2 0 0 1 16 6 A2 2 0 0 1 16 10 A2 2 0 0 1 16 14 A2 2 0 0 1 12 15 A2 2 0 0 1 8 15 A2 2 0 0 1 4 14 A2 2 0 0 1 4 10 A2 2 0 0 1 4 6 Z"
             stroke="currentColor"
             strokeWidth="1.4"
+          />
+        </svg>
+      );
+    case "draw":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M3 15c2-4 4-7 6-5s-1 5 1 5 3-6 7-9"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         </svg>
       );

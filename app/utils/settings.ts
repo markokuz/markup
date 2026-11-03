@@ -2,7 +2,16 @@ import type { ToolMode, Unit } from "@/app/types";
 import { DEFAULT_ANNOTATION_COLOR, LEGACY_REDLINE_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
 
 /** Tools that create a coloured markup. */
-export type ColorTool = "measure" | "rectangle" | "area" | "count" | "cloud" | "callout" | "text" | "note";
+export type ColorTool =
+  | "measure"
+  | "rectangle"
+  | "area"
+  | "count"
+  | "cloud"
+  | "draw"
+  | "callout"
+  | "text"
+  | "note";
 
 export interface AppSettings {
   toolColors: Record<ColorTool, string>;
@@ -31,6 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     area: DEFAULT_ANNOTATION_COLOR,
     count: DEFAULT_ANNOTATION_COLOR,
     cloud: REDLINE_COLOR,
+    draw: REDLINE_COLOR,
     callout: REDLINE_COLOR,
     text: REDLINE_COLOR,
     note: DEFAULT_ANNOTATION_COLOR,
@@ -41,6 +51,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     count: "c",
     rectangle: "r",
     cloud: "k",
+    draw: "d",
     callout: "o",
     text: "t",
     note: "n",

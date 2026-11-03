@@ -49,6 +49,7 @@ import {
   rotateAround,
   simplifyPath,
   smoothClosedPath,
+  strokePath,
 } from "@/app/utils/geometry";
 import { CLOSE_AREA_PX } from "@/app/utils/shapeMetrics";
 import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
@@ -58,6 +59,7 @@ import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
 import { copySelection } from "@/app/utils/clipboard";
 import { showSaveStatus } from "@/app/utils/saveStatus";
+import { promptCalibration } from "@/app/utils/calibrationPrompt";
 import { captureSnapshot } from "@/app/utils/snapshot";
 import {
   getTransformFrame,
@@ -108,7 +110,8 @@ type DragMode =
   | { type: "rectHeightLabel"; id: string }
   | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D }
   | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[] }
-  | { type: "freehand"; points: Point2D[] }
+  /** A freehand stroke being dragged out: a cloud outline or a drawing. */
+  | { type: "freehand"; kind: "cloud" | "draw"; points: Point2D[] }
   /** Moves the whole selection; a press without movement selects just `id`. */
   | { type: "group"; id: string; lastPdf: Point2D; moved: boolean };
 
@@ -118,9 +121,15 @@ const MIN_MARQUEE_SIZE = 4;
 const FREEHAND_STEP_PX = 3;
 const FREEHAND_SIMPLIFY_PX = 4;
 const MIN_FREEHAND_SIZE = 12;
+/** Draw tool strokes keep more of the hand's shape than cloud outlines do. */
+const DRAW_SIMPLIFY_PX = 1;
 const ROTATION_SNAP_TOLERANCE_DEG = 5;
 /** New text starts this far right of the click, in screen px, clear of the I-beam. */
 const TEXT_CURSOR_GAP_PX = 2;
+const CALIBRATE_TO_MEASURE =
+  "Set the scale to measure: click Calibrate, then two points on a known dimension. For markup only, switch to Plain.";
+const CALIBRATE_FOR_AREA =
+  "Set the scale to see area and perimeter: click Calibrate, then two points on a known dimension.";
 /** Selected text's move tab sits this far outside its left edge (centre), clear of the corner handles. */
 const TEXT_MOVE_TAB_OFFSET_PX = 16;
 /** Text tool I-beam whose hotspot is its exact centre (the system `text` cursor's varies by OS). */
@@ -379,6 +388,8 @@ export function AnnotationLayer({
           (s) => s.id === state.drawingShapeId && s.kind === state.tool,
         );
         if (!drawing) {
+          // An area still draws unscaled, just without its label.
+          if (state.tool === "area" && !state.scale) promptCalibration(CALIBRATE_FOR_AREA);
           dispatch({
             type: "ADD_SHAPE",
             shape: {
@@ -411,9 +422,9 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "cloud" && state.cloudMode === "freehand") {
+      if (state.tool === "draw" || (state.tool === "cloud" && state.cloudMode === "freehand")) {
         event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = { type: "freehand", points: [local] };
+        dragRef.current = { type: "freehand", kind: state.tool, points: [local] };
         setFreehandStroke([local]);
         return;
       }
@@ -455,6 +466,16 @@ export function AnnotationLayer({
           });
         }
         setPreviewEnd(null);
+        return;
+      }
+
+      // Measured lines and rects need a scale; point the user at Calibrate instead of doing nothing.
+      if (
+        !state.scale &&
+        ((state.tool === "rectangle" && state.rectMode !== "plain") ||
+          (state.tool === "measure" && state.lineMode !== "plain"))
+      ) {
+        promptCalibration(CALIBRATE_TO_MEASURE);
         return;
       }
 
@@ -814,7 +835,22 @@ export function AnnotationLayer({
   const handlePointerUp = useCallback(() => {
     const drag = dragRef.current;
 
-    if (drag?.type === "freehand") {
+    if (drag?.type === "freehand" && drag.kind === "draw") {
+      setFreehandStroke(null);
+      // A press without a drag draws nothing.
+      const stroke = simplifyPath(drag.points, DRAW_SIMPLIFY_PX);
+      if (stroke.length >= 2) {
+        dispatch({
+          type: "ADD_SHAPE",
+          shape: {
+            id: createId(),
+            kind: "draw",
+            points: stroke.map((p) => toDocPoint(viewport, p.x, p.y)),
+            color: toolColors.draw,
+          },
+        });
+      }
+    } else if (drag?.type === "freehand") {
       setFreehandStroke(null);
       const xs = drag.points.map((p) => p.x);
       const ys = drag.points.map((p) => p.y);
@@ -872,7 +908,7 @@ export function AnnotationLayer({
     }
 
     dragRef.current = null;
-  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, state.shapes, viewport]);
+  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, state.shapes, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -1323,7 +1359,9 @@ export function AnnotationLayer({
   // Text, notes and snapshots already outline themselves when selected; one outline is enough.
   const showFrameOutline =
     transformTarget?.kind === "shape" &&
-    (transformTarget.item.kind === "cloud" || transformTarget.item.kind === "area");
+    (transformTarget.item.kind === "cloud" ||
+      transformTarget.item.kind === "area" ||
+      transformTarget.item.kind === "draw");
 
   /** Grip left of selected text, so it can be moved without hitting a corner handle. */
   const renderTextMoveTab = (shape: ShapeAnnotationType, frame: TransformFrame) => {
@@ -1524,8 +1562,12 @@ export function AnnotationLayer({
       : null;
 
   const freehandPreview =
-    freehandStroke && freehandStroke.length > 1
+    freehandStroke && freehandStroke.length > 1 && state.tool === "cloud"
       ? freehandStroke.map((p) => `${p.x},${p.y}`).join(" ")
+      : null;
+  const drawPreview =
+    freehandStroke && freehandStroke.length > 1 && state.tool === "draw"
+      ? strokePath(freehandStroke)
       : null;
 
   const marqueePreview = state.pendingMarquee
@@ -1658,6 +1700,17 @@ export function AnnotationLayer({
               pointerEvents="none"
             />
           )}
+        {drawPreview && (
+          <path
+            d={drawPreview}
+            fill="none"
+            stroke={toolColors.draw}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        )}
         {freehandPreview && (
           <polyline
             points={freehandPreview}

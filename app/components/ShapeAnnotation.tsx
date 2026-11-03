@@ -6,7 +6,7 @@ import { arrowPolygonPoints, toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { viewportZoom } from "@/app/utils/documentViewport";
-import { cloudOutline, cloudPath, polygonCentroid } from "@/app/utils/geometry";
+import { cloudOutline, cloudPath, polygonCentroid, strokePath } from "@/app/utils/geometry";
 import {
   TEXT_DEFAULT_SIZE,
   TEXT_FONT_FAMILY,
@@ -246,6 +246,16 @@ export function ShapeAnnotation({
       <g pointerEvents="none">
         {isSelected && <path d={d} fill="none" stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />}
         <path d={d} fill={`${color}1f`} stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+      </g>
+    );
+  }
+
+  if (shape.kind === "draw" && pts.length >= 2) {
+    const d = strokePath(pts);
+    return (
+      <g pointerEvents="none" fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {isSelected && <path d={d} stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />}
+        <path d={d} stroke={color} strokeWidth={strokeWidth} />
       </g>
     );
   }

@@ -8,7 +8,6 @@ import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppConte
 import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
 import { PdfViewer } from "@/app/components/PdfCanvas";
-import { ScaleBanner } from "@/app/components/ScaleBanner";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
@@ -281,7 +280,6 @@ function MarkupShell() {
       )}
       <Toolbar />
       <DocumentTabs />
-      <ScaleBanner />
       <div className="flex min-h-0 flex-1">
         <SideToolbar />
         <PdfViewer key={state.activeTabId ?? "empty"} />

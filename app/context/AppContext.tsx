@@ -25,7 +25,7 @@ import {
   type AppSettings,
 } from "@/app/utils/settings";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
-import { markupIds, nextGroupName } from "@/app/utils/groups";
+import { markupIds, nextGroupName, wouldNestInItself } from "@/app/utils/groups";
 import { deleteSession } from "@/app/utils/sessionStore";
 import {
   loadAutoOrientPortrait,
@@ -152,11 +152,31 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         };
       });
     case "DELETE_GROUP":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        history: appendHistory(tab),
-        groups: tab.groups.filter((g) => g.id !== action.groupId),
-      }));
+      return updateActiveTab(state, (tab) => {
+        const deleted = tab.groups.find((g) => g.id === action.groupId);
+        if (!deleted) return tab;
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          // Its subgroups move up to where it was.
+          groups: tab.groups
+            .filter((g) => g.id !== action.groupId)
+            .map((g) => (g.parentId === action.groupId ? { ...g, parentId: deleted.parentId } : g)),
+        };
+      });
+    case "NEST_GROUP":
+      return updateActiveTab(state, (tab) => {
+        const group = tab.groups.find((g) => g.id === action.groupId);
+        if (!group || (group.parentId ?? null) === action.parentId) return tab;
+        if (action.parentId && wouldNestInItself(tab.groups, action.groupId, action.parentId)) return tab;
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          groups: tab.groups.map((g) =>
+            g.id === action.groupId ? { ...g, parentId: action.parentId ?? undefined } : g,
+          ),
+        };
+      });
     case "ADD_TO_GROUP":
     case "REMOVE_FROM_GROUP":
     case "MOVE_TO_GROUP":

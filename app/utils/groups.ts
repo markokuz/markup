@@ -28,6 +28,37 @@ export function liveMembers(group: MarkupGroup, existing: Set<string>): string[]
   return group.memberIds.filter((id) => existing.has(id));
 }
 
+/** Groups directly inside `parentId` (null: the top level, including orphans). */
+export function childGroups(groups: MarkupGroup[], parentId: string | null): MarkupGroup[] {
+  const ids = new Set(groups.map((g) => g.id));
+  return groups.filter((g) =>
+    parentId === null ? !g.parentId || !ids.has(g.parentId) : g.parentId === parentId,
+  );
+}
+
+/** `groupId` and every group nested anywhere inside it. */
+export function groupSubtree(groups: MarkupGroup[], groupId: string): MarkupGroup[] {
+  const result: MarkupGroup[] = [];
+  const visit = (id: string) => {
+    const group = groups.find((g) => g.id === id);
+    if (!group || result.includes(group)) return;
+    result.push(group);
+    for (const child of childGroups(groups, id)) visit(child.id);
+  };
+  visit(groupId);
+  return result;
+}
+
+/** Every live markup in `groupId` or its subgroups, once each. */
+export function subtreeMembers(groups: MarkupGroup[], groupId: string, existing: Set<string>): string[] {
+  return [...new Set(groupSubtree(groups, groupId).flatMap((g) => liveMembers(g, existing)))];
+}
+
+/** Putting `groupId` inside `parentId` would loop (itself, or one of its own subgroups). */
+export function wouldNestInItself(groups: MarkupGroup[], groupId: string, parentId: string): boolean {
+  return groupSubtree(groups, groupId).some((g) => g.id === parentId);
+}
+
 /** "Group N", one past the highest number already used in this document. */
 export function nextGroupName(groups: MarkupGroup[]): string {
   let highest = 0;

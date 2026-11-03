@@ -14,11 +14,16 @@ export function FloatingMenu({
   x,
   y,
   menuRef,
+  role = "menu",
+  className = "min-w-[150px] p-1",
   children,
 }: {
   x: number;
   y: number;
   menuRef: RefObject<HTMLDivElement | null>;
+  /** "menu" for a list of actions; "dialog" for a read-only popover. */
+  role?: "menu" | "dialog";
+  className?: string;
   children: ReactNode;
 }) {
   useLayoutEffect(() => {
@@ -34,8 +39,8 @@ export function FloatingMenu({
   return createPortal(
     <div
       ref={menuRef}
-      role="menu"
-      className="fixed z-50 min-w-[150px] rounded-lg border border-border bg-surface p-1 shadow-lg"
+      role={role}
+      className={`fixed z-50 rounded-lg border border-border bg-surface shadow-lg ${className}`}
       style={{ left: x, top: y }}
       // Portal events still bubble through React to the overlay; keep them here.
       onPointerDown={(event) => event.stopPropagation()}

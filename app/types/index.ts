@@ -41,6 +41,8 @@ export interface MarkupGroup {
   id: string;
   name: string;
   memberIds: string[];
+  /** The group this one sits inside; top level when absent (or its parent is gone). */
+  parentId?: string;
 }
 
 export interface Measurement extends MarkupFlags {
@@ -307,8 +309,10 @@ export type AppAction =
   /** New "Group N" holding `memberIds`; `groupId` lets the caller rename it straight away. */
   | { type: "CREATE_GROUP"; groupId: string; memberIds: string[] }
   | { type: "RENAME_GROUP"; groupId: string; name: string }
-  /** Removes the group only; its markups stay. */
+  /** Removes the group only; its markups stay and its subgroups move up a level. */
   | { type: "DELETE_GROUP"; groupId: string }
+  /** Put a group inside another (`parentId`), or back at the top level (null). */
+  | { type: "NEST_GROUP"; groupId: string; parentId: string | null }
   | { type: "ADD_TO_GROUP"; groupId: string; ids: string[] }
   | { type: "REMOVE_FROM_GROUP"; groupId: string; ids: string[] }
   | { type: "MOVE_TO_GROUP"; fromGroupId: string; toGroupId: string; ids: string[] }

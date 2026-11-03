@@ -3,8 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { downloadBlob } from "@/app/utils/exportDocument";
-import { liveMembers, markupIds, nextGroupName } from "@/app/utils/groups";
-import { buildMarkupRows, rowsToCsv, summarizeRows, type MarkupRow } from "@/app/utils/markupList";
+import {
+  childGroups,
+  liveMembers,
+  markupIds,
+  nextGroupName,
+  subtreeMembers,
+  wouldNestInItself,
+} from "@/app/utils/groups";
+import {
+  buildMarkupRows,
+  rowsToCsv,
+  summarizeRows,
+  type MarkupRow,
+  type MarkupTotal,
+} from "@/app/utils/markupList";
+import type { MarkupGroup } from "@/app/types";
+import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 
 /** Group rename targets share the rename box with rows; their ids carry this prefix. */
@@ -96,6 +111,36 @@ function RowActions({
   );
 }
 
+function ChartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M3 16.5h14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path
+        d="M4 13l4-4.5 3 2.5 5-6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Totals per type and colour, as in the panel footer and each group's popover. */
+function TotalsList({ totals, className = "" }: { totals: MarkupTotal[]; className?: string }) {
+  return (
+    <ul className={`space-y-1 ${className}`}>
+      {totals.map((t) => (
+        <li key={`${t.type}-${t.color}`} className="flex items-center gap-2 text-sm">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: t.color }} />
+          <span className="text-text-secondary">{t.type}</span>
+          <span className="ml-auto font-medium text-text-primary">{t.display}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Padlock; `open` swings the shackle up for the "unlocked" state. */
 function LockIcon({ open = false, size = 11 }: { open?: boolean; size?: number }) {
   return (
@@ -123,14 +168,23 @@ function getMembershipClipboard(): MembershipClip | null {
   return membershipClipboard;
 }
 
-/** Drag payload: the markups being dragged and the list they were dragged from. */
-interface RowDrag {
-  ids: string[];
-  /** A group id, or ALL_LIST for the "All markups" list. */
-  from: string;
-}
+/** Drag payload: markup rows (and the list they came from), or a whole group. */
+type PanelDrag =
+  | {
+      kind: "markups";
+      ids: string[];
+      /** A group id, or ALL_LIST for the "All markups" list. */
+      from: string;
+    }
+  | { kind: "group"; groupId: string };
 
 const ALL_LIST = "all";
+/** Drop zone for taking a group out of its parent, back to the top level. */
+const TOP_LEVEL = "top";
+/** Drop zone on the "+ Group" button. */
+const NEW_GROUP = "new";
+/** Indent per nesting level, in px. */
+const NEST_INDENT_PX = 16;
 
 /** Right-hand list of every markup with quantities and totals, exportable to CSV. */
 export function MarkupsPanel() {
@@ -146,10 +200,18 @@ export function MarkupsPanel() {
   // Ctrl+V pastes into the group last clicked (its header or one of its rows).
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [drag, setDrag] = useState<RowDrag | null>(null);
+  const [drag, setDrag] = useState<PanelDrag | null>(null);
   // Enter then blur both commit; the ref lets only the first one apply.
   const renamingRef = useRef<string | null>(null);
   const asideRef = useRef<HTMLElement>(null);
+  // A group's totals popover: hovering its chart icon shows it, clicking keeps it open.
+  const [groupTotals, setGroupTotals] = useState<{
+    groupId: string;
+    x: number;
+    y: number;
+    pinned: boolean;
+  } | null>(null);
+  const totalsRef = useRef<HTMLDivElement>(null);
 
   // Ctrl+C/V act on group memberships only while the panel has focus; clicking the
   // drawing (which takes no focus itself) hands copy/paste back to the canvas.
@@ -164,6 +226,26 @@ export function MarkupsPanel() {
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
+
+  // A pinned totals popover closes on Escape or a click anywhere else.
+  const totalsPinned = groupTotals?.pinned ?? false;
+  useEffect(() => {
+    if (!totalsPinned) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (totalsRef.current?.contains(target) || target?.closest("[data-group-totals]")) return;
+      setGroupTotals(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setGroupTotals(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [totalsPinned]);
 
   if (!state.fileBytes) return null;
 
@@ -214,6 +296,7 @@ export function MarkupsPanel() {
   }));
   const listIds = (list: string) =>
     list === ALL_LIST ? rows.map((row) => row.id) : (groups.find((g) => g.group.id === list)?.rows ?? []).map((r) => r.id);
+  const groupsById = new Map(groups.map((entry) => [entry.group.id, entry]));
   const groupName = (groupId: string) => state.groups.find((g) => g.id === groupId)?.name ?? "the group";
 
   const toggleGroup = (groupId: string) =>
@@ -266,39 +349,69 @@ export function MarkupsPanel() {
     startRename(`${GROUP_KEY}${groupId}`, name);
   };
 
-  // ---- Drag and drop rows between lists.
+  // ---- Drag and drop: markup rows between lists, and groups into other groups.
   const startDrag = (event: React.DragEvent, id: string, from: string) => {
+    event.stopPropagation();
     const ids = selected.has(id) ? state.selectedIds.filter((s) => existing.has(s)) : [id];
-    setDrag({ ids, from });
+    setDrag({ kind: "markups", ids, from });
     event.dataTransfer.effectAllowed = "copyMove";
     // Firefox only starts a drag with some data set.
     event.dataTransfer.setData("text/plain", ids.join(","));
+  };
+  const startGroupDrag = (event: React.DragEvent, groupId: string) => {
+    event.stopPropagation();
+    setDrag({ kind: "group", groupId });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", groupId);
   };
   const endDrag = () => {
     setDrag(null);
     setDropTarget(null);
   };
+  /** Whether the current drag may drop on `target` (a group id or one of the special zones). */
+  const accepts = (target: string): boolean => {
+    if (!drag) return false;
+    if (drag.kind === "group") {
+      if (target === TOP_LEVEL) return true;
+      if (target === ALL_LIST || target === NEW_GROUP) return false;
+      return !wouldNestInItself(state.groups, drag.groupId, target);
+    }
+    return target !== TOP_LEVEL;
+  };
   const dropZone = (target: string) => ({
     onDragOver: (event: React.DragEvent) => {
-      if (!drag) return;
+      if (!accepts(target)) return;
+      // The innermost zone (a nested group) wins over the groups around it.
+      event.stopPropagation();
       event.preventDefault();
-      event.dataTransfer.dropEffect = event.ctrlKey || drag.from === ALL_LIST ? "copy" : "move";
+      event.dataTransfer.dropEffect =
+        drag?.kind === "markups" && (event.ctrlKey || drag.from === ALL_LIST) ? "copy" : "move";
       if (dropTarget !== target) setDropTarget(target);
     },
     onDragLeave: (event: React.DragEvent) => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
     },
     onDrop: (event: React.DragEvent) => {
+      const current = drag;
       endDrag();
-      if (!drag) return;
+      if (!current || !accepts(target)) return;
+      event.stopPropagation();
       event.preventDefault();
-      if (target === ALL_LIST) {
+      if (current.kind === "group") {
+        dispatch({
+          type: "NEST_GROUP",
+          groupId: current.groupId,
+          parentId: target === TOP_LEVEL ? null : target,
+        });
+      } else if (target === ALL_LIST) {
         // Dragged out of a group onto the master list: leaves that group.
-        if (drag.from !== ALL_LIST) dispatch({ type: "REMOVE_FROM_GROUP", groupId: drag.from, ids: drag.ids });
-      } else if (drag.from === ALL_LIST || event.ctrlKey) {
-        dispatch({ type: "ADD_TO_GROUP", groupId: target, ids: drag.ids });
-      } else if (drag.from !== target) {
-        dispatch({ type: "MOVE_TO_GROUP", fromGroupId: drag.from, toGroupId: target, ids: drag.ids });
+        if (current.from !== ALL_LIST) {
+          dispatch({ type: "REMOVE_FROM_GROUP", groupId: current.from, ids: current.ids });
+        }
+      } else if (current.from === ALL_LIST || event.ctrlKey) {
+        dispatch({ type: "ADD_TO_GROUP", groupId: target, ids: current.ids });
+      } else if (current.from !== target) {
+        dispatch({ type: "MOVE_TO_GROUP", fromGroupId: current.from, toGroupId: target, ids: current.ids });
       }
     },
   });
@@ -335,8 +448,10 @@ export function MarkupsPanel() {
     showSaveStatus("success", `Added ${clip.ids.length} to ${groupName(activeGroupId)}`);
   };
 
-  const renameInput = (id: string, current: string, placeholder: string, indent: boolean) => (
-    <div className={`flex items-center gap-2 py-2 pr-3 ${indent ? "pl-7" : "pl-3"}`}>
+  const indentStyle = (depth: number) => ({ paddingLeft: 12 + depth * NEST_INDENT_PX });
+
+  const renameInput = (id: string, current: string, placeholder: string, depth: number) => (
+    <div className="flex items-center gap-2 py-2 pr-3" style={indentStyle(depth)}>
       <input
         autoFocus
         value={draftName}
@@ -354,8 +469,8 @@ export function MarkupsPanel() {
     </div>
   );
 
-  /** A markup's row in the list `list` (a group id, or the master list). */
-  const renderRow = (row: MarkupRow, list: string) => {
+  /** A markup's row in the list `list` (a group id, or the master list), `depth` levels in. */
+  const renderRow = (row: MarkupRow, list: string, depth = 0) => {
     const inGroup = list !== ALL_LIST;
     return (
       <li
@@ -368,14 +483,15 @@ export function MarkupsPanel() {
         }`}
       >
         {renamingId === row.id ? (
-          renameInput(row.id, row.name, row.type, inGroup)
+          renameInput(row.id, row.name, row.type, depth)
         ) : (
           <>
             <button
               type="button"
               onClick={(event) => selectRow(row.id, list, event)}
               onDoubleClick={() => startRename(row.id, row.name)}
-              className={`flex w-full items-start gap-2 py-2 text-left text-sm ${inGroup ? "pl-7 pr-28" : "pl-3 pr-24"}`}
+              style={indentStyle(depth)}
+              className={`flex w-full items-start gap-2 py-2 text-left text-sm ${inGroup ? "pr-28" : "pr-24"}`}
             >
               <span
                 className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
@@ -420,12 +536,20 @@ export function MarkupsPanel() {
     );
   };
 
-  const renderGroup = ({ group, rows: members }: (typeof groups)[number]) => {
+  /** A group, its subgroups and its markups, `depth` levels in. */
+  const renderGroup = (group: MarkupGroup, depth: number): React.ReactNode => {
+    const members = groupsById.get(group.id)?.rows ?? [];
+    const subgroups = childGroups(state.groups, group.id);
     const key = `${GROUP_KEY}${group.id}`;
     const collapsed = collapsedGroups.has(group.id);
-    const memberIds = members.map((row) => row.id);
-    const isSelected = members.length > 0 && members.every((row) => selected.has(row.id));
-    const allLocked = members.length > 0 && members.every((row) => row.locked);
+    // Selecting, locking and counting cover the subgroups too.
+    const allIds = subtreeMembers(state.groups, group.id, existing);
+    const isSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+    const allLocked = allIds.length > 0 && allIds.every((id) => rowsById.get(id)?.locked);
+    const counts = [
+      `${allIds.length} item${allIds.length === 1 ? "" : "s"}`,
+      ...(subgroups.length ? [`${subgroups.length} group${subgroups.length === 1 ? "" : "s"}`] : []),
+    ].join(" · ");
     return (
       <li
         key={key}
@@ -433,21 +557,24 @@ export function MarkupsPanel() {
         className={dropTarget === group.id ? "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent" : ""}
       >
         <div
+          draggable={renamingId !== key}
+          onDragStart={(event) => startGroupDrag(event, group.id)}
+          onDragEnd={endDrag}
           className={`group relative transition ${
             isSelected || activeGroupId === group.id ? "bg-accent/10" : "hover:bg-surface-muted"
           }`}
         >
           {renamingId === key ? (
-            renameInput(key, group.name, "Group", false)
+            renameInput(key, group.name, "Group", depth)
           ) : (
             <>
-              <div className="flex items-center">
+              <div className="flex items-center" style={indentStyle(depth)}>
                 <button
                   type="button"
                   aria-expanded={!collapsed}
                   aria-label={collapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
                   onClick={() => toggleGroup(group.id)}
-                  className="py-2 pl-3 pr-1 text-text-secondary hover:text-text-primary"
+                  className="py-2 pr-1 text-text-secondary hover:text-text-primary"
                 >
                   <span aria-hidden className={`inline-block transition ${collapsed ? "" : "rotate-90"}`}>
                     ›
@@ -455,37 +582,64 @@ export function MarkupsPanel() {
                 </button>
                 <button
                   type="button"
-                  title="Select everything in this group"
-                  onClick={() => selectGroup(group.id, memberIds)}
+                  title="Select everything in this group, including its subgroups. Drag to put it inside another group."
+                  onClick={() => selectGroup(group.id, allIds)}
                   onDoubleClick={() => startRename(key, group.name)}
-                  className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-24 text-left text-sm"
+                  className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-sm"
                 >
                   <span className="truncate font-semibold text-text-primary">{group.name}</span>
-                  <span className="shrink-0 text-xs text-text-muted">
-                    {members.length} item{members.length === 1 ? "" : "s"}
-                  </span>
+                  <span className="shrink-0 text-xs text-text-muted">{counts}</span>
+                </button>
+                <button
+                  type="button"
+                  data-group-totals
+                  title={`Totals for ${group.name}`}
+                  aria-label={`Totals for ${group.name}`}
+                  aria-expanded={groupTotals?.groupId === group.id}
+                  onPointerEnter={(event) => {
+                    if (groupTotals?.pinned) return;
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setGroupTotals({ groupId: group.id, x: box.left, y: box.bottom + 4, pinned: false });
+                  }}
+                  onPointerLeave={() => {
+                    setGroupTotals((open) => (open && !open.pinned ? null : open));
+                  }}
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setGroupTotals((open) =>
+                      open?.groupId === group.id && open.pinned
+                        ? null
+                        : { groupId: group.id, x: box.left, y: box.bottom + 4, pinned: true },
+                    );
+                  }}
+                  className={`mr-24 shrink-0 rounded p-1 transition hover:bg-surface hover:text-text-primary ${
+                    groupTotals?.groupId === group.id ? "text-accent" : "text-text-muted"
+                  }`}
+                >
+                  <ChartIcon />
                 </button>
               </div>
               <RowActions
                 label={group.name}
                 renameTitle="Rename group"
-                deleteTitle="Delete this group (its markups stay)"
+                deleteTitle="Delete this group (its markups and subgroups stay)"
                 locked={allLocked}
                 onRename={() => startRename(key, group.name)}
-                onToggleLock={() => dispatch({ type: "SET_LOCKED", ids: memberIds, locked: !allLocked })}
+                onToggleLock={() => dispatch({ type: "SET_LOCKED", ids: allIds, locked: !allLocked })}
                 onDelete={() => dispatch({ type: "DELETE_GROUP", groupId: group.id })}
               />
             </>
           )}
         </div>
         {!collapsed &&
-          (members.length === 0 ? (
-            <p className="border-t border-border py-2 pl-7 pr-3 text-xs text-text-muted">
-              Drag markups here, or copy them and paste with Ctrl+V.
+          (members.length === 0 && subgroups.length === 0 ? (
+            <p className="border-t border-border py-2 pr-3 text-xs text-text-muted" style={indentStyle(depth + 1)}>
+              Drag markups or groups here, or copy markups and paste with Ctrl+V.
             </p>
           ) : (
             <ul className="divide-y divide-border border-t border-border">
-              {members.map((row) => renderRow(row, group.id))}
+              {subgroups.map((child) => renderGroup(child, depth + 1))}
+              {members.map((row) => renderRow(row, group.id, depth + 1))}
             </ul>
           ))}
       </li>
@@ -518,14 +672,15 @@ export function MarkupsPanel() {
           <button
             type="button"
             onClick={() => createGroup(state.selectedIds)}
-            {...dropZone("new")}
+            {...dropZone(NEW_GROUP)}
             onDrop={(event) => {
+              const current = drag;
               endDrag();
-              if (!drag) return;
+              if (current?.kind !== "markups") return;
               event.preventDefault();
-              createGroup(drag.ids);
+              createGroup(current.ids);
             }}
-            className={`btn-secondary px-2 py-1 text-xs ${dropTarget === "new" ? "border-accent text-accent" : ""}`}
+            className={`btn-secondary px-2 py-1 text-xs ${dropTarget === NEW_GROUP ? "border-accent text-accent" : ""}`}
             title="New group (with the selected markups). You can also drop markups here."
           >
             + Group
@@ -552,10 +707,17 @@ export function MarkupsPanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {groups.length > 0 && (
-          <>
-            <div className={sectionLabel}>Groups</div>
-            <ul className="divide-y divide-border border-y border-border">{groups.map(renderGroup)}</ul>
-          </>
+          <div
+            {...dropZone(TOP_LEVEL)}
+            className={dropTarget === TOP_LEVEL ? "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent" : ""}
+          >
+            <div className={sectionLabel} title="Drop a group here to take it out of its parent group">
+              Groups
+            </div>
+            <ul className="divide-y divide-border border-y border-border">
+              {childGroups(state.groups, null).map((group) => renderGroup(group, 0))}
+            </ul>
+          </div>
         )}
         {rows.length === 0 ? (
           <p className="p-4 text-sm text-text-secondary">
@@ -572,6 +734,37 @@ export function MarkupsPanel() {
         )}
       </div>
 
+      {groupTotals &&
+        (() => {
+          const group = state.groups.find((g) => g.id === groupTotals.groupId);
+          if (!group) return null;
+          const ids = new Set(subtreeMembers(state.groups, group.id, existing));
+          const groupRows = rows.filter((row) => ids.has(row.id));
+          const groupSums = summarizeRows(groupRows, state.displayUnit);
+          return (
+            <FloatingMenu
+              x={groupTotals.x}
+              y={groupTotals.y}
+              menuRef={totalsRef}
+              role="dialog"
+              className="w-64 px-3 py-2"
+            >
+              <div className="mb-1 flex items-baseline justify-between gap-2">
+                <span className="truncate text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                  {group.name} totals
+                </span>
+                <span className="shrink-0 text-xs text-text-muted">
+                  {groupRows.length} item{groupRows.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {groupSums.length > 0 ? (
+                <TotalsList totals={groupSums} />
+              ) : (
+                <p className="text-sm text-text-muted">No measured markups in this group yet.</p>
+              )}
+            </FloatingMenu>
+          );
+        })()}
       {totals.length > 0 && (
         <div className="border-t border-border bg-surface-muted px-3 py-2">
           <button
@@ -588,15 +781,10 @@ export function MarkupsPanel() {
               <span className="ml-auto font-normal normal-case text-text-muted">{totals.length}</span>
             )}
           </button>
-          <ul className={`mt-1 max-h-48 space-y-1 overflow-y-auto ${totalsOpen ? "" : "hidden"}`}>
-            {totals.map((t) => (
-              <li key={`${t.type}-${t.color}`} className="flex items-center gap-2 text-sm">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: t.color }} />
-                <span className="text-text-secondary">{t.type}</span>
-                <span className="ml-auto font-medium text-text-primary">{t.display}</span>
-              </li>
-            ))}
-          </ul>
+          <TotalsList
+            totals={totals}
+            className={`mt-1 max-h-48 overflow-y-auto ${totalsOpen ? "" : "hidden"}`}
+          />
         </div>
       )}
     </aside>

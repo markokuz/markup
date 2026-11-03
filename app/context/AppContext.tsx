@@ -595,6 +595,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return updateTabById(state, action.tabId, (tab) => ({
         ...tab,
         projectHandle: action.handle,
+        ...(action.fileName ? { fileName: action.fileName } : {}),
       }));
     case "FIX_LEGACY_ROTATION":
       return updateTabById(state, action.tabId, (tab) => {

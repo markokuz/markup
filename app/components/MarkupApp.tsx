@@ -63,7 +63,7 @@ function MarkupShell() {
       // Let the blur's state update land before reading the tab.
       setTimeout(() => {
         const latest = getActiveTabFromAppState(stateRef.current) ?? tab;
-        void saveTabWithFeedback(latest, stateRef.current.displayUnit, "in-place", dispatch).finally(
+        void saveTabWithFeedback(latest, stateRef.current.displayUnit, "save", dispatch).finally(
           () => {
             savingRef.current = false;
           },

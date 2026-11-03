@@ -3,21 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocumentRotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import {
-  buildMarkedUpImageBlob,
-  buildMarkedUpPdfBlob,
-  getMarkedUpExportFileName,
-  getScreenUpDocDirection,
-  persistExportedBlob,
-  supportsSaveFilePicker,
-  type ExportSaveMode,
-} from "@/app/utils/exportDocument";
+import { supportsSaveFilePicker } from "@/app/utils/exportDocument";
 import { ColorWheel } from "@/app/components/ColorWheel";
 import { SettingsButton } from "@/app/components/SettingsDialog";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
-import { saveTabWithFeedback, type ProjectSaveMode } from "@/app/utils/projectSave";
+import { saveTabWithFeedback, type SaveMode } from "@/app/utils/projectSave";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
@@ -33,7 +25,6 @@ import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
 import { isColorTool } from "@/app/utils/settings";
-import { showSaveStatus } from "@/app/utils/saveStatus";
 import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
 
 /** How long the "set the scale first" popup stays under Calibrate. */
@@ -81,76 +72,15 @@ export function Toolbar() {
     if (file) await openDocumentFile(file, dispatch);
   };
 
-  const handleSaveProject = async (saveMode: ProjectSaveMode) => {
+  const handleSaveTab = async (saveMode: SaveMode) => {
     setSaveMenuOpen(false);
     const tab = getActiveTabFromAppState(state);
     if (!tab) return;
     await saveTabWithFeedback(tab, state.displayUnit, saveMode, dispatch);
   };
 
-  const handleSave = async (saveMode: ExportSaveMode = "download") => {
-    if (!state.fileBytes || !state.fileName || !state.fileType) return;
-    setSaveMenuOpen(false);
-    showSaveStatus("saving", "Saving…");
-    try {
-      const screenUpDoc = getScreenUpDocDirection(state.documentViewport, state.fileType);
-      const blob =
-        state.fileType === "pdf"
-          ? await buildMarkedUpPdfBlob(
-              state.fileBytes,
-              state.measurements,
-              state.rectangles,
-              state.notes,
-              state.shapes,
-              state.scale,
-              state.displayUnit,
-              state.zoom,
-              screenUpDoc,
-            )
-          : await buildMarkedUpImageBlob(
-              state.fileBytes,
-              state.fileName,
-              state.fileMimeType ?? "",
-              state.measurements,
-              state.rectangles,
-              state.notes,
-              state.shapes,
-              state.scale,
-              state.displayUnit,
-              state.zoom,
-              screenUpDoc,
-            );
-      if (!blob) {
-        showSaveStatus("error", "Couldn't save: nothing was generated");
-        return;
-      }
-      const outputFileName = getMarkedUpExportFileName(state.fileType, state.fileName);
-      const saved = await persistExportedBlob(blob, outputFileName, saveMode);
-      if (!saved) {
-        showSaveStatus("info", "Save cancelled");
-        return;
-      }
-      if (state.activeTabId) {
-        dispatch({ type: "MARK_TAB_SAVED", tabId: state.activeTabId, saved: state });
-      }
-      showSaveStatus("success", `Saved ${outputFileName}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      showSaveStatus("error", `Couldn't save: ${message}`);
-    }
-  };
-
-  const annotationCount =
-    state.measurements.filter((m) => !m.isCalibration).length +
-    state.rectangles.length +
-    state.notes.length +
-    state.shapes.length;
-
-  const saveLabel =
-    state.fileType === "image" ? "Save PNG" : "Save PDF";
-
-  const saveDisabled = !state.fileBytes || annotationCount === 0;
-  const projectSaveDisabled = !state.fileBytes;
+  const saveDisabled = !state.fileBytes;
+  const documentKind = state.fileType === "image" ? "PNG" : "PDF";
 
   const canChooseSaveLocation = supportsSaveFilePicker();
 
@@ -316,8 +246,13 @@ export function Toolbar() {
           <div ref={saveMenuRef} className="relative flex">
             <button
               type="button"
-              onClick={() => handleSave("download")}
+              onClick={() => handleSaveTab("save")}
               disabled={saveDisabled}
+              title={
+                state.projectHandle
+                  ? `Save (Ctrl+S) — updates ${state.projectHandle.name}`
+                  : "Save (Ctrl+S) — choose where to save"
+              }
               className="rounded-l-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-40"
               style={{ backgroundColor: "var(--save)" }}
               onMouseEnter={(e) => {
@@ -327,11 +262,11 @@ export function Toolbar() {
                 e.currentTarget.style.backgroundColor = "var(--save)";
               }}
             >
-              {saveLabel}
+              Save
             </button>
             <button
               type="button"
-              disabled={projectSaveDisabled}
+              disabled={saveDisabled}
               aria-expanded={saveMenuOpen}
               aria-haspopup="menu"
               aria-label="Save options"
@@ -339,7 +274,7 @@ export function Toolbar() {
               className="rounded-r-lg border-l border-emerald-700/20 px-2 py-1.5 text-white transition disabled:opacity-40"
               style={{ backgroundColor: "var(--save)" }}
               onMouseEnter={(e) => {
-                if (!projectSaveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
+                if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = "var(--save)";
@@ -358,76 +293,35 @@ export function Toolbar() {
                 role="menu"
                 className="absolute right-0 top-full z-50 mt-1 min-w-[14rem] overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
               >
-                <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Export flattened
-                </div>
                 <button
                   type="button"
                   role="menuitem"
-                  disabled={saveDisabled}
-                  onClick={() => handleSave("download")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  onClick={() => handleSaveTab("save-as")}
+                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
                 >
-                  Save to Downloads
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={saveDisabled}
-                  onClick={() => handleSave("choose-location")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  Choose save location…
-                  {!canChooseSaveLocation && (
-                    <span className="mt-0.5 block text-xs text-text-muted">
-                      Uses Downloads in this browser
-                    </span>
-                  )}
-                </button>
-                <div className="my-1 border-t border-border" />
-                <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  Editable project
-                </div>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={projectSaveDisabled}
-                  onClick={() => handleSaveProject("linked")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  <span className="flex items-center justify-between gap-3">
-                    Save project (.mkup)
-                    <span className="font-mono text-xs text-text-muted">Ctrl+S</span>
-                  </span>
+                  Save as…
                   <span className="mt-0.5 block text-xs text-text-muted">
-                    {state.projectHandle
-                      ? `Updates ${state.projectHandle.name}`
-                      : "Re-open later to keep editing"}
+                    {canChooseSaveLocation
+                      ? `Choose a folder and name for the ${documentKind}`
+                      : "Saves to Downloads in this browser"}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={projectSaveDisabled}
-                  onClick={() => handleSaveProject("download")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  Save project copy to Downloads
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={projectSaveDisabled}
-                  onClick={() => handleSaveProject("choose-location")}
-                  className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  Save project as…
-                  {!canChooseSaveLocation && (
+                {/* A saved PDF reopens editable on its own; only flattened images need a project. */}
+                {state.fileType !== "pdf" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleSaveTab("save-project-as")}
+                    className="block w-full px-3 py-2 text-left text-sm text-text-primary transition hover:bg-surface-muted"
+                  >
+                    Save project as .mkup…
                     <span className="mt-0.5 block text-xs text-text-muted">
-                      Uses Downloads in this browser
+                      {canChooseSaveLocation
+                        ? "Keeps the markups editable (a PNG can't)"
+                        : "Keeps the markups editable · saves to Downloads"}
                     </span>
-                  )}
-                </button>
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -33,7 +33,8 @@ export function DocumentTabs() {
 
   const renderTab = (tab: (typeof tabs)[0], index: number) => {
     const isActive = tab.id === activeTabId;
-    const label = tab.fileName ?? "Untitled";
+    // The file Ctrl+S writes to: a renamed Save as, or the .mkup being edited.
+    const label = tab.projectHandle?.name ?? tab.fileName ?? "Untitled";
     const requestClose = () => dispatch({ type: "REQUEST_CLOSE_TAB", tabId: tab.id });
 
     return (

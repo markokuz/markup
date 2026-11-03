@@ -306,7 +306,8 @@ export type AppAction =
   | { type: "SET_SNAP_LINES"; enabled: boolean }
   | { type: "SET_AUTO_ORIENT_PORTRAIT"; enabled: boolean }
   | { type: "APPLY_AUTO_ORIENT"; tabId: string; rotation: DocumentRotation }
-  | { type: "SET_PROJECT_HANDLE"; tabId: string; handle: FileSystemFileHandle | null }
+  /** Link the file the tab now saves to; `fileName` renames the tab's document too. */
+  | { type: "SET_PROJECT_HANDLE"; tabId: string; handle: FileSystemFileHandle | null; fileName?: string }
   | { type: "FIX_LEGACY_ROTATION"; tabId: string; width: number; height: number }
   | {
       type: "PASTE_ANNOTATIONS";

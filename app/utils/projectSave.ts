@@ -13,20 +13,23 @@ import {
 } from "@/app/utils/saveFilePicker";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { putSession } from "@/app/utils/sessionStore";
-import { downloadBlob, getScreenUpDocDirection } from "@/app/utils/exportDocument";
+import {
+  buildMarkedUpImageBlob,
+  downloadBlob,
+  getScreenUpDocDirection,
+} from "@/app/utils/exportDocument";
 import { buildPdfWithMarkups } from "@/app/utils/pdfSave";
 
 /**
- * - "in-place" (Ctrl+S): a PDF tab saves its markups into the PDF itself (editable when
- *   reopened here); a tab linked to a .mkup, or an image, behaves like "linked".
- * - "linked": overwrite the tab's linked .mkup; without a link, behaves like "Save as"
- *   and links the chosen file.
- * - "choose-location": always ask where to save, then link that file.
- * - "download": save a copy to Downloads (no link).
+ * - "save" (Ctrl+S): overwrite the file the tab is linked to: a .mkup, a PDF (markups
+ *   drawn on plus their edit data, so it reopens editable here), or a PNG saved earlier.
+ *   Unlinked tabs behave like "save-as".
+ * - "save-as": pick where to save the PDF (or a flattened PNG for images), then edit that file.
+ * - "save-project-as": pick where to save a .mkup, then edit that file.
  */
-export type ProjectSaveMode = "in-place" | "linked" | "choose-location" | "download";
+export type SaveMode = "save" | "save-as" | "save-project-as";
 
-function isProjectHandle(handle: FileSystemFileHandle | null): handle is FileSystemFileHandle {
+function isProjectHandle(handle: FileSystemFileHandle | null): boolean {
   return !!handle && handle.name.toLowerCase().endsWith(".mkup");
 }
 
@@ -49,20 +52,25 @@ type SavableTab = Pick<
   | "documentViewport"
 >;
 
+/** Suggested name for an image saved as a flattened PNG. */
+function markedUpPngName(fileName: string): string {
+  return `${fileName.replace(/\.[^.]+$/, "")}-markup.png`;
+}
+
 /**
- * Save a tab as a .mkup project. Returns the written file's name, or null when the
- * user cancelled. Always refreshes the browser backup first, so declining Chrome's
- * file-permission prompt (SavePermissionError) still keeps the work.
+ * Save a tab. Returns the written file's name, or null when the user cancelled. Always
+ * refreshes the browser backup first, so declining Chrome's file-permission prompt
+ * (SavePermissionError) still keeps the work.
  */
-export async function saveTabProject(
+export async function saveTab(
   tab: SavableTab,
   displayUnit: Unit,
-  mode: ProjectSaveMode,
+  mode: SaveMode,
   dispatch: Dispatch<AppAction>,
 ): Promise<string | null> {
   if (!tab.fileBytes || !tab.fileName || !tab.fileType) return null;
 
-  const blob = buildProjectBlob({
+  const project = buildProjectBlob({
     fileName: tab.fileName,
     fileType: tab.fileType,
     mimeType: tab.fileMimeType ?? "",
@@ -82,101 +90,119 @@ export async function saveTabProject(
     putSession({
       id: tab.id,
       fileName: handle?.name ?? getProjectFileName(tab.fileName!),
-      project: blob,
+      project,
       handle,
       savedAt: Date.now(),
     });
   await backup(tab.projectHandle);
 
-  if (mode === "in-place" && tab.fileType === "pdf" && !isProjectHandle(tab.projectHandle)) {
-    return savePdfInPlace(tab, displayUnit, dispatch);
-  }
+  // The saved file becomes the one this tab edits: later Ctrl+S saves go to it.
+  const adopt = async (handle: FileSystemFileHandle) => {
+    dispatch({
+      type: "SET_PROJECT_HANDLE",
+      tabId: tab.id,
+      handle,
+      // An image keeps its own name: decoding TIFF/HEIC sources goes by it.
+      ...(tab.fileType === "pdf" && !isProjectHandle(handle) ? { fileName: handle.name } : {}),
+    });
+    await backup(handle);
+  };
 
-  const projectHandle = isProjectHandle(tab.projectHandle) ? tab.projectHandle : null;
-  if ((mode === "linked" || mode === "in-place") && projectHandle) {
-    await writeBlobToHandle(projectHandle, blob);
+  if (mode === "save-project-as") {
+    const fileName =
+      tab.projectHandle && isProjectHandle(tab.projectHandle)
+        ? tab.projectHandle.name
+        : getProjectFileName(tab.fileName);
+    const result = await persistProjectBlob(
+      project,
+      fileName,
+      supportsSaveFilePicker() ? "choose-location" : "download",
+    );
+    if (!result.saved) return null;
+    if (result.handle) await adopt(result.handle);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-    return projectHandle.name;
+    return result.handle?.name ?? fileName;
   }
 
-  const persistMode =
-    mode === "download" || !supportsSaveFilePicker() ? "download" : "choose-location";
-  const fileName = projectHandle?.name ?? getProjectFileName(tab.fileName);
-  const result = await persistProjectBlob(blob, fileName, persistMode);
-  if (!result.saved) return null;
-
-  if (result.handle) {
-    dispatch({ type: "SET_PROJECT_HANDLE", tabId: tab.id, handle: result.handle });
-    await backup(result.handle);
-  }
-  dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-  return result.handle?.name ?? fileName;
-}
-
-/** Writes the markups into the tab's PDF: its linked file, or a picked/downloaded one. */
-async function savePdfInPlace(
-  tab: SavableTab,
-  displayUnit: Unit,
-  dispatch: Dispatch<AppAction>,
-): Promise<string | null> {
-  const blob = await buildPdfWithMarkups(
-    tab.fileBytes!,
-    {
-      scale: tab.scale,
-      measurements: tab.measurements,
-      rectangles: tab.rectangles,
-      notes: tab.notes,
-      shapes: tab.shapes,
-      displayUnit,
-      zoom: tab.zoom,
-      rotation: tab.rotation,
-      toolColors: tab.toolColors,
-    },
-    getScreenUpDocDirection(tab.documentViewport, "pdf"),
-  );
-
-  if (tab.projectHandle) {
-    await writeBlobToHandle(tab.projectHandle, blob);
+  if (mode === "save" && tab.projectHandle && isProjectHandle(tab.projectHandle)) {
+    await writeBlobToHandle(tab.projectHandle, project);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
     return tab.projectHandle.name;
   }
 
-  // Opened without a file handle (older browser or file input): save as the same name.
-  const fileName = tab.fileName!;
+  const output =
+    tab.fileType === "pdf"
+      ? await buildPdfWithMarkups(
+          tab.fileBytes,
+          {
+            scale: tab.scale,
+            measurements: tab.measurements,
+            rectangles: tab.rectangles,
+            notes: tab.notes,
+            shapes: tab.shapes,
+            displayUnit,
+            zoom: tab.zoom,
+            rotation: tab.rotation,
+            toolColors: tab.toolColors,
+          },
+          getScreenUpDocDirection(tab.documentViewport, "pdf"),
+        )
+      : await buildMarkedUpImageBlob(
+          tab.fileBytes,
+          tab.fileName,
+          tab.fileMimeType ?? "",
+          tab.measurements,
+          tab.rectangles,
+          tab.notes,
+          tab.shapes,
+          tab.scale,
+          displayUnit,
+          tab.zoom,
+          getScreenUpDocDirection(tab.documentViewport, "image"),
+        );
+  if (!output) throw new Error("nothing was generated");
+
+  if (mode === "save" && tab.projectHandle && !isProjectHandle(tab.projectHandle)) {
+    await writeBlobToHandle(tab.projectHandle, output);
+    dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
+    return tab.projectHandle.name;
+  }
+
+  const suggestedName = tab.fileType === "pdf" ? tab.fileName : markedUpPngName(tab.fileName);
   if (supportsSaveFilePicker()) {
     let handle: FileSystemFileHandle | null;
     try {
-      handle = await writeBlobWithSaveFilePicker(blob, fileName);
+      handle = await writeBlobWithSaveFilePicker(output, suggestedName);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return null;
       throw error;
     }
     if (handle) {
-      dispatch({ type: "SET_PROJECT_HANDLE", tabId: tab.id, handle });
+      await adopt(handle);
       dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
       return handle.name;
     }
   }
-  downloadBlob(blob, fileName);
+  downloadBlob(output, suggestedName);
   dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-  return fileName;
+  return suggestedName;
 }
 
-/** saveTabProject plus the save toast: Saving… → Saved / cancelled / browser-only / error. */
+/** saveTab plus the save toast: Saving… → Saved / cancelled / browser-only / error. */
 export async function saveTabWithFeedback(
   tab: SavableTab,
   displayUnit: Unit,
-  mode: ProjectSaveMode,
+  mode: SaveMode,
   dispatch: Dispatch<AppAction>,
 ): Promise<boolean> {
   showSaveStatus("saving", "Saving…");
   try {
-    const savedName = await saveTabProject(tab, displayUnit, mode, dispatch);
+    const savedName = await saveTab(tab, displayUnit, mode, dispatch);
     if (!savedName) {
       showSaveStatus("info", "Save cancelled");
       return false;
     }
-    showSaveStatus("success", "Saved");
+    showSaveStatus("success", `Saved ${savedName}`);
     return true;
   } catch (error) {
     if (error instanceof SavePermissionError) {

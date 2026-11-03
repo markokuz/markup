@@ -2,11 +2,13 @@ export const DEFAULT_ANNOTATION_COLOR = "#06b6d4";
 export const CALIBRATION_COLOR = "#f59e0b";
 export const SELECTION_ACCENT = "#22d3ee";
 /** Clouds and callouts start red, the redline convention. */
-export const REDLINE_COLOR = "#ef4444";
+export const REDLINE_COLOR = "#dc2626";
+/** The palette's earlier, lighter red; saved tool colours still holding it move to REDLINE_COLOR. */
+export const LEGACY_REDLINE_COLOR = "#ef4444";
 
 export const MARKUP_PALETTE = [
   "#06b6d4",
-  "#ef4444",
+  REDLINE_COLOR,
   "#22c55e",
   "#eab308",
   "#a855f7",

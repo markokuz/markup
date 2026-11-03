@@ -74,7 +74,7 @@ import {
   textFont,
   textScreenBox,
 } from "@/app/utils/noteLayout";
-import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
+import { getAnnotationColor, REDLINE_COLOR, SELECTION_ACCENT } from "@/app/utils/colors";
 
 interface AnnotationLayerProps {
   viewport: DocumentViewport;
@@ -1561,7 +1561,7 @@ export function AnnotationLayer({
                 cy={tip.y}
                 r={6}
                 fill="#0f172a"
-                stroke={c.color ?? "#ef4444"}
+                stroke={c.color ?? REDLINE_COLOR}
                 strokeWidth={2}
                 style={{ cursor: "crosshair", pointerEvents: "all" }}
                 onPointerDown={(event) => onShapePointPointerDown(c.id, 0, event)}

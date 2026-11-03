@@ -1,5 +1,5 @@
 import type { ToolMode, Unit } from "@/app/types";
-import { DEFAULT_ANNOTATION_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
+import { DEFAULT_ANNOTATION_COLOR, LEGACY_REDLINE_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
 
 /** Tools that create a coloured markup. */
 export type ColorTool = "measure" | "rectangle" | "area" | "count" | "cloud" | "callout" | "text" | "note";
@@ -68,10 +68,16 @@ export function loadSettings(): AppSettings {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const stored = JSON.parse(raw) as Partial<AppSettings>;
+    const storedColors = Object.fromEntries(
+      Object.entries(stored.toolColors ?? {}).map(([tool, color]) => [
+        tool,
+        color === LEGACY_REDLINE_COLOR ? REDLINE_COLOR : color,
+      ]),
+    );
     return {
       ...DEFAULT_SETTINGS,
       ...stored,
-      toolColors: { ...DEFAULT_SETTINGS.toolColors, ...stored.toolColors },
+      toolColors: { ...DEFAULT_SETTINGS.toolColors, ...storedColors },
       hotkeys: { ...DEFAULT_SETTINGS.hotkeys, ...stored.hotkeys },
     };
   } catch {

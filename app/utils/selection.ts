@@ -18,7 +18,7 @@ import {
   toScreenRect,
 } from "@/app/utils/coordinates";
 import { cloudOutline, rotateAround, rotatedBoxCorners } from "@/app/utils/geometry";
-import { noteCardSize, textScreenBox } from "@/app/utils/noteLayout";
+import { noteCardSize, textInkScreenBox, textScreenBox } from "@/app/utils/noteLayout";
 
 /** Screen corners (TL, TR, BR, BL) of a note card, turned with the note. */
 export function noteScreenCorners(note: NoteAnnotation, viewport: DocumentViewport): Point2D[] {
@@ -39,10 +39,16 @@ export function rectScreenCorners(rectangle: RectMeasurement, viewport: Document
   ].map((p) => rotateAround(p, centre, rectangle.rotation ?? 0));
 }
 
-/** Screen corners of a free-text box, turned about its anchor. */
+/** Screen corners around a free text's letters, turned about its anchor (the box's top-left). */
 export function textScreenCorners(shape: ShapeAnnotation, viewport: DocumentViewport): Point2D[] {
-  const { x, y, width, height } = textScreenBox(shape, viewport);
-  return rotatedBoxCorners({ x, y }, width, height, shape.rotation ?? 0);
+  const anchor = textScreenBox(shape, viewport);
+  const { x, y, width, height } = textInkScreenBox(shape, viewport);
+  return [
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
+  ].map((p) => rotateAround(p, anchor, shape.rotation ?? 0));
 }
 
 function closedSegments(points: Point2D[]): [Point2D, Point2D][] {

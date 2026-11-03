@@ -11,6 +11,7 @@ import {
   TEXT_DEFAULT_SIZE,
   TEXT_FONT_FAMILY,
   TEXT_LINE_HEIGHT,
+  textInkScreenBox,
   textLines,
   textScreenBox,
 } from "@/app/utils/noteLayout";
@@ -104,14 +105,16 @@ export function ShapeAnnotation({
     if (hidden) return null;
     const px = (shape.fontSize ?? TEXT_DEFAULT_SIZE) * viewportZoom(viewport);
     const box = textScreenBox(shape, viewport);
+    // The outline hugs the letters rather than the line spacing around them.
+    const ink = isSelected ? textInkScreenBox(shape, viewport) : box;
     return (
       <g pointerEvents="none" transform={`rotate(${shape.rotation ?? 0} ${box.x} ${box.y})`}>
         {isSelected && (
           <rect
-            x={box.x - 3}
-            y={box.y - 3}
-            width={box.width + 6}
-            height={box.height + 6}
+            x={ink.x - 3}
+            y={ink.y - 3}
+            width={ink.width + 6}
+            height={ink.height + 6}
             fill="none"
             stroke={SELECTION_ACCENT}
             strokeWidth={1.5}

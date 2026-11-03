@@ -71,6 +71,7 @@ import { viewportZoom } from "@/app/utils/documentViewport";
 import {
   TEXT_DEFAULT_SIZE,
   TEXT_LINE_HEIGHT,
+  textFirstLineMiddle,
   textFont,
   textScreenBox,
 } from "@/app/utils/noteLayout";
@@ -120,6 +121,8 @@ const MIN_FREEHAND_SIZE = 12;
 const ROTATION_SNAP_TOLERANCE_DEG = 5;
 /** New text starts this far right of the click, in screen px, clear of the I-beam. */
 const TEXT_CURSOR_GAP_PX = 2;
+/** Selected text's move tab sits this far outside its left edge (centre), clear of the corner handles. */
+const TEXT_MOVE_TAB_OFFSET_PX = 16;
 /** Text tool I-beam whose hotspot is its exact centre (the system `text` cursor's varies by OS). */
 const TEXT_TOOL_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="24" viewBox="0 0 16 24">' +
@@ -355,14 +358,14 @@ export function AnnotationLayer({
         }
         // The last size picked, else the default — the same size on the page at any zoom.
         const fontSize = state.settings.textSize ?? TEXT_DEFAULT_SIZE;
-        // Start typing just right of the I-beam, with the first line centred on it.
-        const lineHeightPx = fontSize * viewportZoom(viewport) * TEXT_LINE_HEIGHT;
+        // Start typing just right of the I-beam, with the first line's capitals centred on it.
+        const firstLineMiddle = textFirstLineMiddle(fontSize * viewportZoom(viewport));
         dispatch({
           type: "ADD_SHAPE",
           shape: {
             id: createId(),
             kind: "text",
-            points: [toDocPoint(viewport, local.x + TEXT_CURSOR_GAP_PX, local.y - lineHeightPx / 2)],
+            points: [toDocPoint(viewport, local.x + TEXT_CURSOR_GAP_PX, local.y - firstLineMiddle)],
             text: "",
             fontSize,
             color: toolColors.text,
@@ -1322,12 +1325,49 @@ export function AnnotationLayer({
     transformTarget?.kind === "shape" &&
     (transformTarget.item.kind === "cloud" || transformTarget.item.kind === "area");
 
+  /** Grip left of selected text, so it can be moved without hitting a corner handle. */
+  const renderTextMoveTab = (shape: ShapeAnnotationType, frame: TransformFrame) => {
+    const [tl, , , bl] = frame.corners;
+    const leftMid = { x: (tl.x + bl.x) / 2, y: (tl.y + bl.y) / 2 };
+    const out = { x: leftMid.x - frame.centre.x, y: leftMid.y - frame.centre.y };
+    const len = Math.hypot(out.x, out.y) || 1;
+    const c = {
+      x: leftMid.x + (out.x / len) * TEXT_MOVE_TAB_OFFSET_PX,
+      y: leftMid.y + (out.y / len) * TEXT_MOVE_TAB_OFFSET_PX,
+    };
+    return (
+      <g
+        transform={`rotate(${frame.angle} ${c.x} ${c.y})`}
+        style={{ cursor: "move", pointerEvents: "all" }}
+        onPointerDown={(event) => {
+          const overlay = overlayRef.current;
+          if (!overlay || event.button !== 0) return;
+          event.stopPropagation();
+          const local = getLocalCoords(overlay, event.clientX, event.clientY);
+          startShapeDrag(shape, toDocPoint(viewport, local.x, local.y), event);
+        }}
+      >
+        <title>Drag to move</title>
+        <rect x={c.x - 6} y={c.y - 10} width={12} height={20} rx={3} fill={SELECTION_ACCENT} />
+        {[-5, 0, 5].map((dy) =>
+          [-2, 2].map((dx) => (
+            <circle key={`${dx},${dy}`} cx={c.x + dx} cy={c.y + dy} r={1.1} fill="#ffffff" pointerEvents="none" />
+          )),
+        )}
+      </g>
+    );
+  };
+
   const renderTransformHandles = (frame: TransformFrame) => {
     const [tl, tr] = frame.corners;
     const topMid = { x: (tl.x + tr.x) / 2, y: (tl.y + tr.y) / 2 };
     const out = { x: topMid.x - frame.centre.x, y: topMid.y - frame.centre.y };
     const len = Math.hypot(out.x, out.y) || 1;
     const knob = { x: topMid.x + (out.x / len) * 26, y: topMid.y + (out.y / len) * 26 };
+    const movableText =
+      transformTarget?.kind === "shape" && transformTarget.item.kind === "text"
+        ? transformTarget.item
+        : null;
     return (
       <g key="transform-handles">
         {showFrameOutline && (
@@ -1369,6 +1409,7 @@ export function AnnotationLayer({
               onPointerDown={(event) => startTransformDrag(event, { type: "scale", corner: i })}
             />
           ))}
+        {movableText && renderTextMoveTab(movableText, frame)}
       </g>
     );
   };

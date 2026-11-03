@@ -65,9 +65,16 @@ export function textLines(text: string | undefined): string[] {
 
 let measureContext: CanvasRenderingContext2D | null = null;
 
+/** Where line `index`'s hanging baseline sits below the text box's top, in screen px. */
+export function textLineOffset(index: number, px: number): number {
+  return index * px * TEXT_LINE_HEIGHT + (px * (TEXT_LINE_HEIGHT - 1)) / 2;
+}
+
+type TextBoxShape = Pick<ShapeAnnotation, "points" | "text" | "fontSize" | "bold" | "italic">;
+
 /** Screen-space box of a free-text shape (top-left at its anchor, axis-aligned). */
 export function textScreenBox(
-  shape: Pick<ShapeAnnotation, "points" | "text" | "fontSize" | "bold" | "italic">,
+  shape: TextBoxShape,
   viewport: DocumentViewport,
 ): { x: number; y: number; width: number; height: number } {
   const anchor = viewport.convertToViewportPoint(shape.points[0].x, shape.points[0].y);
@@ -80,6 +87,48 @@ export function textScreenBox(
     width = Math.max(px, ...lines.map((line) => measureContext!.measureText(line).width));
   }
   return { x: anchor.x, y: anchor.y, width, height: lines.length * px * TEXT_LINE_HEIGHT };
+}
+
+/**
+ * The text box trimmed top and bottom to the letters themselves (unturned, same
+ * anchor), so clicks and the selection outline hug the text, not its line spacing.
+ * Blank text keeps the full box.
+ */
+export function textInkScreenBox(
+  shape: TextBoxShape,
+  viewport: DocumentViewport,
+): { x: number; y: number; width: number; height: number } {
+  const box = textScreenBox(shape, viewport);
+  const ctx = measureContext;
+  if (!ctx) return box;
+  const px = (shape.fontSize ?? TEXT_DEFAULT_SIZE) * viewportZoom(viewport);
+  ctx.font = textFont(px, shape.bold, shape.italic);
+  // Measure from the same baseline the SVG text is drawn on.
+  ctx.textBaseline = "hanging";
+  let top = Infinity;
+  let bottom = -Infinity;
+  textLines(shape.text).forEach((line, i) => {
+    if (!line.trim()) return;
+    const metrics = ctx.measureText(line);
+    const baseline = box.y + textLineOffset(i, px);
+    top = Math.min(top, baseline - metrics.actualBoundingBoxAscent);
+    bottom = Math.max(bottom, baseline + metrics.actualBoundingBoxDescent);
+  });
+  ctx.textBaseline = "alphabetic";
+  return top < bottom ? { x: box.x, y: top, width: box.width, height: bottom - top } : box;
+}
+
+/** Distance from a text box's top to the middle of its first line's capitals, in screen px. */
+export function textFirstLineMiddle(px: number): number {
+  measureContext ??= document.createElement("canvas").getContext("2d");
+  let capHeight = px * 0.72;
+  if (measureContext) {
+    measureContext.font = textFont(px);
+    measureContext.textBaseline = "hanging";
+    capHeight = measureContext.measureText("H").actualBoundingBoxDescent || capHeight;
+    measureContext.textBaseline = "alphabetic";
+  }
+  return textLineOffset(0, px) + capHeight / 2;
 }
 
 /** Space the card's padding, accent bar and 1px borders take from its width. */

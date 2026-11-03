@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { CloudMode, DrawMode, ToolMode } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 
@@ -137,6 +137,34 @@ function ModeToggle<T extends string>({
 export function SideToolbar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Which ends of the tool list are cut off when the window is short.
+  const [overflow, setOverflow] = useState({ up: false, down: false });
+
+  const updateOverflow = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const up = el.scrollTop > 1;
+    const down = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setOverflow((prev) => (prev.up === up && prev.down === down ? prev : { up, down }));
+  }, []);
+
+  const hasFile = Boolean(state.fileBytes);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateOverflow();
+    // The window resizing, or a tool's options opening under it, changes what fits.
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [hasFile, state.tool, updateOverflow]);
+
+  const scrollBy = (direction: 1 | -1) => {
+    const el = scrollRef.current;
+    el?.scrollBy({ top: direction * el.clientHeight * 0.6, behavior: "smooth" });
+  };
 
   if (!state.fileBytes) return null;
 
@@ -148,77 +176,112 @@ export function SideToolbar() {
     state.tool === tool || (tool === "text" && state.tool === "note");
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col gap-1 border-r border-border bg-surface p-2">
-      {TOOLS.map((tool) => (
-        <Fragment key={tool.id}>
-          <button
-            type="button"
-            title={
-              state.settings.hotkeys[tool.id]
-                ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})`
-                : tool.hint
-            }
-            onClick={() => {
-              // Re-clicking Text keeps Note if that is the one picked.
-              if (!(tool.id === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool: tool.id });
-            }}
-            className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition ${
-              isActive(tool.id)
-                ? "bg-accent text-white shadow-sm"
-                : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-            }`}
-          >
-            <ToolIcon tool={tool.id === "text" && state.tool === "note" ? "note" : tool.id} />
-            <span>{tool.id === "text" && state.tool === "note" ? "Note" : tool.label}</span>
-          </button>
-          {tool.id === "text" && isActive("text") && (
-            <ModeToggle
-              options={TEXT_TOOLS}
-              value={state.tool === "note" ? "note" : "text"}
-              onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
-            />
-          )}
-          {tool.id === "measure" && state.tool === "measure" && (
-            <ModeToggle
-              options={LINE_MODES}
-              value={state.lineMode}
-              onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
-            />
-          )}
-          {tool.id === "rectangle" && state.tool === "rectangle" && (
-            <ModeToggle
-              options={RECT_MODES}
-              value={state.rectMode}
-              onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
-            />
-          )}
-          {tool.id === "cloud" && state.tool === "cloud" && (
-            <ModeToggle
-              options={CLOUD_MODES}
-              value={state.cloudMode}
-              onChange={(mode) => dispatch({ type: "SET_CLOUD_MODE", mode })}
-            />
-          )}
-          {tool.id === "count" && state.tool === "count" && (
-            <div className="flex flex-col gap-1 rounded-lg bg-surface-muted p-1">
-              <CountStartInput
-                value={state.countStart}
-                onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
+    <aside className="relative flex w-14 shrink-0 flex-col border-r border-border bg-surface">
+      <div
+        ref={scrollRef}
+        onScroll={updateOverflow}
+        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {TOOLS.map((tool) => (
+          <Fragment key={tool.id}>
+            <button
+              type="button"
+              title={
+                state.settings.hotkeys[tool.id]
+                  ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})`
+                  : tool.hint
+              }
+              onClick={() => {
+                // Re-clicking Text keeps Note if that is the one picked.
+                if (!(tool.id === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool: tool.id });
+              }}
+              className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition ${
+                isActive(tool.id)
+                  ? "bg-accent text-white shadow-sm"
+                  : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+              }`}
+            >
+              <ToolIcon tool={tool.id === "text" && state.tool === "note" ? "note" : tool.id} />
+              <span>{tool.id === "text" && state.tool === "note" ? "Note" : tool.label}</span>
+            </button>
+            {tool.id === "text" && isActive("text") && (
+              <ModeToggle
+                options={TEXT_TOOLS}
+                value={state.tool === "note" ? "note" : "text"}
+                onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
               />
-              <button
-                type="button"
-                title="Finish this count and start a new one on your next click (or press Enter)"
-                disabled={!countInProgress}
-                onClick={() => dispatch({ type: "FINISH_SHAPE" })}
-                className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
-              >
-                New
-              </button>
-            </div>
-          )}
-        </Fragment>
-      ))}
+            )}
+            {tool.id === "measure" && state.tool === "measure" && (
+              <ModeToggle
+                options={LINE_MODES}
+                value={state.lineMode}
+                onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
+              />
+            )}
+            {tool.id === "rectangle" && state.tool === "rectangle" && (
+              <ModeToggle
+                options={RECT_MODES}
+                value={state.rectMode}
+                onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
+              />
+            )}
+            {tool.id === "cloud" && state.tool === "cloud" && (
+              <ModeToggle
+                options={CLOUD_MODES}
+                value={state.cloudMode}
+                onChange={(mode) => dispatch({ type: "SET_CLOUD_MODE", mode })}
+              />
+            )}
+            {tool.id === "count" && state.tool === "count" && (
+              <div className="flex flex-col gap-1 rounded-lg bg-surface-muted p-1">
+                <CountStartInput
+                  value={state.countStart}
+                  onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
+                />
+                <button
+                  type="button"
+                  title="Finish this count and start a new one on your next click (or press Enter)"
+                  disabled={!countInProgress}
+                  onClick={() => dispatch({ type: "FINISH_SHAPE" })}
+                  className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
+                >
+                  New
+                </button>
+              </div>
+            )}
+          </Fragment>
+        ))}
+      </div>
+      {overflow.up && <MoreToolsHint direction="up" onClick={() => scrollBy(-1)} />}
+      {overflow.down && <MoreToolsHint direction="down" onClick={() => scrollBy(1)} />}
     </aside>
+  );
+}
+
+/** Fade and chevron over a cut-off end of the tool list; clicking scrolls that way. */
+function MoreToolsHint({ direction, onClick }: { direction: "up" | "down"; onClick: () => void }) {
+  const down = direction === "down";
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      title={down ? "More tools below" : "More tools above"}
+      aria-label={down ? "Scroll to more tools below" : "Scroll to more tools above"}
+      onClick={onClick}
+      className={`absolute inset-x-0 flex h-7 justify-center from-surface via-surface/90 to-transparent text-text-secondary hover:text-text-primary ${
+        down ? "bottom-0 items-end bg-linear-to-t pb-0.5" : "top-0 items-start bg-linear-to-b pt-0.5"
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <path
+          d={down ? "M3 5l4 4 4-4" : "M3 9l4-4 4 4"}
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 

@@ -466,7 +466,8 @@ export function PdfViewer() {
   }
 
   return (
-    <div className="relative min-h-0 min-w-0 flex-1">
+    // isolate: the minimap's z-index must not compete with header and status bar popups.
+    <div className="relative isolate min-h-0 min-w-0 flex-1">
       <div
         ref={scrollRef}
         className="h-full w-full overflow-auto bg-canvas-bg p-6"

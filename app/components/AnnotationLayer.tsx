@@ -129,6 +129,8 @@ type DragMode =
   | { type: "group"; id: string; lastPdf: Point2D; moved: boolean };
 
 const MIN_RECT_SIZE = 5;
+/** Drags that carry a markup across the page (they show the four-way move cursor). */
+const MOVE_DRAGS = new Set<DragMode["type"]>(["body", "rectBody", "noteBody", "shapeBody", "group"]);
 const MIN_MARQUEE_SIZE = 4;
 /** Freehand clouds: sample spacing, jitter tolerance and minimum size, in screen px. */
 const FREEHAND_STEP_PX = 3;
@@ -191,8 +193,12 @@ export function AnnotationLayer({
   /** Screen point under the eraser, for its outline. */
   const [eraserAt, setEraserAt] = useState<Point2D | null>(null);
   const erasing = state.tool === "draw" && state.drawEraser;
+  /** Select tool cursor from what is under (or being dragged by) the pointer. */
+  const [selectCursor, setSelectCursor] = useState<string | null>(null);
   const eraserRadius = (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE) / 2;
   const dragRef = useRef<DragMode | null>(null);
+  /** A move drag has started but not moved yet, so its undo step is still to be saved. */
+  const moveUndoPendingRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -254,7 +260,7 @@ export function AnnotationLayer({
   const startShapeDrag = useCallback(
     (shape: ShapeAnnotationType, originPdf: Point2D, event: React.PointerEvent) => {
       if (shape.locked) return;
-      dispatch({ type: "RECORD_UNDO" });
+      moveUndoPendingRef.current = true;
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
         type: "shapeBody",
@@ -263,7 +269,7 @@ export function AnnotationLayer({
         points: shape.points.map((p) => ({ ...p })),
       };
     },
-    [dispatch],
+    [],
   );
 
   /** Capture the boxed area and put it on the clipboard for Ctrl+V (Bluebeam-style Snapshot). */
@@ -763,6 +769,35 @@ export function AnnotationLayer({
       onCursorMove?.(local);
       if (erasing) setEraserAt(local);
 
+      if (state.tool === "select") {
+        // Four-way arrows over anything a press would pick up and move, and while moving it.
+        let next: string | null = null;
+        const drag = dragRef.current;
+        if (drag) {
+          next = MOVE_DRAGS.has(drag.type) ? "move" : drag.type === "rotate" ? "grabbing" : null;
+        } else {
+          const hitId = hitTestAnnotations(
+            local,
+            state.measurements,
+            state.rectangles,
+            state.notes,
+            state.shapes,
+            viewport,
+            state.scale,
+            state.displayUnit,
+          );
+          if (hitId) {
+            const hit =
+              state.shapes.find((s) => s.id === hitId) ??
+              state.measurements.find((m) => m.id === hitId) ??
+              state.rectangles.find((r) => r.id === hitId) ??
+              state.notes.find((n) => n.id === hitId);
+            next = hit?.locked ? "pointer" : "move";
+          }
+        }
+        if (next !== selectCursor) setSelectCursor(next);
+      }
+
       if (dragRef.current) {
         const drag = dragRef.current;
 
@@ -777,6 +812,11 @@ export function AnnotationLayer({
           drag.last = local;
           eraseAlong(along, drag);
           return;
+        }
+
+        if (moveUndoPendingRef.current && MOVE_DRAGS.has(drag.type)) {
+          moveUndoPendingRef.current = false;
+          dispatch({ type: "RECORD_UNDO" });
         }
 
         if (drag.type === "freehand") {
@@ -961,7 +1001,7 @@ export function AnnotationLayer({
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
   );
 
   /**
@@ -1082,6 +1122,7 @@ export function AnnotationLayer({
     }
 
     dragRef.current = null;
+    moveUndoPendingRef.current = false;
   }, [dispatch, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, state.shapes, viewport]);
 
   const singleSelectedId =
@@ -1218,7 +1259,8 @@ export function AnnotationLayer({
     const overlay = overlayRef.current;
     if (!overlay) return;
 
-    dispatch({ type: "RECORD_UNDO" });
+    // The undo step is saved on the first move, so a plain click to select adds none.
+    moveUndoPendingRef.current = true;
 
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
     const originPdf = toDocPoint(viewport, local.x, local.y);
@@ -1246,7 +1288,8 @@ export function AnnotationLayer({
     const overlay = overlayRef.current;
     if (!overlay) return;
 
-    dispatch({ type: "RECORD_UNDO" });
+    // The undo step is saved on the first move, so a plain click to select adds none.
+    moveUndoPendingRef.current = true;
 
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
     const originPdf = toDocPoint(viewport, local.x, local.y);
@@ -1342,7 +1385,8 @@ export function AnnotationLayer({
     const overlay = overlayRef.current;
     if (!overlay) return;
 
-    dispatch({ type: "RECORD_UNDO" });
+    // The undo step is saved on the first move, so a plain click to select adds none.
+    moveUndoPendingRef.current = true;
 
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
     const originPdf = toDocPoint(viewport, local.x, local.y);
@@ -1468,7 +1512,7 @@ export function AnnotationLayer({
     shape.points.length === 2 ? (
       <NoteAnnotation
         key={`${shape.id}-card`}
-        note={{ id: shape.id, position: shape.points[1], text: shape.text ?? "", color: shape.color }}
+        note={{ id: shape.id, position: shape.points[1], text: shape.text ?? "", color: shape.color, locked: shape.locked }}
         placeholder="Callout"
         viewport={viewport}
         isSelected={state.selectedIds.includes(shape.id)}
@@ -1809,7 +1853,9 @@ export function AnnotationLayer({
       style={{
         cursor: erasing
           ? "none"
-          : state.tool === "pan"
+          : state.tool === "select" && selectCursor
+            ? selectCursor
+            : state.tool === "pan"
             ? "grab"
             : state.tool === "text"
               ? TEXT_TOOL_CURSOR
@@ -1855,6 +1901,7 @@ export function AnnotationLayer({
         handlePointerUp();
         onCursorMove?.(null);
         setEraserAt(null);
+        setSelectCursor(null);
       }}
     >
       <g id={ANNOTATION_ROOT_ID}>

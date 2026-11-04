@@ -72,11 +72,10 @@ export function InlineDimensionLine({
   const handleLinePointerDown = (event: React.PointerEvent) => {
     if (!interactive) return;
     event.stopPropagation();
-    if (bodyDraggable && onBodyPointerDown) {
-      onBodyPointerDown(event);
-    } else {
-      onSelect?.(event.shiftKey || event.ctrlKey || event.metaKey);
-    }
+    // Press selects the line and, unless adding to the selection, starts moving it.
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    onSelect?.(additive);
+    if (bodyDraggable && !additive && onBodyPointerDown) onBodyPointerDown(event);
   };
 
   // No label ("—"): draw one unbroken line instead of leaving a gap for text.

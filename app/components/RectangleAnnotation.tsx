@@ -278,11 +278,15 @@ export function RectangleAnnotation({
       !(editingField === "height" && handle.id === "left"),
   );
 
+  // Any unlocked rectangle can be grabbed and moved on the first press, like every markup.
+  const grabbable = (isSelectMode || showHandles) && !rectangle.locked;
+
   const handleEdgePointerDown = (event: React.PointerEvent) => {
     if (!isSelectMode && !showHandles) return;
     event.stopPropagation();
-    onSelect(rectangle.id, event.shiftKey || event.ctrlKey || event.metaKey);
-    if (showHandles) {
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    onSelect(rectangle.id, additive);
+    if (grabbable && !additive) {
       onBodyPointerDown(rectangle.id, event);
     }
   };
@@ -315,7 +319,7 @@ export function RectangleAnnotation({
             color,
             strokeWidth,
             isSelectMode,
-            showHandles,
+            grabbable,
             handleEdgePointerDown,
             "top",
           )
@@ -324,7 +328,7 @@ export function RectangleAnnotation({
             color,
             strokeWidth,
             isSelectMode,
-            showHandles,
+            grabbable,
             handleEdgePointerDown,
             "top-full",
           )}
@@ -336,7 +340,7 @@ export function RectangleAnnotation({
         color={color}
         strokeWidth={strokeWidth}
         isSelectMode={isSelectMode}
-        showHandles={showHandles}
+        showHandles={grabbable}
         onEdgePointerDown={handleEdgePointerDown}
       />
       <EdgeLine
@@ -347,7 +351,7 @@ export function RectangleAnnotation({
         color={color}
         strokeWidth={strokeWidth}
         isSelectMode={isSelectMode}
-        showHandles={showHandles}
+        showHandles={grabbable}
         onEdgePointerDown={handleEdgePointerDown}
       />
       {leftEdge
@@ -356,7 +360,7 @@ export function RectangleAnnotation({
             color,
             strokeWidth,
             isSelectMode,
-            showHandles,
+            grabbable,
             handleEdgePointerDown,
             "left",
           )
@@ -365,7 +369,7 @@ export function RectangleAnnotation({
             color,
             strokeWidth,
             isSelectMode,
-            showHandles,
+            grabbable,
             handleEdgePointerDown,
             "left-full",
           )}

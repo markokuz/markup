@@ -43,6 +43,8 @@ export function NoteAnnotation({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartedRef = useRef(false);
+  // A click only opens the card for typing when it was already selected at the press.
+  const selectedAtPressRef = useRef(false);
   const ignoreBlurRef = useRef(false);
   const screenPos = toScreenPoint(viewport, note.position.x, note.position.y);
   const color = getAnnotationColor(note);
@@ -96,11 +98,18 @@ export function NoteAnnotation({
     dragStartedRef.current = false;
 
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-    if (!isSelected || additive) {
+    selectedAtPressRef.current = isSelected && !additive;
+    if (additive) {
       onSelect(note.id, additive);
       return;
     }
-
+    if (!isSelected) {
+      // Select and start moving on the same press. Selecting re-renders the card, so the
+      // page-level drag carries it rather than this card's own pointer handlers.
+      onSelect(note.id, false);
+      onBodyPointerDown(note.id, event);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -123,7 +132,7 @@ export function NoteAnnotation({
       return;
     }
 
-    if (!dragStartedRef.current && pointerStartRef.current) {
+    if (!dragStartedRef.current && pointerStartRef.current && selectedAtPressRef.current) {
       onStartEdit(note.id);
     }
 
@@ -186,7 +195,7 @@ export function NoteAnnotation({
             style={{
               ...cardStyle,
               width: note.width ?? "fit-content",
-              cursor: isSelectMode ? "pointer" : "default",
+              cursor: isSelectMode ? (note.locked ? "pointer" : "move") : "default",
               boxShadow: selectionGlow,
             }}
             onPointerDown={handleDisplayPointerDown}

@@ -154,7 +154,7 @@ export function MeasurementLine({
         isSelected={isSelected}
         showHandles={showHandles && !!scale}
         // Plain and uncalibrated lines have no editable label but still move.
-        bodyDraggable={showHandles && !measurement.locked}
+        bodyDraggable={interactive && !measurement.locked}
         isEditing={isEditingLength}
         interactive={interactive}
         showEndpointHandles={showHandles && isSelected && !measurement.locked}

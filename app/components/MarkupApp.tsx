@@ -254,7 +254,8 @@ function MarkupShell() {
 
   return (
     <div
-      className="flex h-screen flex-col bg-background text-text-primary"
+      // An app, not a page: clicks and drags never highlight its text (inputs still select).
+      className="flex h-screen select-none flex-col bg-background text-text-primary"
       // Whole window is a drop target so a stray drop never navigates the browser to the file.
       onDragOver={(e) => {
         e.preventDefault();

@@ -111,6 +111,11 @@ export interface ShapeAnnotation extends MarkupFlags {
   startAt?: number;
   /** Draw only: line thickness in screen px (defaults to 2). */
   strokeWidth?: number;
+  /**
+   * Draw only: indexes in `points` where a new piece starts, left by the eraser
+   * cutting a stroke in two. The pieces stay one markup.
+   */
+  breaks?: number[];
   /** Image (snapshot) only: PNG data URL; points are its TL, TR, BR, BL corners. */
   image?: string;
 }
@@ -210,6 +215,8 @@ export interface TabsState {
   autoOrientPortrait: boolean;
   /** Cloud tool: drag a rectangle or draw a freehand outline. */
   cloudMode: CloudMode;
+  /** Draw tool is rubbing out strokes instead of drawing; off whenever a tool is picked. */
+  drawEraser: boolean;
   /** First marker number for new count groups; resets to 1 when the Count tool is picked. */
   countStart: number;
   lineMode: DrawMode;
@@ -230,6 +237,7 @@ export type AppState = Omit<DocumentTab, "id"> & {
   snapLines: boolean;
   autoOrientPortrait: boolean;
   cloudMode: CloudMode;
+  drawEraser: boolean;
   countStart: number;
   lineMode: DrawMode;
   rectMode: DrawMode;
@@ -320,6 +328,18 @@ export type AppAction =
   | { type: "MOVE_TO_GROUP"; fromGroupId: string; toGroupId: string; ids: string[] }
   | { type: "SET_LOCKED"; ids: string[]; locked: boolean }
   | { type: "SET_CLOUD_MODE"; mode: CloudMode }
+  | { type: "SET_DRAW_ERASER"; on: boolean }
+  /**
+   * Rub out drawings along `centres` (doc points). Each stroke is cut within
+   * `radiusPx` plus half its thickness, in screen px at `pxPerDoc` screen px per doc unit.
+   */
+  | {
+      type: "ERASE_DRAWINGS";
+      centres: Point2D[];
+      radiusPx: number;
+      pxPerDoc: number;
+      recordUndo: boolean;
+    }
   | { type: "SET_LINE_MODE"; mode: DrawMode }
   | { type: "SET_RECT_MODE"; mode: DrawMode }
   | { type: "UPDATE_SETTINGS"; patch: Partial<AppSettings> }
@@ -366,6 +386,7 @@ export const initialTabsState: TabsState = {
   snapLines: true,
   autoOrientPortrait: true,
   cloudMode: "rect",
+  drawEraser: false,
   countStart: 1,
   lineMode: "measure",
   rectMode: "measure",

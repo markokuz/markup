@@ -1,5 +1,5 @@
 import type { Point2D, Scale, ShapeAnnotation, Unit } from "@/app/types";
-import { formatArea, polygonArea, polylineLength } from "@/app/utils/geometry";
+import { formatArea, polygonArea, polylineLength, splitStrokes } from "@/app/utils/geometry";
 import { NOTE_CARD } from "@/app/utils/noteLayout";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
@@ -64,3 +64,13 @@ export const DRAW_MAX_WIDTH = 20;
 export function drawWidth(shape: ShapeAnnotation): number {
   return shape.strokeWidth ?? DRAW_DEFAULT_WIDTH;
 }
+
+/** A drawing's separate pieces (more than one once the eraser has cut through it). */
+export function drawPieces(shape: ShapeAnnotation): Point2D[][] {
+  return splitStrokes(shape.points, shape.breaks);
+}
+
+/** Eraser diameter in screen px; each stroke is also cut half its thickness wider. */
+export const ERASER_DEFAULT_SIZE = 16;
+export const ERASER_MIN_SIZE = 4;
+export const ERASER_MAX_SIZE = 80;

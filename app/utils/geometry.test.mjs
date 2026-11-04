@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   cloudOutline,
   cloudPath,
+  eraseFromStrokes,
+  joinStrokes,
   simplifyPath,
+  splitStrokes,
   smoothClosedPath,
   formatArea,
   polygonArea,
@@ -66,5 +69,36 @@ assert.ok(near(rotateAround({ x: 2, y: 1 }, { x: 1, y: 1 }, 90), { x: 1, y: 2 })
 assert.ok(near(rotateAround({ x: 3, y: 4 }, { x: 0, y: 0 }, 360), { x: 3, y: 4 }));
 const turned = rotatedBoxCorners({ x: 0, y: 0 }, 4, 2, 90);
 assert.ok(near(turned[1], { x: 0, y: 4 }) && near(turned[2], { x: -2, y: 4 }) && near(turned[3], { x: -2, y: 0 }));
+
+// Drawings: pieces round-trip through points + breaks.
+const twoPieces = [
+  [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+  [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 7, y: 0 }],
+];
+const joined = joinStrokes(twoPieces);
+assert.deepEqual(joined.breaks, [2]);
+assert.deepEqual(splitStrokes(joined.points, joined.breaks), twoPieces);
+assert.equal(joinStrokes([twoPieces[0]]).breaks, undefined);
+assert.deepEqual(splitStrokes(twoPieces[0]), [twoPieces[0]]);
+
+// Erasing the middle of a straight two-point line leaves two pieces with a gap.
+const line = [[{ x: 0, y: 0 }, { x: 100, y: 0 }]];
+const cut = eraseFromStrokes(line, { x: 50, y: 0 }, 10);
+assert.equal(cut.length, 2);
+assert.ok(near(cut[0][cut[0].length - 1], { x: 40, y: 0 }) && near(cut[1][0], { x: 60, y: 0 }));
+// Missing the line changes nothing; covering an end trims it; covering it all removes it.
+assert.equal(eraseFromStrokes(line, { x: 50, y: 30 }, 10), null);
+const trimmed = eraseFromStrokes(line, { x: 0, y: 0 }, 10);
+assert.equal(trimmed.length, 1);
+assert.ok(near(trimmed[0][0], { x: 10, y: 0 }));
+assert.deepEqual(eraseFromStrokes(line, { x: 50, y: 0 }, 80), []);
+// A cut across a bend keeps the corner on whichever side it falls.
+const bend = [[{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }]];
+const bendCut = eraseFromStrokes(bend, { x: 50, y: 25 }, 5);
+assert.equal(bendCut.length, 2);
+assert.ok(near(bendCut[0][1], { x: 50, y: 0 }) && near(bendCut[0][2], { x: 50, y: 20 }));
+assert.ok(near(bendCut[1][0], { x: 50, y: 30 }));
+// Leftovers shorter than minLength are dropped.
+assert.equal(eraseFromStrokes(line, { x: 50, y: 0 }, 49.5, 1).length, 0);
 
 console.log("geometry: all checks passed");

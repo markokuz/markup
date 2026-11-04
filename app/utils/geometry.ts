@@ -199,6 +199,113 @@ export function strokePath(points: Point2D[]): string {
   return `${d} L ${last.x} ${last.y}`;
 }
 
+/**
+ * A drawing's pieces: `points` is every piece end to end and `breaks` lists the
+ * index where each piece after the first starts. No breaks means one piece.
+ */
+export function splitStrokes(points: Point2D[], breaks?: number[]): Point2D[][] {
+  if (!breaks?.length) return points.length ? [points] : [];
+  const starts = [0, ...breaks, points.length];
+  const pieces: Point2D[][] = [];
+  for (let i = 0; i < starts.length - 1; i++) {
+    const piece = points.slice(starts[i], starts[i + 1]);
+    if (piece.length) pieces.push(piece);
+  }
+  return pieces;
+}
+
+/** Inverse of `splitStrokes`; `breaks` is left out when there is only one piece. */
+export function joinStrokes(pieces: Point2D[][]): { points: Point2D[]; breaks?: number[] } {
+  const points: Point2D[] = [];
+  const breaks: number[] = [];
+  for (const piece of pieces) {
+    if (points.length) breaks.push(points.length);
+    points.push(...piece);
+  }
+  return breaks.length ? { points, breaks } : { points };
+}
+
+/** SVG path for every piece of a drawing. */
+export function strokesPath(pieces: Point2D[][]): string {
+  return pieces
+    .filter((piece) => piece.length >= 2)
+    .map(strokePath)
+    .join(" ");
+}
+
+function polylineSpan(points: Point2D[]): number {
+  let length = 0;
+  for (let i = 1; i < points.length; i++) {
+    length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  return length;
+}
+
+/**
+ * Cut away every part of the pieces within `radius` of `centre`, splitting a piece
+ * where the cut falls in its middle. Leftovers shorter than `minLength` are dropped.
+ * Returns null when the circle touches nothing, so callers can skip the update.
+ */
+export function eraseFromStrokes(
+  pieces: Point2D[][],
+  centre: Point2D,
+  radius: number,
+  minLength = 0,
+): Point2D[][] | null {
+  const r2 = radius * radius;
+  let touched = false;
+  const out: Point2D[][] = [];
+  const keep = (piece: Point2D[]) => {
+    if (piece.length >= 2 && polylineSpan(piece) > minLength) out.push(piece);
+  };
+
+  for (const piece of pieces) {
+    if (piece.length < 2) continue;
+    let current: Point2D[] = [];
+    for (let i = 0; i < piece.length - 1; i++) {
+      const a = piece[i];
+      const b = piece[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const fx = a.x - centre.x;
+      const fy = a.y - centre.y;
+      const qa = dx * dx + dy * dy;
+      const qb = 2 * (fx * dx + fy * dy);
+      const qc = fx * fx + fy * fy - r2;
+      // The part of a→b (t in 0..1) inside the circle, if any.
+      let cut: [number, number] | null = null;
+      if (qa === 0) {
+        if (qc < 0) cut = [0, 1];
+      } else {
+        const disc = qb * qb - 4 * qa * qc;
+        if (disc > 0) {
+          const root = Math.sqrt(disc);
+          const t0 = (-qb - root) / (2 * qa);
+          const t1 = (-qb + root) / (2 * qa);
+          if (t1 > 0 && t0 < 1) cut = [Math.max(0, t0), Math.min(1, t1)];
+        }
+      }
+      const at = (t: number) => ({ x: a.x + dx * t, y: a.y + dy * t });
+
+      if (!cut) {
+        if (current.length === 0) current.push(a);
+        current.push(b);
+        continue;
+      }
+      touched = true;
+      const [s, e] = cut;
+      if (s > 0) {
+        if (current.length === 0) current.push(a);
+        current.push(at(s));
+      }
+      keep(current);
+      current = e < 1 ? [at(e), b] : [];
+    }
+    keep(current);
+  }
+  return touched ? out : null;
+}
+
 const AREA_SUFFIX: Record<Unit, string> = {
   ft: "sq ft",
   in: "sq in",

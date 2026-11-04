@@ -25,6 +25,8 @@ import {
   type AppSettings,
 } from "@/app/utils/settings";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
+import { eraseFromStrokes, joinStrokes } from "@/app/utils/geometry";
+import { drawPieces, drawWidth } from "@/app/utils/shapeMetrics";
 import { markupIds, nextGroupName, wouldNestInItself } from "@/app/utils/groups";
 import { deleteSession } from "@/app/utils/sessionStore";
 import {
@@ -74,9 +76,43 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         })),
         tool: action.tool,
         countStart: action.tool === "count" ? 1 : state.countStart,
+        drawEraser: false,
       };
     case "SET_CLOUD_MODE":
       return { ...state, cloudMode: action.mode };
+    case "SET_DRAW_ERASER":
+      return { ...state, drawEraser: action.on };
+    case "ERASE_DRAWINGS":
+      return updateActiveTab(state, (tab) => {
+        const erased = new Map<string, Point2D[][]>();
+        for (const shape of tab.shapes) {
+          if (shape.kind !== "draw" || shape.locked) continue;
+          const radius = (action.radiusPx + drawWidth(shape) / 2) / action.pxPerDoc;
+          let pieces = drawPieces(shape);
+          let touched = false;
+          for (const centre of action.centres) {
+            const next = eraseFromStrokes(pieces, centre, radius, 0.5 / action.pxPerDoc);
+            if (!next) continue;
+            pieces = next;
+            touched = true;
+          }
+          if (touched) erased.set(shape.id, pieces);
+        }
+        if (erased.size === 0) return tab;
+        // A stroke rubbed out completely goes away; a cut one stays a single markup.
+        const gone = [...erased].filter(([, pieces]) => pieces.length === 0).map(([id]) => id);
+        return {
+          ...tab,
+          history: action.recordUndo ? appendHistory(tab) : tab.history,
+          shapes: tab.shapes.flatMap((shape) => {
+            const pieces = erased.get(shape.id);
+            if (!pieces) return [shape];
+            if (pieces.length === 0) return [];
+            return [{ ...shape, breaks: undefined, ...joinStrokes(pieces) }];
+          }),
+          selectedIds: removeIdsFromSelection(tab.selectedIds, gone),
+        };
+      });
     case "SET_LINE_MODE":
       return { ...state, lineMode: action.mode };
     case "SET_RECT_MODE":
@@ -842,6 +878,7 @@ function mergeActiveTabView(state: TabsState): AppState {
     snapLines: state.snapLines,
     autoOrientPortrait: state.autoOrientPortrait,
     cloudMode: state.cloudMode,
+    drawEraser: state.drawEraser,
     countStart: state.countStart,
     lineMode: state.lineMode,
     rectMode: state.rectMode,

@@ -17,7 +17,7 @@ import {
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
-import { cloudOutline, rotateAround, rotatedBoxCorners } from "@/app/utils/geometry";
+import { cloudOutline, rotateAround, rotatedBoxCorners, splitStrokes } from "@/app/utils/geometry";
 import { noteCardSize, textInkScreenBox, textScreenBox } from "@/app/utils/noteLayout";
 import { drawWidth } from "@/app/utils/shapeMetrics";
 
@@ -202,6 +202,12 @@ function shapeScreenSegments(
   const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
   if (shape.kind === "text") return closedSegments(textScreenCorners(shape, viewport));
   if (shape.kind === "count") return shape.points.map((p) => [toScreen(p), toScreen(p)]);
+  if (shape.kind === "draw") {
+    // Erased gaps are not part of the drawing: only join points within each piece.
+    return splitStrokes(shape.points.map(toScreen), shape.breaks).flatMap((piece) =>
+      piece.slice(1).map((p, i): [Point2D, Point2D] => [piece[i], p]),
+    );
+  }
   const pts = (shape.kind === "cloud" ? cloudOutline(shape.points) : shape.points).map(toScreen);
   const closed = shape.kind === "area" || shape.kind === "cloud" || shape.kind === "image";
   const segments: [Point2D, Point2D][] = [];

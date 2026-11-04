@@ -30,6 +30,8 @@ export interface AppSettings {
   textSize?: number;
   /** Draw tool thickness last picked, in screen px; new strokes use it. */
   drawWidth?: number;
+  /** Eraser diameter last picked, in screen px. */
+  eraserSize?: number;
 }
 
 /** Reserved for the magnifier toggle. */

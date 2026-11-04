@@ -57,7 +57,7 @@ import {
   textLines,
   wrapNoteText,
 } from "@/app/utils/noteLayout";
-import { cloudOutline, cloudPath, polygonCentroid, strokePath } from "@/app/utils/geometry";
+import { cloudOutline, cloudPath, polygonCentroid, splitStrokes, strokesPath } from "@/app/utils/geometry";
 import {
   CALLOUT_LEADER_OFFSET,
   countStartAt,
@@ -804,7 +804,7 @@ function drawShapesOnCanvas(
       context.lineCap = "round";
       context.lineJoin = "round";
       context.lineWidth = style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH);
-      context.stroke(new Path2D(strokePath(shape.points)));
+      context.stroke(new Path2D(strokesPath(splitStrokes(shape.points, shape.breaks))));
       context.restore();
     } else if (shape.kind === "callout" && shape.points.length === 2) {
       const [tip, anchor] = shape.points;
@@ -910,7 +910,7 @@ function drawShapesOnPdf(
       page.pushOperators(popGraphicsState());
     } else if (shape.kind === "draw" && shape.points.length >= 2) {
       page.pushOperators(pushGraphicsState(), setLineCap(LineCapStyle.Round), setLineJoin(LineJoinStyle.Round));
-      page.drawSvgPath(strokePath(shape.points.map(flip)), {
+      page.drawSvgPath(strokesPath(splitStrokes(shape.points.map(flip), shape.breaks)), {
         x: 0,
         y: 0,
         borderColor: color,

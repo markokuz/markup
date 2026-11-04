@@ -24,7 +24,15 @@ import {
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
-import { DRAW_DEFAULT_WIDTH, DRAW_MAX_WIDTH, DRAW_MIN_WIDTH, drawWidth } from "@/app/utils/shapeMetrics";
+import {
+  DRAW_DEFAULT_WIDTH,
+  DRAW_MAX_WIDTH,
+  DRAW_MIN_WIDTH,
+  drawWidth,
+  ERASER_DEFAULT_SIZE,
+  ERASER_MAX_SIZE,
+  ERASER_MIN_SIZE,
+} from "@/app/utils/shapeMetrics";
 import { isColorTool } from "@/app/utils/settings";
 import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
 
@@ -543,7 +551,37 @@ export function StatusBar() {
           </div>
         )}
 
-        {showDrawWidth && <DrawWidthSlider drawings={selectedDrawings} />}
+        {(state.tool === "draw" || showDrawWidth) && (
+          <div className="flex items-center gap-3">
+            {state.tool === "draw" && (
+              <button
+                type="button"
+                title={
+                  state.drawEraser
+                    ? "Eraser on: drag over drawings to rub them out. Click to draw again"
+                    : "Eraser: drag over drawings to rub out parts of them"
+                }
+                aria-label="Eraser"
+                aria-pressed={state.drawEraser}
+                onClick={() => dispatch({ type: "SET_DRAW_ERASER", on: !state.drawEraser })}
+                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition ${
+                  state.drawEraser
+                    ? "border-accent bg-accent text-white"
+                    : "border-border text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+                }`}
+              >
+                <EraserIcon />
+                Eraser
+              </button>
+            )}
+            {showDrawWidth && (
+              <DrawWidthSlider
+                drawings={selectedDrawings}
+                eraser={state.tool === "draw" && state.drawEraser}
+              />
+            )}
+          </div>
+        )}
 
         {(colorableIds.length > 0 || paletteTool) && (
           <div className="flex items-center gap-2">
@@ -659,13 +697,36 @@ function HistoryArrow({ direction }: { direction: "back" | "forward" }) {
  * Line thickness slider beside the colours: sets the selected strokes, or with none
  * selected the Draw tool's width for new strokes. A whole drag is one undo step.
  */
-function DrawWidthSlider({ drawings }: { drawings: ShapeAnnotation[] }) {
+function EraserIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M9.5 2.5l4 4-6.5 6.5H4l-1.5-1.5a1.4 1.4 0 010-2z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M6 6l4 4M7 13h6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DrawWidthSlider({ drawings, eraser }: { drawings: ShapeAnnotation[]; eraser: boolean }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const undoRecorded = useRef(false);
-  const value = drawings[0] ? drawWidth(drawings[0]) : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
+  const value = eraser
+    ? (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE)
+    : drawings[0]
+      ? drawWidth(drawings[0])
+      : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
 
   const setWidth = (width: number) => {
+    // With the eraser on, the slider sizes the eraser instead of the line.
+    if (eraser) {
+      dispatch({ type: "UPDATE_SETTINGS", patch: { eraserSize: width } });
+      return;
+    }
     if (drawings.length > 0) {
       if (!undoRecorded.current) {
         dispatch({ type: "RECORD_UNDO" });
@@ -682,15 +743,15 @@ function DrawWidthSlider({ drawings }: { drawings: ShapeAnnotation[] }) {
   };
 
   return (
-    <label className="flex items-center gap-2 text-text-muted" title="Line thickness">
-      Width
+    <label className="flex items-center gap-2 text-text-muted" title={eraser ? "Eraser size" : "Line thickness"}>
+      {eraser ? "Size" : "Width"}
       <input
         type="range"
-        min={DRAW_MIN_WIDTH}
-        max={DRAW_MAX_WIDTH}
+        min={eraser ? ERASER_MIN_SIZE : DRAW_MIN_WIDTH}
+        max={eraser ? ERASER_MAX_SIZE : DRAW_MAX_WIDTH}
         step={1}
         value={value}
-        aria-label="Line thickness in pixels"
+        aria-label={eraser ? "Eraser size in pixels" : "Line thickness in pixels"}
         onChange={(event) => setWidth(Number(event.currentTarget.value))}
         onPointerUp={endChange}
         onKeyUp={endChange}

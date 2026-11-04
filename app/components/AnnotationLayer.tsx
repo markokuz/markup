@@ -49,12 +49,19 @@ import { FloatingMenu } from "@/app/components/FloatingMenu";
 import {
   boxCorners,
   cloudPath,
+  eraseFromStrokes,
   rotateAround,
   simplifyPath,
   smoothClosedPath,
   strokePath,
 } from "@/app/utils/geometry";
-import { CLOSE_AREA_PX, DRAW_DEFAULT_WIDTH } from "@/app/utils/shapeMetrics";
+import {
+  CLOSE_AREA_PX,
+  DRAW_DEFAULT_WIDTH,
+  drawPieces,
+  drawWidth,
+  ERASER_DEFAULT_SIZE,
+} from "@/app/utils/shapeMetrics";
 import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
@@ -116,6 +123,8 @@ type DragMode =
   | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[] }
   /** A freehand stroke being dragged out: a cloud outline or a drawing. */
   | { type: "freehand"; kind: "cloud" | "draw"; points: Point2D[] }
+  /** Draw tool eraser being dragged; `last` is the previous screen point it rubbed at. */
+  | { type: "erase"; last: Point2D; recorded: boolean }
   /** Moves the whole selection; a press without movement selects just `id`. */
   | { type: "group"; id: string; lastPdf: Point2D; moved: boolean };
 
@@ -179,6 +188,10 @@ export function AnnotationLayer({
     typed && state.tool === "measure" && typed.start === state.pendingPoint ? typed.text : "";
   /** Screen points of the freehand cloud being drawn. */
   const [freehandStroke, setFreehandStroke] = useState<Point2D[] | null>(null);
+  /** Screen point under the eraser, for its outline. */
+  const [eraserAt, setEraserAt] = useState<Point2D | null>(null);
+  const erasing = state.tool === "draw" && state.drawEraser;
+  const eraserRadius = (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE) / 2;
   const dragRef = useRef<DragMode | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -375,6 +388,35 @@ export function AnnotationLayer({
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [placeLine, previewEnd, state.pendingPoint, state.scale, state.tool, typedLength, typedLineEnd]);
 
+  /** Rub out drawings at these screen points (one undo step per eraser drag). */
+  const eraseAlong = useCallback(
+    (screenPoints: Point2D[], drag: Extract<DragMode, { type: "erase" }>) => {
+      const pxPerDoc = viewportZoom(viewport);
+      const centres = screenPoints.map((p) => toDocPoint(viewport, p.x, p.y));
+      // Skip the dispatch (and the undo step) when the eraser touches nothing.
+      const touches = state.shapes.some(
+        (shape) =>
+          shape.kind === "draw" &&
+          !shape.locked &&
+          centres.some(
+            (c) =>
+              eraseFromStrokes(drawPieces(shape), c, (eraserRadius + drawWidth(shape) / 2) / pxPerDoc) !==
+              null,
+          ),
+      );
+      if (!touches) return;
+      dispatch({
+        type: "ERASE_DRAWINGS",
+        centres,
+        radiusPx: eraserRadius,
+        pxPerDoc,
+        recordUndo: !drag.recorded,
+      });
+      drag.recorded = true;
+    },
+    [dispatch, eraserRadius, state.shapes, viewport],
+  );
+
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
       if (state.tool === "pan") return;
@@ -523,6 +565,17 @@ export function AnnotationLayer({
         return;
       }
 
+      if (state.tool === "draw" && state.drawEraser) {
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        (document.activeElement as HTMLElement | null)?.blur();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const drag: DragMode = { type: "erase", last: local, recorded: false };
+        dragRef.current = drag;
+        eraseAlong([local], drag);
+        return;
+      }
+
       if (state.tool === "draw" || (state.tool === "cloud" && state.cloudMode === "freehand")) {
         // Without this the drag also selects markup text, and the next press on that
         // selection starts a native drag that cancels the stroke after a few points.
@@ -659,6 +712,7 @@ export function AnnotationLayer({
     },
     [
       dispatch,
+      eraseAlong,
       handleSelect,
       contextMenu,
       overlayRef,
@@ -678,6 +732,7 @@ export function AnnotationLayer({
       state.shapes,
       state.drawingShapeId,
       state.cloudMode,
+      state.drawEraser,
       state.countStart,
       state.lineMode,
       state.rectMode,
@@ -706,9 +761,23 @@ export function AnnotationLayer({
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
 
       onCursorMove?.(local);
+      if (erasing) setEraserAt(local);
 
       if (dragRef.current) {
         const drag = dragRef.current;
+
+        if (drag.type === "erase") {
+          // Fill in between pointer events so a fast stroke still rubs out a solid band.
+          const gap = Math.hypot(local.x - drag.last.x, local.y - drag.last.y);
+          const steps = Math.max(1, Math.ceil(gap / Math.max(1, eraserRadius / 2)));
+          const along = Array.from({ length: steps }, (_, i) => ({
+            x: drag.last.x + ((local.x - drag.last.x) * (i + 1)) / steps,
+            y: drag.last.y + ((local.y - drag.last.y) * (i + 1)) / steps,
+          }));
+          drag.last = local;
+          eraseAlong(along, drag);
+          return;
+        }
 
         if (drag.type === "freehand") {
           const last = drag.points[drag.points.length - 1];
@@ -892,7 +961,7 @@ export function AnnotationLayer({
         setPreviewEnd(pdfPoint);
       }
     },
-    [dispatch, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
   );
 
   /**
@@ -1738,8 +1807,9 @@ export function AnnotationLayer({
       height={viewport.height}
       className="absolute inset-0 touch-none select-none"
       style={{
-        cursor:
-          state.tool === "pan"
+        cursor: erasing
+          ? "none"
+          : state.tool === "pan"
             ? "grab"
             : state.tool === "text"
               ? TEXT_TOOL_CURSOR
@@ -1784,6 +1854,7 @@ export function AnnotationLayer({
       onPointerLeave={() => {
         handlePointerUp();
         onCursorMove?.(null);
+        setEraserAt(null);
       }}
     >
       <g id={ANNOTATION_ROOT_ID}>
@@ -1878,6 +1949,12 @@ export function AnnotationLayer({
             strokeLinejoin="round"
             pointerEvents="none"
           />
+        )}
+        {erasing && eraserAt && (
+          <g pointerEvents="none">
+            <circle cx={eraserAt.x} cy={eraserAt.y} r={eraserRadius} fill="rgba(255,255,255,0.35)" stroke="#ffffff" strokeWidth={3} />
+            <circle cx={eraserAt.x} cy={eraserAt.y} r={eraserRadius} fill="none" stroke="#475569" strokeWidth={1.5} />
+          </g>
         )}
         {typedLength && previewEndScreen && (
           <foreignObject

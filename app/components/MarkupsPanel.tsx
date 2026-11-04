@@ -179,6 +179,10 @@ type PanelDrag =
   | { kind: "group"; groupId: string };
 
 const ALL_LIST = "all";
+/** List key for the ungrouped markups of one type, e.g. "all:Text". */
+const TYPE_LIST_PREFIX = `${ALL_LIST}:`;
+/** The ungrouped lists: drags from them copy into a group, like the old master list. */
+const isUngroupedList = (list: string) => list === ALL_LIST || list.startsWith(TYPE_LIST_PREFIX);
 /** Drop zone for taking a group out of its parent, back to the top level. */
 const TOP_LEVEL = "top";
 /** Drop zone on the "+ Group" button. */
@@ -341,8 +345,21 @@ export function MarkupsPanel() {
     group,
     rows: liveMembers(group, existing).flatMap((id) => rowsById.get(id) ?? []),
   }));
+  // Markups in no group, sorted under one heading per type (in the order types first appear).
+  const grouped = new Set(groups.flatMap((entry) => entry.rows.map((row) => row.id)));
+  const ungroupedByType = new Map<string, MarkupRow[]>();
+  for (const row of rows) {
+    if (grouped.has(row.id)) continue;
+    const list = ungroupedByType.get(row.type);
+    if (list) list.push(row);
+    else ungroupedByType.set(row.type, [row]);
+  }
   const listIds = (list: string) =>
-    list === ALL_LIST ? rows.map((row) => row.id) : (groups.find((g) => g.group.id === list)?.rows ?? []).map((r) => r.id);
+    list === ALL_LIST
+      ? rows.map((row) => row.id)
+      : list.startsWith(TYPE_LIST_PREFIX)
+        ? (ungroupedByType.get(list.slice(TYPE_LIST_PREFIX.length)) ?? []).map((r) => r.id)
+        : (groups.find((g) => g.group.id === list)?.rows ?? []).map((r) => r.id);
   const groupsById = new Map(groups.map((entry) => [entry.group.id, entry]));
   const groupName = (groupId: string) => state.groups.find((g) => g.id === groupId)?.name ?? "the group";
 
@@ -357,7 +374,7 @@ export function MarkupsPanel() {
   /** Explorer-style: click picks one, Ctrl+click toggles, Shift+click picks a range. */
   const selectRow = (id: string, list: string, event: React.MouseEvent) => {
     dispatch({ type: "SET_TOOL", tool: "select" });
-    setActiveGroupId(list === ALL_LIST ? null : list);
+    setActiveGroupId(isUngroupedList(list) ? null : list);
     const additive = event.ctrlKey || event.metaKey;
     if (event.shiftKey && anchor && anchor.list === list) {
       const ids = listIds(list);
@@ -400,7 +417,7 @@ export function MarkupsPanel() {
   const startDrag = (event: React.DragEvent, id: string, from: string) => {
     event.stopPropagation();
     const ids = selected.has(id) ? state.selectedIds.filter((s) => existing.has(s)) : [id];
-    setDrag({ kind: "markups", ids, from });
+    setDrag({ kind: "markups", ids, from: isUngroupedList(from) ? ALL_LIST : from });
     event.dataTransfer.effectAllowed = "copyMove";
     // Firefox only starts a drag with some data set.
     event.dataTransfer.setData("text/plain", ids.join(","));
@@ -518,7 +535,7 @@ export function MarkupsPanel() {
 
   /** A markup's row in the list `list` (a group id, or the master list), `depth` levels in. */
   const renderRow = (row: MarkupRow, list: string, depth = 0) => {
-    const inGroup = list !== ALL_LIST;
+    const inGroup = !isUngroupedList(list);
     return (
       <li
         key={`${list}:${row.id}`}
@@ -693,6 +710,52 @@ export function MarkupsPanel() {
     );
   };
 
+  /** Ungrouped markups of one type, under a heading like a group's (but not editable). */
+  const renderTypeSection = (type: string, members: MarkupRow[]) => {
+    const list = `${TYPE_LIST_PREFIX}${type}`;
+    const collapsed = collapsedGroups.has(list);
+    const ids = members.map((row) => row.id);
+    const isSelected = ids.every((id) => selected.has(id));
+    return (
+      <li key={list}>
+        <div className={`flex items-center transition ${isSelected ? "bg-accent/10" : "hover:bg-surface-muted"}`} style={indentStyle(0)}>
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Expand ${type}` : `Collapse ${type}`}
+            onClick={() => toggleGroup(list)}
+            className="py-2 pr-1 text-text-secondary hover:text-text-primary"
+          >
+            <span aria-hidden className={`inline-block transition ${collapsed ? "" : "rotate-90"}`}>
+              ›
+            </span>
+          </button>
+          <button
+            type="button"
+            title={`Select every ungrouped ${type.toLowerCase()} markup`}
+            onClick={() => {
+              dispatch({ type: "SET_TOOL", tool: "select" });
+              dispatch({ type: "SET_SELECTION", ids });
+              setActiveGroupId(null);
+              setAnchor(null);
+            }}
+            className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-3 text-left text-sm"
+          >
+            <span className="truncate font-semibold text-text-primary">{type}</span>
+            <span className="shrink-0 text-xs text-text-muted">
+              {members.length} item{members.length === 1 ? "" : "s"}
+            </span>
+          </button>
+        </div>
+        {!collapsed && (
+          <ul className="divide-y divide-border border-t border-border">
+            {members.map((row) => renderRow(row, list, 1))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   const exportCsv = () => {
     const base = (state.fileName ?? "markups").replace(/\.[^.]+$/, "");
     // BOM so Excel opens the UTF-8 (×, ², ·) correctly.
@@ -817,8 +880,20 @@ export function MarkupsPanel() {
             {...dropZone(ALL_LIST)}
             className={dropTarget === ALL_LIST ? "bg-accent/10 outline outline-1 -outline-offset-1 outline-accent" : ""}
           >
-            {groups.length > 0 && <div className={sectionLabel}>All markups</div>}
-            <ul className="divide-y divide-border">{rows.map((row) => renderRow(row, ALL_LIST))}</ul>
+            {groups.length > 0 && (
+              <div className={sectionLabel} title="Drop markups here to take them out of the group they came from">
+                Ungrouped
+              </div>
+            )}
+            {ungroupedByType.size > 0 ? (
+              <ul className="divide-y divide-border border-b border-border">
+                {[...ungroupedByType].map(([type, members]) => renderTypeSection(type, members))}
+              </ul>
+            ) : (
+              <p className="px-3 pb-3 text-xs text-text-muted">
+                Everything is in a group. Drag a markup here to take it out of its group.
+              </p>
+            )}
           </div>
         )}
       </div>

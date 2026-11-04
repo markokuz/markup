@@ -138,7 +138,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, settings: { ...state.settings, hotkeys } };
     }
     case "RESET_SETTINGS":
-      return { ...state, settings: DEFAULT_SETTINGS };
+      return { ...state, settings: { ...DEFAULT_SETTINGS, darkMode: state.settings.darkMode } };
     case "SET_TAB_TOOL_COLOR":
       return updateActiveTab(state, (tab) => {
         const counting = tab.shapes.some((s) => s.id === tab.drawingShapeId && s.kind === "count");
@@ -904,6 +904,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveSettings(tabsState.settings);
   }, [tabsState.settings]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = tabsState.settings.darkMode ? "dark" : "light";
+  }, [tabsState.settings.darkMode]);
 
   // A closed tab's browser backup is no longer wanted. Layout effect so the delete
   // is queued before the start screen (a child, whose effects run first) lists backups.

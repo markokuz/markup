@@ -163,7 +163,8 @@ export function DimensionLabel({
             }}
             onBlur={handleCommit}
           />
-          <span className="font-mono text-xs text-text-muted">{unitSuffix}</span>
+          {/* Sits on the white page, so it must not inherit the dark theme's light text. */}
+          <span className="font-mono text-xs text-[#1a1a1a]">{unitSuffix}</span>
         </div>
       </foreignObject>
     );

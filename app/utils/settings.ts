@@ -26,6 +26,8 @@ export interface AppSettings {
   showCalibrationLine: boolean;
   /** Rotating a markup sticks to 45° multiples when close. */
   snapRotation: boolean;
+  /** Dark app colours. Drawing pages stay as they are. */
+  darkMode: boolean;
   /** Size of the last text the user sized; new text starts at it. */
   textSize?: number;
   /** Draw tool thickness last picked, in screen px; new strokes use it. */
@@ -69,13 +71,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snapToleranceDeg: 5,
   showCalibrationLine: true,
   snapRotation: true,
+  darkMode: false,
 };
 
 export function isColorTool(tool: string): tool is ColorTool {
   return tool in DEFAULT_SETTINGS.toolColors;
 }
 
-const SETTINGS_KEY = "markup.settings";
+export const SETTINGS_KEY = "markup.settings";
 
 /** Stored settings merged over defaults, so fields added later get their default. */
 export function loadSettings(): AppSettings {

@@ -103,7 +103,7 @@ function RowActions({
         title={deleteTitle}
         aria-label={`Delete ${label}`}
         onClick={onDelete}
-        className={`${button} hover:text-red-600`}
+        className={`${button} hover:text-red-600 dark:hover:text-red-400`}
       >
         <TrashIcon />
       </button>

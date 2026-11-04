@@ -14,10 +14,10 @@ const DURATION_MS: Record<SaveStatusKind, number | null> = {
 
 const STYLES: Record<SaveStatusKind, string> = {
   saving: "border-border bg-surface text-text-primary",
-  success: "border-green-600/30 bg-green-50 text-green-800",
+  success: "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200",
   info: "border-border bg-surface text-text-secondary",
-  warning: "border-amber-500/40 bg-amber-50 text-amber-900",
-  error: "border-red-500/40 bg-red-50 text-red-800",
+  warning: "border-amber-500/40 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  error: "border-red-500/40 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200",
 };
 
 /** Feedback pill for Ctrl+S and the save menu, under the toolbar at top centre. */

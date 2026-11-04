@@ -137,12 +137,12 @@ export function Toolbar() {
         <button
           type="button"
           onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
-          className="btn-secondary"
+          className="btn-secondary h-9"
         >
           Upload File
         </button>
 
-        <div className="relative flex rounded-lg border border-border bg-surface-muted p-0.5">
+        <div className="relative flex h-9 rounded-lg border border-border bg-surface">
           {TOOLS.map((tool) => (
             <button
               key={tool.id === "calibrate" && calibrationPrompt ? `${tool.id}-${calibrationPrompt.id}` : tool.id}
@@ -153,10 +153,10 @@ export function Toolbar() {
                 if (tool.id === "calibrate") clearCalibrationPrompt();
                 dispatch({ type: "SET_TOOL", tool: tool.id });
               }}
-              className={`rounded-md px-3 py-1.5 text-sm transition disabled:opacity-40 ${
+              className={`rounded-[7px] px-3 text-sm font-medium transition disabled:opacity-40 ${
                 state.tool === tool.id
                   ? "bg-accent text-white shadow-sm"
-                  : "text-text-secondary hover:bg-surface hover:text-text-primary"
+                  : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
               } ${tool.id === "calibrate" && calibrationPrompt ? "calibrate-flash" : ""}`}
             >
               {tool.label}
@@ -176,14 +176,14 @@ export function Toolbar() {
           )}
         </div>
 
-        <div className="flex rounded-lg border border-border bg-surface-muted p-0.5">
+        <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">
           <button
             type="button"
             title="Undo (Ctrl+Z)"
             aria-label="Undo"
             disabled={!state.fileBytes || state.history.length === 0}
             onClick={() => dispatch({ type: "UNDO" })}
-            className="rounded-md px-2.5 py-1.5 text-text-secondary transition hover:bg-surface hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex w-8 items-center justify-center text-text-secondary transition hover:bg-surface-muted hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <HistoryArrow direction="back" />
           </button>
@@ -193,31 +193,31 @@ export function Toolbar() {
             aria-label="Redo"
             disabled={!state.fileBytes || state.future.length === 0}
             onClick={() => dispatch({ type: "REDO" })}
-            className="rounded-md px-2.5 py-1.5 text-text-secondary transition hover:bg-surface hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex w-8 items-center justify-center text-text-secondary transition hover:bg-surface-muted hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <HistoryArrow direction="forward" />
           </button>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center rounded-lg border border-border bg-surface">
+          <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">
             <button
               type="button"
               onClick={zoomOut}
               disabled={!state.fileBytes}
-              className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
               aria-label="Zoom out"
             >
               −
             </button>
-            <span className="min-w-14 text-center font-mono text-xs text-text-secondary">
+            <span className="min-w-14 self-center text-center font-mono text-xs text-text-secondary">
               {Math.round(state.zoom * 100)}%
             </span>
             <button
               type="button"
               onClick={zoomIn}
               disabled={!state.fileBytes}
-              className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
               aria-label="Zoom in"
             >
               +
@@ -225,25 +225,25 @@ export function Toolbar() {
           </div>
 
           {state.fileBytes && (
-            <div className="flex items-center rounded-lg border border-border bg-surface">
+            <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">
               <button
                 type="button"
                 onClick={rotateCcw}
                 disabled={!state.fileBytes}
-                className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+                className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 aria-label="Rotate counter-clockwise"
                 title="Rotate view left"
               >
                 ↺
               </button>
-              <span className="min-w-10 text-center font-mono text-xs text-text-secondary">
+              <span className="min-w-10 self-center text-center font-mono text-xs text-text-secondary">
                 {state.rotation}°
               </span>
               <button
                 type="button"
                 onClick={rotateCw}
                 disabled={!state.fileBytes}
-                className="px-2.5 py-1.5 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+                className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 aria-label="Rotate clockwise"
                 title="Rotate view right"
               >
@@ -252,7 +252,7 @@ export function Toolbar() {
             </div>
           )}
 
-          <div ref={saveMenuRef} className="relative flex">
+          <div ref={saveMenuRef} className="relative flex h-9">
             <button
               type="button"
               onClick={() => handleSaveTab("save")}
@@ -262,7 +262,7 @@ export function Toolbar() {
                   ? `Save (Ctrl+S) — updates ${state.projectHandle.name}`
                   : "Save (Ctrl+S) — choose where to save"
               }
-              className="rounded-l-lg px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-40"
+              className="rounded-l-lg px-3 text-sm font-medium text-white transition disabled:opacity-40"
               style={{ backgroundColor: "var(--save)" }}
               onMouseEnter={(e) => {
                 if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
@@ -280,7 +280,7 @@ export function Toolbar() {
               aria-haspopup="menu"
               aria-label="Save options"
               onClick={() => setSaveMenuOpen((open) => !open)}
-              className="rounded-r-lg border-l border-emerald-700/20 px-2 py-1.5 text-white transition disabled:opacity-40"
+              className="flex w-8 items-center justify-center rounded-r-lg border-l border-emerald-700/20 text-white transition disabled:opacity-40"
               style={{ backgroundColor: "var(--save)" }}
               onMouseEnter={(e) => {
                 if (!saveDisabled) e.currentTarget.style.backgroundColor = "var(--save-hover)";
@@ -646,7 +646,7 @@ export function StatusBar() {
           <button
             type="button"
             onClick={() => dispatch({ type: "DELETE_SELECTED" })}
-            className="rounded-md border border-red-300 px-2 py-1 text-red-600 transition hover:bg-red-50"
+            className="rounded-md border border-red-300 px-2 py-1 text-red-600 transition hover:bg-red-50 dark:border-red-400/50 dark:text-red-400 dark:hover:bg-red-400/10"
           >
             Delete{state.selectedIds.length > 1 ? ` (${state.selectedIds.length})` : ""}
           </button>

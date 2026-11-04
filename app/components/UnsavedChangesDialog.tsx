@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { saveTabWithFeedback } from "@/app/utils/projectSave";
+import { isProjectHandle, saveTabWithFeedback } from "@/app/utils/projectSave";
 
 export function UnsavedChangesDialog() {
   const { tabs, pendingCloseTabId, displayUnit } = useAppState();
@@ -37,7 +37,9 @@ export function UnsavedChangesDialog() {
     setSaving(true);
     try {
       // Only close once the file itself was written; a browser-only backup isn't enough.
-      const saved = await saveTabWithFeedback(tab, displayUnit, "save", dispatch);
+      // A plain save flattens an image to PNG; the tab's editable markups would be gone for good.
+      const mode = tab.fileType === "image" && !isProjectHandle(tab.projectHandle) ? "save-project-as" : "save";
+      const saved = await saveTabWithFeedback(tab, displayUnit, mode, dispatch);
       if (!saved) return;
       applyDontAskAgain();
       dispatch({ type: "CLOSE_TAB", tabId: tab.id });

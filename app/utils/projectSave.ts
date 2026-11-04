@@ -29,7 +29,7 @@ import { buildPdfWithMarkups } from "@/app/utils/pdfSave";
  */
 export type SaveMode = "save" | "save-as" | "save-project-as";
 
-function isProjectHandle(handle: FileSystemFileHandle | null): boolean {
+export function isProjectHandle(handle: FileSystemFileHandle | null): boolean {
   return !!handle && handle.name.toLowerCase().endsWith(".mkup");
 }
 

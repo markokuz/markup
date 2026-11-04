@@ -46,6 +46,11 @@ const MAX_MASTER_ZOOM = 4;
  * browser's canvas size limit and go blank.
  */
 const MAX_IMAGE_BACKING_ZOOM = 4;
+/**
+ * Images have no PdfDetailLayer, so this stays well above the PDF budget or big scans
+ * would blur. Past it browsers draw blank (seen at 432 MP) or freeze (6 s at 192 MP).
+ */
+const MAX_IMAGE_CANVAS_PIXELS = 100_000_000;
 /** The master is rendered in strips so on-screen renders can cut in between. */
 const STRIP_PIXELS = 2_000_000;
 
@@ -321,7 +326,10 @@ export function useDocument(
     const nextViewport = createImageViewport(image.width, image.height, zoom, rotation);
 
     // Canvas px per CSS px: the screen's density, less once zoomed past the image's useful detail.
-    const backing = (Math.min(zoom, MAX_IMAGE_BACKING_ZOOM) * dpr) / zoom;
+    const backing = Math.min(
+      (Math.min(zoom, MAX_IMAGE_BACKING_ZOOM) * dpr) / zoom,
+      Math.sqrt(MAX_IMAGE_CANVAS_PIXELS / (nextViewport.width * nextViewport.height)),
+    );
     canvasElement.width = Math.floor(nextViewport.width * backing);
     canvasElement.height = Math.floor(nextViewport.height * backing);
     canvasElement.style.width = `${nextViewport.width}px`;

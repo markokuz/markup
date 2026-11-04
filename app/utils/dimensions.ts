@@ -8,61 +8,47 @@ import type {
 } from "@/app/types";
 import { convertUnits } from "@/app/utils/units";
 
-function parseFeetInchesInput(text: string): number | null {
-  const feetInches = text.match(
-    /^(-?\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(-?\d+(?:\.\d+)?)\s*(?:in|inches|")?$/i,
-  );
-  if (feetInches) {
-    const feet = Number.parseFloat(feetInches[1]);
-    const inches = Number.parseFloat(feetInches[2]);
-    if (
-      Number.isFinite(feet) &&
-      Number.isFinite(inches) &&
-      feet >= 0 &&
-      inches >= 0 &&
-      (feet > 0 || inches > 0)
-    ) {
-      const total = feet + inches / 12;
-      return total > 0 ? total : null;
-    }
-  }
+/** `5`, `5.5`, `.5`, `1/2` or `6 1/2`. */
+const NUMBER = String.raw`(\d+\s+\d+/\d+|\d+/\d+|\d+\.?\d*|\.\d+)`;
+const FEET = String.raw`(?:ft|feet|foot|'|’|′)`;
+const INCHES = String.raw`(?:in|inch|inches|"|”|″)`;
 
-  const inchesOnly = text.match(/^(-?\d+(?:\.\d+)?)\s*(?:in|inches|")$/i);
-  if (inchesOnly) {
-    const inches = Number.parseFloat(inchesOnly[1]);
-    if (Number.isFinite(inches) && inches > 0) {
-      return inches / 12;
-    }
-  }
+const FEET_AND_INCHES = new RegExp(`^${NUMBER}\\s*${FEET}\\s*-?\\s*${NUMBER}\\s*${INCHES}?$`, "i");
+const FEET_ONLY = new RegExp(`^${NUMBER}\\s*${FEET}$`, "i");
+const INCHES_ONLY = new RegExp(`^${NUMBER}\\s*${INCHES}$`, "i");
+const NUMBER_ONLY = new RegExp(`^${NUMBER}$`);
+const WITH_OWN_UNIT: Record<Exclude<Unit, "ft">, RegExp> = {
+  in: INCHES_ONLY,
+  m: new RegExp(`^${NUMBER}\\s*m$`, "i"),
+  mm: new RegExp(`^${NUMBER}\\s*mm$`, "i"),
+};
 
-  const feetOnly = text.match(/^(-?\d+(?:\.\d+)?)\s*'$/);
-  if (feetOnly) {
-    const feet = Number.parseFloat(feetOnly[1]);
-    if (Number.isFinite(feet) && feet > 0) {
-      return feet;
-    }
-  }
-
-  return null;
+function parseNumber(text: string): number {
+  const fraction = /^(?:(\d+)\s+)?(\d+)\/(\d+)$/.exec(text);
+  if (!fraction) return Number(text);
+  return Number(fraction[1] ?? 0) + Number(fraction[2]) / Number(fraction[3]);
 }
 
+function parseFeet(text: string): number | null {
+  const both = FEET_AND_INCHES.exec(text);
+  if (both) return parseNumber(both[1]) + parseNumber(both[2]) / 12;
+  const inches = INCHES_ONLY.exec(text);
+  if (inches) return parseNumber(inches[1]) / 12;
+  const feet = FEET_ONLY.exec(text) ?? NUMBER_ONLY.exec(text);
+  return feet ? parseNumber(feet[1]) : null;
+}
+
+/** A typed length in `displayUnit`. The whole text must read as a length, or this returns null. */
 export function parseDimensionInput(text: string, displayUnit: Unit): number | null {
   const trimmed = text.trim();
-  if (!trimmed) return null;
-
+  let value: number | null;
   if (displayUnit === "ft") {
-    const fromFeetInches = parseFeetInchesInput(trimmed);
-    if (fromFeetInches !== null) {
-      return fromFeetInches;
-    }
+    value = parseFeet(trimmed);
+  } else {
+    const match = NUMBER_ONLY.exec(trimmed) ?? WITH_OWN_UNIT[displayUnit].exec(trimmed);
+    value = match ? parseNumber(match[1]) : null;
   }
-
-  const unitPattern = new RegExp(`\\s*${displayUnit}\\s*$`, "i");
-  const numeric = trimmed.replace(unitPattern, "").trim();
-  const value = Number.parseFloat(numeric);
-
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return value;
+  return value !== null && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /** A length typed in display units, as a distance in document units. */

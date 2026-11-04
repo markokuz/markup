@@ -22,7 +22,9 @@ import type {
   Unit,
 } from "@/app/types";
 import { drawMarkupsOnPdf } from "@/app/utils/exportDocument";
+import { isValidMarkupData } from "@/app/utils/groups";
 import type { ColorTool } from "@/app/utils/settings";
+import { clampZoom } from "@/app/utils/zoomLevels";
 
 /**
  * Markups saved straight into a PDF (Ctrl+S on a PDF tab). They are drawn onto page 1
@@ -102,7 +104,8 @@ export async function buildPdfWithMarkups(
   );
 
   const json = JSON.stringify({ ...data, version: DATA_VERSION } satisfies PdfMarkupData);
-  const dataRef = pdfDoc.context.register(pdfDoc.context.flateStream(json));
+  // Bytes, not the string: flateStream keeps one byte per character, mangling anything non-ASCII.
+  const dataRef = pdfDoc.context.register(pdfDoc.context.flateStream(new TextEncoder().encode(json)));
   pdfDoc.catalog.set(DATA_KEY, dataRef);
   // Fonts and images are only written into the document on flush; tag them too.
   await pdfDoc.flush();
@@ -138,7 +141,9 @@ export async function readPdfWithMarkups(
   const data = JSON.parse(
     new TextDecoder().decode(decodePDFRawStream(dataStream).decode()),
   ) as PdfMarkupData;
-  if (typeof data.version !== "number" || data.version > DATA_VERSION) return null;
+  if (typeof data.version !== "number" || data.version > DATA_VERSION || !isValidMarkupData(data)) {
+    return null;
+  }
 
   const { context } = pdfDoc;
   const owned = new Set<string>();
@@ -167,5 +172,5 @@ export async function readPdfWithMarkups(
   }
   pdfDoc.catalog.delete(DATA_KEY);
 
-  return { pristine: await pdfDoc.save(), data };
+  return { pristine: await pdfDoc.save(), data: { ...data, zoom: clampZoom(data.zoom) } };
 }

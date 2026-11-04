@@ -5,6 +5,8 @@ import type {
   RectMeasurement,
   ShapeAnnotation,
 } from "@/app/types";
+import { SHAPE_KIND_LABELS } from "@/app/utils/shapeMetrics";
+import { UNIT_LABELS } from "@/app/utils/units";
 
 interface MarkupSource {
   measurements: Measurement[];
@@ -67,6 +69,54 @@ export function nextGroupName(groups: MarkupGroup[]): string {
     if (match) highest = Math.max(highest, Number(match[1]));
   }
   return `Group ${highest + 1}`;
+}
+
+type Loose = Record<string, unknown>;
+
+const isObject = (value: unknown): value is Loose => typeof value === "object" && value !== null;
+const isPoint = (value: unknown) =>
+  isObject(value) && Number.isFinite(value.x) && Number.isFinite(value.y);
+const isUnit = (value: unknown) => typeof value === "string" && Object.hasOwn(UNIT_LABELS, value);
+const hasValidColor = (markup: Loose) =>
+  markup.color == null || (typeof markup.color === "string" && /^#[0-9a-f]{3,8}$/i.test(markup.color));
+const isListOf = (value: unknown, check: (item: Loose) => boolean) =>
+  Array.isArray(value) && value.every((item) => isObject(item) && check(item));
+
+/**
+ * Markup data read from a file is outside input: anything that would crash the app later
+ * has to be caught here. Only checks that, so older files with fewer fields still open.
+ */
+export function isValidMarkupData(data: unknown): boolean {
+  if (!isObject(data)) return false;
+  const { scale, zoom } = data;
+  return (
+    isListOf(data.measurements, (m) => isPoint(m.start) && isPoint(m.end) && hasValidColor(m)) &&
+    isListOf(data.rectangles, (r) => isPoint(r.topLeft) && isPoint(r.bottomRight) && hasValidColor(r)) &&
+    isListOf(data.notes, (n) => isPoint(n.position) && typeof n.text === "string" && hasValidColor(n)) &&
+    (data.shapes == null ||
+      isListOf(
+        data.shapes,
+        (s) =>
+          typeof s.kind === "string" &&
+          Object.hasOwn(SHAPE_KIND_LABELS, s.kind) &&
+          Array.isArray(s.points) &&
+          s.points.every(isPoint) &&
+          (s.text == null || typeof s.text === "string") &&
+          // Only embedded images: a URL here would load from a stranger's server on open.
+          (s.image == null || (typeof s.image === "string" && s.image.startsWith("data:image/"))) &&
+          hasValidColor(s),
+      )) &&
+    (data.groups == null || isListOf(data.groups, (g) => Array.isArray(g.memberIds))) &&
+    (scale === null ||
+      (isObject(scale) &&
+        Number.isFinite(scale.unitsPerPdfPoint) &&
+        (scale.unitsPerPdfPoint as number) > 0 &&
+        isUnit(scale.calibrationUnit))) &&
+    isUnit(data.displayUnit) &&
+    [0, 90, 180, 270].includes(data.rotation as number) &&
+    Number.isFinite(zoom) &&
+    (zoom as number) > 0
+  );
 }
 
 type LegacyGrouped = { id: string; groupId?: string; groupName?: string };

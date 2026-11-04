@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
@@ -69,5 +69,33 @@ assert.ok(
   `pristine grew: ${read1.pristine.length} -> ${read2.pristine.length}`,
 );
 assert.equal((await PDFDocument.load(read2.pristine)).getPageCount(), 2);
+
+// Text the standard PDF font can't draw still saves, and comes back exactly as typed.
+const awkward = "≥ 2 → ⌀ 50 − ✓ 日本語 90° “quoted” — ±1\tend\r\nline 2";
+const awkwardData = {
+  ...data,
+  notes: [{ id: "n2", position: { x: 300, y: 300 }, text: awkward }],
+  shapes: [
+    { id: "t2", kind: "text", points: [{ x: 100, y: 200 }], text: awkward, fontSize: 14, bold: true },
+    { id: "c2", kind: "callout", points: [{ x: 100, y: 100 }, { x: 200, y: 120 }], text: awkward },
+  ],
+};
+const savedAwkward = await bytesOf(await buildPdfWithMarkups(original, awkwardData, up));
+const readAwkward = await readPdfWithMarkups(savedAwkward);
+assert.equal(readAwkward.data.notes[0].text, awkward);
+assert.equal(readAwkward.data.shapes[0].text, awkward);
+assert.equal(readAwkward.data.shapes[1].text, awkward);
+
+// Damaged markup data opens as a plain PDF instead of reaching the app.
+const damaged = await PDFDocument.load(saved1);
+damaged.catalog.set(
+  PDFName.of("MarkupAppData"),
+  damaged.context.register(damaged.context.flateStream(JSON.stringify({ ...data, version: 1, measurements: null }))),
+);
+assert.equal(await readPdfWithMarkups(await damaged.save({ useObjectStreams: false })), null);
+
+// An out-of-range zoom is pulled back into range.
+const zoomed = await bytesOf(await buildPdfWithMarkups(original, { ...data, zoom: 500 }, up));
+assert.equal((await readPdfWithMarkups(zoomed)).data.zoom, 16);
 
 console.log("pdfSave: all checks passed");

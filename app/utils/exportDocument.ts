@@ -568,6 +568,35 @@ function drawNoteCardOnCanvas(
   context.restore();
 }
 
+const PDF_TEXT_SWAPS: Record<string, string> = {
+  "≥": ">=",
+  "≤": "<=",
+  "→": "->",
+  "←": "<-",
+  "−": "-",
+  "≠": "!=",
+  "≈": "~",
+  "⌀": "Ø",
+  "′": "'",
+  "″": '"',
+  "\t": " ",
+  "\r": "",
+};
+
+/**
+ * `text` with anything the standard PDF font can't draw swapped out; drawing it would throw.
+ * shortcut: other viewers show "?" for non-Latin text, embed a Unicode font if that matters.
+ * The editable text saved in the PDF keeps the original, so reopening here shows it intact.
+ */
+function drawableText(font: PDFFont, text: string): string {
+  const supported = new Set(font.getCharacterSet());
+  return Array.from(text, (char) => {
+    const swap = PDF_TEXT_SWAPS[char];
+    if (swap !== undefined) return swap;
+    return char === "\n" || supported.has(char.codePointAt(0)!) ? char : "?";
+  }).join("");
+}
+
 function drawNoteCardOnPdf(
   page: PDFPage,
   anchor: Point2D,
@@ -578,7 +607,12 @@ function drawNoteCardOnPdf(
   font: PDFFont,
   cardWidth?: number,
 ) {
-  const layout = layoutNoteCard(text, zoom, (s, size) => font.widthOfTextAtSize(s, size), cardWidth);
+  const layout = layoutNoteCard(
+    drawableText(font, text),
+    zoom,
+    (s, size) => font.widthOfTextAtSize(s, size),
+    cardWidth,
+  );
   const { right, down } = getScreenAxes(upDir, true);
   const rotate = degrees((Math.atan2(right.y, right.x) * 180) / Math.PI);
   const at = (dx: number, dy: number) => ({
@@ -941,7 +975,7 @@ function drawShapesOnPdf(
       const axes = getScreenAxes(rotateScreenUp(upDir, shape.rotation ?? 0, true), true);
       // drawText places the baseline; push each line down by its ascent from the top.
       const ascent = textFace.heightAtSize(size, { descender: false });
-      textLines(shape.text).forEach((line, i) => {
+      textLines(drawableText(textFace, shape.text ?? "")).forEach((line, i) => {
         const offset = (i * TEXT_LINE_HEIGHT + (TEXT_LINE_HEIGHT - 1) / 2) * size + ascent;
         page.drawText(line, {
           x: anchor.x + axes.down.x * offset,

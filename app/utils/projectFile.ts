@@ -9,9 +9,10 @@ import type {
   Scale,
   Unit,
 } from "@/app/types";
-import { withGroups } from "@/app/utils/groups";
+import { isValidMarkupData, withGroups } from "@/app/utils/groups";
 import type { ColorTool } from "@/app/utils/settings";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
+import { clampZoom } from "@/app/utils/zoomLevels";
 
 const PROJECT_FILE_EXTENSION = ".mkup";
 const PROJECT_FILE_MAGIC = "markup-project";
@@ -123,6 +124,15 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     );
   }
 
+  if (
+    !isValidMarkupData(payload) ||
+    (payload.fileType !== "pdf" && payload.fileType !== "image") ||
+    typeof payload.fileName !== "string" ||
+    typeof payload.fileBytesBase64 !== "string"
+  ) {
+    throw new Error("This project file is damaged or incomplete.");
+  }
+
   const markups = withGroups({
     measurements: payload.measurements,
     rectangles: payload.rectangles,
@@ -138,7 +148,7 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     scale: payload.scale,
     ...markups,
     displayUnit: payload.displayUnit,
-    zoom: payload.zoom,
+    zoom: clampZoom(payload.zoom),
     rotation: payload.rotation,
     toolColors: payload.toolColors ?? {},
     legacyRotatedImage:

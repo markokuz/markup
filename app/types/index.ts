@@ -109,6 +109,8 @@ export interface ShapeAnnotation extends MarkupFlags {
   label?: string;
   /** Count only: number of the first marker (defaults to 1). */
   startAt?: number;
+  /** Draw only: line thickness in screen px (defaults to 2). */
+  strokeWidth?: number;
   /** Image (snapshot) only: PNG data URL; points are its TL, TR, BR, BL corners. */
   image?: string;
 }

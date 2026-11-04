@@ -28,6 +28,8 @@ export interface AppSettings {
   snapRotation: boolean;
   /** Size of the last text the user sized; new text starts at it. */
   textSize?: number;
+  /** Draw tool thickness last picked, in screen px; new strokes use it. */
+  drawWidth?: number;
 }
 
 /** Reserved for the magnifier toggle. */

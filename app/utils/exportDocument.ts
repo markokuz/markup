@@ -58,7 +58,13 @@ import {
   wrapNoteText,
 } from "@/app/utils/noteLayout";
 import { cloudOutline, cloudPath, polygonCentroid, strokePath } from "@/app/utils/geometry";
-import { CALLOUT_LEADER_OFFSET, countStartAt, getShapeLabel } from "@/app/utils/shapeMetrics";
+import {
+  CALLOUT_LEADER_OFFSET,
+  countStartAt,
+  DRAW_DEFAULT_WIDTH,
+  drawWidth,
+  getShapeLabel,
+} from "@/app/utils/shapeMetrics";
 import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
 export type ExportSaveMode = "download" | "choose-location";
@@ -797,6 +803,7 @@ function drawShapesOnCanvas(
       context.save();
       context.lineCap = "round";
       context.lineJoin = "round";
+      context.lineWidth = style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH);
       context.stroke(new Path2D(strokePath(shape.points)));
       context.restore();
     } else if (shape.kind === "callout" && shape.points.length === 2) {
@@ -907,7 +914,7 @@ function drawShapesOnPdf(
         x: 0,
         y: 0,
         borderColor: color,
-        borderWidth: style.borderWidth,
+        borderWidth: style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH),
         borderOpacity: 1,
       });
       page.pushOperators(popGraphicsState());

@@ -19,6 +19,7 @@ import {
   CALLOUT_LEADER_OFFSET,
   CLOSE_AREA_PX,
   countStartAt,
+  drawWidth,
   getShapeLabel,
 } from "@/app/utils/shapeMetrics";
 
@@ -252,10 +253,11 @@ export function ShapeAnnotation({
 
   if (shape.kind === "draw" && pts.length >= 2) {
     const d = strokePath(pts);
+    const width = drawWidth(shape);
     return (
       <g pointerEvents="none" fill="none" strokeLinecap="round" strokeLinejoin="round">
-        {isSelected && <path d={d} stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />}
-        <path d={d} stroke={color} strokeWidth={strokeWidth} />
+        {isSelected && <path d={d} stroke={SELECTION_ACCENT} strokeWidth={Math.max(8, width + 6)} opacity={0.3} />}
+        <path d={d} stroke={color} strokeWidth={isSelected ? width + 0.5 : width} />
       </g>
     );
   }

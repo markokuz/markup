@@ -55,3 +55,12 @@ export const CALLOUT_LEADER_OFFSET: Point2D = {
   x: 0,
   y: NOTE_CARD.padY + NOTE_CARD.lineHeight / 2,
 };
+
+/** Draw tool line thickness, in screen px at any zoom like every markup's stroke. */
+export const DRAW_DEFAULT_WIDTH = 2;
+export const DRAW_MIN_WIDTH = 1;
+export const DRAW_MAX_WIDTH = 20;
+
+export function drawWidth(shape: ShapeAnnotation): number {
+  return shape.strokeWidth ?? DRAW_DEFAULT_WIDTH;
+}

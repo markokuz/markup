@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DocumentRotation, ToolMode, Unit } from "@/app/types";
+import type { DocumentRotation, ShapeAnnotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { supportsSaveFilePicker } from "@/app/utils/exportDocument";
 import { ColorWheel } from "@/app/components/ColorWheel";
@@ -24,6 +24,7 @@ import {
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
+import { DRAW_DEFAULT_WIDTH, DRAW_MAX_WIDTH, DRAW_MIN_WIDTH, drawWidth } from "@/app/utils/shapeMetrics";
 import { isColorTool } from "@/app/utils/settings";
 import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
 
@@ -379,6 +380,13 @@ export function StatusBar() {
     dispatch({ type: "UPDATE_SETTINGS", patch: { textSize: fontSize } });
   };
 
+  const selectedDrawings = state.shapes.filter(
+    (sh) => sh.kind === "draw" && state.selectedIds.includes(sh.id),
+  );
+  // Selected strokes, or the Draw tool's width for new strokes when nothing is selected.
+  const showDrawWidth =
+    selectedDrawings.length > 0 || (colorableIds.length === 0 && state.tool === "draw");
+
   const sharedColor =
     selectedAnnotations.length > 0 &&
     selectedAnnotations.every(
@@ -535,6 +543,8 @@ export function StatusBar() {
           </div>
         )}
 
+        {showDrawWidth && <DrawWidthSlider drawings={selectedDrawings} />}
+
         {(colorableIds.length > 0 || paletteTool) && (
           <div className="flex items-center gap-2">
             <span className="text-text-muted">{paletteTool ? "Tool color" : "Color"}</span>
@@ -642,5 +652,52 @@ function HistoryArrow({ direction }: { direction: "back" | "forward" }) {
       <path d="M8 4L4 8l4 4" />
       <path d="M4 8h8a4.5 4.5 0 010 9H9" />
     </svg>
+  );
+}
+
+/**
+ * Line thickness slider beside the colours: sets the selected strokes, or with none
+ * selected the Draw tool's width for new strokes. A whole drag is one undo step.
+ */
+function DrawWidthSlider({ drawings }: { drawings: ShapeAnnotation[] }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const undoRecorded = useRef(false);
+  const value = drawings[0] ? drawWidth(drawings[0]) : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
+
+  const setWidth = (width: number) => {
+    if (drawings.length > 0) {
+      if (!undoRecorded.current) {
+        dispatch({ type: "RECORD_UNDO" });
+        undoRecorded.current = true;
+      }
+      for (const shape of drawings) {
+        dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates: { strokeWidth: width } });
+      }
+    }
+    dispatch({ type: "UPDATE_SETTINGS", patch: { drawWidth: width } });
+  };
+  const endChange = () => {
+    undoRecorded.current = false;
+  };
+
+  return (
+    <label className="flex items-center gap-2 text-text-muted" title="Line thickness">
+      Width
+      <input
+        type="range"
+        min={DRAW_MIN_WIDTH}
+        max={DRAW_MAX_WIDTH}
+        step={1}
+        value={value}
+        aria-label="Line thickness in pixels"
+        onChange={(event) => setWidth(Number(event.currentTarget.value))}
+        onPointerUp={endChange}
+        onKeyUp={endChange}
+        onBlur={endChange}
+        className="width-slider w-24"
+      />
+      <span className="w-10 font-mono text-xs text-text-primary">{value} px</span>
+    </label>
   );
 }

@@ -186,11 +186,45 @@ const NEW_GROUP = "new";
 /** Indent per nesting level, in px. */
 const NEST_INDENT_PX = 16;
 
+/** Panel width in px: default, limits, and where the last width is kept. */
+const PANEL_DEFAULT_WIDTH = 360;
+const PANEL_MIN_WIDTH = 340;
+const PANEL_MAX_WIDTH = 900;
+/** The drawing always keeps at least this much of the window. */
+const PANEL_MIN_CANVAS_PX = 360;
+const PANEL_WIDTH_KEY = "markup.markupsPanelWidth";
+
+function clampPanelWidth(width: number): number {
+  const roomy = typeof window === "undefined" ? PANEL_MAX_WIDTH : window.innerWidth - PANEL_MIN_CANVAS_PX;
+  return Math.round(Math.max(PANEL_MIN_WIDTH, Math.min(width, PANEL_MAX_WIDTH, roomy)));
+}
+
+function loadPanelWidth(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(PANEL_WIDTH_KEY));
+    return stored ? clampPanelWidth(stored) : PANEL_DEFAULT_WIDTH;
+  } catch {
+    return PANEL_DEFAULT_WIDTH;
+  }
+}
+
+function savePanelWidth(width: number) {
+  try {
+    window.localStorage.setItem(PANEL_WIDTH_KEY, String(width));
+  } catch {
+    // Storage unavailable — keep the in-memory width.
+  }
+}
+
 /** Right-hand list of every markup with quantities and totals, exportable to CSV. */
 export function MarkupsPanel() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(true);
+  const [width, setWidth] = useState(() =>
+    typeof window === "undefined" ? PANEL_DEFAULT_WIDTH : loadPanelWidth(),
+  );
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [totalsOpen, setTotalsOpen] = useState(true);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -247,7 +281,20 @@ export function MarkupsPanel() {
     };
   }, [totalsPinned]);
 
+  // A narrower window can leave the panel too wide; pull it back in.
+  useEffect(() => {
+    const onResize = () => setWidth((w) => clampPanelWidth(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   if (!state.fileBytes) return null;
+
+  const resizeTo = (next: number) => {
+    const clamped = clampPanelWidth(next);
+    setWidth(clamped);
+    return clamped;
+  };
 
   const startRename = (id: string, current: string) => {
     setDraftName(current);
@@ -662,13 +709,55 @@ export function MarkupsPanel() {
       ref={asideRef}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="flex w-72 shrink-0 flex-col border-l border-border bg-surface outline-none"
+      style={{ width }}
+      className="relative flex shrink-0 flex-col border-l border-border bg-surface outline-none"
     >
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <h2 className="text-sm font-semibold text-text-primary">
+      {/* Drag the left edge to resize; double-click puts it back to the default width. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize markups list"
+        aria-valuenow={width}
+        aria-valuemin={PANEL_MIN_WIDTH}
+        aria-valuemax={PANEL_MAX_WIDTH}
+        tabIndex={0}
+        title="Drag to resize. Double-click to reset."
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          resizeRef.current = { startX: event.clientX, startWidth: width };
+        }}
+        onPointerMove={(event) => {
+          const resize = resizeRef.current;
+          if (!resize) return;
+          resizeTo(resize.startWidth + resize.startX - event.clientX);
+        }}
+        onPointerUp={() => {
+          if (!resizeRef.current) return;
+          resizeRef.current = null;
+          savePanelWidth(width);
+        }}
+        onPointerCancel={() => {
+          resizeRef.current = null;
+        }}
+        onDoubleClick={() => savePanelWidth(resizeTo(PANEL_DEFAULT_WIDTH))}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 64 : 16;
+          if (event.key === "ArrowLeft") savePanelWidth(resizeTo(width + step));
+          else if (event.key === "ArrowRight") savePanelWidth(resizeTo(width - step));
+          else return;
+          event.preventDefault();
+        }}
+        className="group absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none outline-none"
+      >
+        <div className="mx-auto h-full w-0.5 bg-transparent transition group-hover:bg-accent group-focus-visible:bg-accent" />
+      </div>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <h2 className="shrink-0 whitespace-nowrap text-sm font-semibold text-text-primary">
           Markups <span className="font-normal text-text-secondary">({rows.length})</span>
         </h2>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <button
             type="button"
             onClick={() => createGroup(state.selectedIds)}
@@ -680,7 +769,7 @@ export function MarkupsPanel() {
               event.preventDefault();
               createGroup(current.ids);
             }}
-            className={`btn-secondary px-2 py-1 text-xs ${dropTarget === NEW_GROUP ? "border-accent text-accent" : ""}`}
+            className={`btn-secondary px-1.5 py-1 text-xs ${dropTarget === NEW_GROUP ? "border-accent text-accent" : ""}`}
             title="New group (with the selected markups). You can also drop markups here."
           >
             + Group
@@ -689,7 +778,7 @@ export function MarkupsPanel() {
             type="button"
             onClick={exportCsv}
             disabled={rows.length === 0}
-            className="btn-secondary px-2 py-1 text-xs disabled:opacity-40"
+            className="btn-secondary px-1.5 py-1 text-xs disabled:opacity-40"
             title="Download the list as a CSV file for Excel"
           >
             Export CSV
@@ -698,7 +787,7 @@ export function MarkupsPanel() {
             type="button"
             title="Hide markups list"
             onClick={() => setOpen(false)}
-            className="rounded px-1.5 py-1 text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+            className="rounded px-1 py-1 text-text-secondary hover:bg-surface-muted hover:text-text-primary"
           >
             ›
           </button>

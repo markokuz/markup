@@ -54,7 +54,7 @@ import {
   smoothClosedPath,
   strokePath,
 } from "@/app/utils/geometry";
-import { CLOSE_AREA_PX } from "@/app/utils/shapeMetrics";
+import { CLOSE_AREA_PX, DRAW_DEFAULT_WIDTH } from "@/app/utils/shapeMetrics";
 import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
@@ -171,6 +171,7 @@ export function AnnotationLayer({
     [state.settings.toolColors, state.toolColors],
   );
   const dispatch = useAppDispatch();
+  const newDrawWidth = state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH;
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
   // Length typed after a line's first click; it belongs to that start point only.
   const [typed, setTyped] = useState<{ start: Point2D; text: string } | null>(null);
@@ -523,6 +524,13 @@ export function AnnotationLayer({
       }
 
       if (state.tool === "draw" || (state.tool === "cloud" && state.cloudMode === "freehand")) {
+        // Without this the drag also selects markup text, and the next press on that
+        // selection starts a native drag that cancels the stroke after a few points.
+        event.preventDefault();
+        window.getSelection()?.removeAllRanges();
+        // preventDefault also keeps focus where it was (e.g. the width slider), which would
+        // swallow tool hotkeys; pressing the drawing should take focus off it as usual.
+        (document.activeElement as HTMLElement | null)?.blur();
         event.currentTarget.setPointerCapture(event.pointerId);
         dragRef.current = { type: "freehand", kind: state.tool, points: [local] };
         setFreehandStroke([local]);
@@ -943,6 +951,7 @@ export function AnnotationLayer({
             kind: "draw",
             points: stroke.map((p) => toDocPoint(viewport, p.x, p.y)),
             color: toolColors.draw,
+            strokeWidth: newDrawWidth,
           },
         });
       }
@@ -1004,7 +1013,7 @@ export function AnnotationLayer({
     }
 
     dragRef.current = null;
-  }, [dispatch, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, state.shapes, viewport]);
+  }, [dispatch, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, state.shapes, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -1727,7 +1736,7 @@ export function AnnotationLayer({
     <svg
       width={viewport.width}
       height={viewport.height}
-      className="absolute inset-0 touch-none"
+      className="absolute inset-0 touch-none select-none"
       style={{
         cursor:
           state.tool === "pan"
@@ -1762,6 +1771,16 @@ export function AnnotationLayer({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={() => {
+        // A cancelled stroke is dropped rather than saved as a stub.
+        if (dragRef.current?.type === "freehand") {
+          dragRef.current = null;
+          setFreehandStroke(null);
+          return;
+        }
+        handlePointerUp();
+      }}
+      onDragStart={(event) => event.preventDefault()}
       onPointerLeave={() => {
         handlePointerUp();
         onCursorMove?.(null);
@@ -1854,7 +1873,7 @@ export function AnnotationLayer({
             d={drawPreview}
             fill="none"
             stroke={toolColors.draw}
-            strokeWidth={2}
+            strokeWidth={newDrawWidth}
             strokeLinecap="round"
             strokeLinejoin="round"
             pointerEvents="none"

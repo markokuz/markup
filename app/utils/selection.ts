@@ -19,6 +19,7 @@ import {
 } from "@/app/utils/coordinates";
 import { cloudOutline, rotateAround, rotatedBoxCorners } from "@/app/utils/geometry";
 import { noteCardSize, textInkScreenBox, textScreenBox } from "@/app/utils/noteLayout";
+import { drawWidth } from "@/app/utils/shapeMetrics";
 
 /** Screen corners (TL, TR, BR, BL) of a note card, turned with the note. */
 export function noteScreenCorners(note: NoteAnnotation, viewport: DocumentViewport): Point2D[] {
@@ -401,7 +402,12 @@ export function hitTestAnnotations(
       x: (Math.min(...xs) + Math.max(...xs)) / 2,
       y: (Math.min(...ys) + Math.max(...ys)) / 2,
     };
-    const slop = shape.kind === "text" ? TEXT_HIT_SLOP : LINE_HIT_SLOP;
+    const slop =
+      shape.kind === "text"
+        ? TEXT_HIT_SLOP
+        : shape.kind === "draw"
+          ? Math.max(LINE_HIT_SLOP, drawWidth(shape) / 2 + 4)
+          : LINE_HIT_SLOP;
     const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= slop);
     const insideArea =
       (shape.kind === "area" || shape.kind === "image" || shape.kind === "text") &&

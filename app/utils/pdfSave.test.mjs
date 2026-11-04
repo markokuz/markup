@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
-import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
+import { decodePDFRawStream, PDFDocument, PDFName, PDFRawStream, StandardFonts } from "pdf-lib";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
@@ -97,5 +97,17 @@ assert.equal(await readPdfWithMarkups(await damaged.save({ useObjectStreams: fal
 // An out-of-range zoom is pulled back into range.
 const zoomed = await bytesOf(await buildPdfWithMarkups(original, { ...data, zoom: 500 }, up));
 assert.equal((await readPdfWithMarkups(zoomed)).data.zoom, 16);
+
+// What gets drawn doesn't depend on the zoom the file was saved at (pdf-lib's resource names are random).
+const drawing = async (zoom) => {
+  const doc = await PDFDocument.load(await bytesOf(await buildPdfWithMarkups(original, { ...data, zoom }, up)));
+  const contents = doc.getPage(0).node.Contents();
+  const streams = Array.from({ length: contents.size() }, (_, i) => contents.lookup(i, PDFRawStream));
+  return streams
+    .map((stream) => new TextDecoder("latin1").decode(decodePDFRawStream(stream).decode()))
+    .join("\n")
+    .replace(/\/[\w+-]*-\d+/g, "/name");
+};
+assert.equal(await drawing(0.25), await drawing(16));
 
 console.log("pdfSave: all checks passed");

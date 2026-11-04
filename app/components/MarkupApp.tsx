@@ -268,7 +268,7 @@ function MarkupShell() {
       onDrop={(e) => {
         e.preventDefault();
         setDraggingFile(false);
-        void openDroppedFile(e.dataTransfer, dispatch);
+        void openDroppedFile(e.dataTransfer, dispatch, state.tabs);
       }}
     >
       {draggingFile && (

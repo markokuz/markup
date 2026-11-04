@@ -27,6 +27,15 @@ function getWorker() {
       if (response.ok) callbacks.resolve(response.bitmap);
       else callbacks.reject(new Error(response.error));
     };
+    // It failed to load or crashed: nothing in flight will ever answer, and its documents are gone.
+    worker.onerror = (event) => {
+      const error = new Error(event.message || "The PDF renderer stopped working");
+      worker?.terminate();
+      worker = null;
+      docIds = new WeakMap();
+      for (const { reject } of pending.values()) reject(error);
+      pending.clear();
+    };
   }
   return worker;
 }
@@ -41,9 +50,10 @@ function call(request: DistributiveOmit<PdfiumRequest, "id">, transfer: Transfer
 
 // One PDFium document per tab's bytes; closed in the worker once the tab's
 // bytes are garbage-collected.
-const docIds = new WeakMap<Uint8Array, Promise<number>>();
+let docIds = new WeakMap<Uint8Array, Promise<number>>();
 const closeRegistry = new FinalizationRegistry<number>((docId) => {
-  void call({ type: "close", docId }).catch(() => {});
+  // With no worker running the document is already gone; don't start one just to close it.
+  if (worker) void call({ type: "close", docId }).catch(() => {});
 });
 
 function openDocument(bytes: Uint8Array) {

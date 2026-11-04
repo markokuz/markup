@@ -11,7 +11,6 @@ import type {
 } from "@/app/types";
 import { isValidMarkupData, withGroups } from "@/app/utils/groups";
 import type { ColorTool } from "@/app/utils/settings";
-import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 import { clampZoom } from "@/app/utils/zoomLevels";
 
 const PROJECT_FILE_EXTENSION = ".mkup";
@@ -156,35 +155,4 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
       payload.fileType === "image" &&
       (payload.rotation === 90 || payload.rotation === 270),
   };
-}
-
-export type ProjectSaveResult =
-  | { saved: false }
-  | { saved: true; handle: FileSystemFileHandle | null };
-
-/** Save a project blob; "choose-location" returns the picked handle so the tab can link to it. */
-export async function persistProjectBlob(
-  blob: Blob,
-  fileName: string,
-  saveMode: "download" | "choose-location",
-): Promise<ProjectSaveResult> {
-  if (saveMode === "choose-location") {
-    try {
-      const handle = await writeBlobWithSaveFilePicker(blob, fileName);
-      if (handle) return { saved: true, handle };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return { saved: false };
-      }
-      throw error;
-    }
-  }
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-  return { saved: true, handle: null };
 }

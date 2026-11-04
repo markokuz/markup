@@ -23,12 +23,7 @@ export function supportsSaveFilePicker(): boolean {
   return typeof getSaveFilePicker() === "function";
 }
 
-export interface PickerFileType {
-  description: string;
-  accept: Record<string, string[]>;
-}
-
-function inferFileType(blob: Blob): PickerFileType {
+function inferFileType(blob: Blob): { description: string; accept: Record<string, string[]> } {
   if (blob.type === "application/pdf") {
     return { description: "PDF document", accept: { "application/pdf": [".pdf"] } };
   }
@@ -41,23 +36,40 @@ function inferFileType(blob: Blob): PickerFileType {
   return { description: "PNG image", accept: { "image/png": [".png"] } };
 }
 
-/** Shows the save picker and writes the blob; returns the chosen handle (null if unsupported). */
-export async function writeBlobWithSaveFilePicker(
+export function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Save through the browser's picker, or as a download where it has none. Returns the
+ * chosen file's handle (null for a download), or null overall if the user cancelled.
+ */
+export async function saveBlobAs(
   blob: Blob,
   suggestedName: string,
-  fileType?: PickerFileType,
-): Promise<FileSystemFileHandle | null> {
+): Promise<{ handle: FileSystemFileHandle | null } | null> {
   const showSaveFilePicker = getSaveFilePicker();
   if (!showSaveFilePicker) {
-    return null;
+    downloadBlob(blob, suggestedName);
+    return { handle: null };
   }
 
-  const handle = await showSaveFilePicker({
-    suggestedName,
-    types: [fileType ?? inferFileType(blob)],
-  });
-  await writeBlobToHandle(handle, blob);
-  return handle;
+  try {
+    const handle = await showSaveFilePicker({
+      suggestedName,
+      types: [inferFileType(blob)],
+    });
+    await writeBlobToHandle(handle, blob);
+    return { handle };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return null;
+    throw error;
+  }
 }
 
 type PermissionedFileHandle = FileSystemFileHandle & {

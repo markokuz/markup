@@ -159,24 +159,28 @@ export function useDocument(
       try {
         if (fileType === "pdf") {
           const pdfjs = await getPdfJs();
-          const pdf = await pdfjs.getDocument(
-            getPdfDocumentOptions(bytes, pdfjs.version),
-          ).promise;
+          const task = pdfjs.getDocument(getPdfDocumentOptions(bytes));
+          try {
+            const pdf = await task.promise;
+            if (cancelled) return;
 
-          if (cancelled) return;
-
-          const page = await pdf.getPage(1);
-          if (cancelled) return;
-          if (pdf.numPages > 1) {
-            showSaveStatus("info", `This PDF has ${pdf.numPages} pages; only page 1 is shown.`);
+            const page = await pdf.getPage(1);
+            if (cancelled) return;
+            if (pdf.numPages > 1) {
+              showSaveStatus("info", `This PDF has ${pdf.numPages} pages; only page 1 is shown.`);
+            }
+            pageRef.current = page;
+            imageRef.current = null;
+            // rotation: 0 is absolute in pdf.js, so this is the media box before /Rotate.
+            const base = page.getViewport({ scale: 1, rotation: 0 });
+            const size = { width: base.width, height: base.height, pageRotation: page.rotate };
+            sourceCache.set(cacheKey, { page, image: null, naturalSize: size, bitmap: null });
+            setNaturalSize(size);
+          } finally {
+            // PDFium does the rendering; the page's size data outlives this. Otherwise every
+            // PDF ever opened keeps a worker thread and a copy of the file.
+            void task.destroy();
           }
-          pageRef.current = page;
-          imageRef.current = null;
-          // rotation: 0 is absolute in pdf.js, so this is the media box before /Rotate.
-          const base = page.getViewport({ scale: 1, rotation: 0 });
-          const size = { width: base.width, height: base.height, pageRotation: page.rotate };
-          sourceCache.set(cacheKey, { page, image: null, naturalSize: size, bitmap: null });
-          setNaturalSize(size);
         } else {
           const image = await loadImageSource(bytes, fileName ?? "image", mimeType ?? "");
           if (cancelled) return;

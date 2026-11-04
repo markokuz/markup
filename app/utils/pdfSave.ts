@@ -99,7 +99,6 @@ export async function buildPdfWithMarkups(
     data.shapes,
     data.scale,
     data.displayUnit,
-    data.zoom,
     screenUpDoc,
   );
 

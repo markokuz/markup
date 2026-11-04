@@ -1,7 +1,8 @@
 import type { Dispatch } from "react";
-import type { AppAction } from "@/app/types";
+import type { AppAction, DocumentTab } from "@/app/types";
 import { detectDocumentType } from "@/app/utils/fileTypes";
 import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 import { putSession, type SessionEntry } from "@/app/utils/sessionStore";
 import { readPdfWithMarkups } from "@/app/utils/pdfSave";
 import { withGroups } from "@/app/utils/groups";
@@ -45,6 +46,25 @@ const OPEN_PICKER_TYPES = [
   },
 ];
 
+type OpenTab = Pick<DocumentTab, "id" | "projectHandle">;
+
+/** Two tabs linked to one file would overwrite each other's saves, so show the open one instead. */
+async function switchIfAlreadyOpen(
+  handle: FileSystemFileHandle | null,
+  tabs: OpenTab[],
+  dispatch: Dispatch<AppAction>,
+): Promise<boolean> {
+  if (!handle) return false;
+  for (const tab of tabs) {
+    if (tab.projectHandle && (await tab.projectHandle.isSameEntry(handle).catch(() => false))) {
+      dispatch({ type: "SWITCH_TAB", tabId: tab.id });
+      showSaveStatus("info", `${handle.name} is already open`);
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Open a document or .mkup project in a new tab. `handle` links the .mkup or PDF so
  * Ctrl+S can save back to it.
@@ -53,33 +73,17 @@ export async function openDocumentFile(
   file: File,
   dispatch: Dispatch<AppAction>,
   handle: FileSystemFileHandle | null = null,
+  tabs: OpenTab[] = [],
 ): Promise<void> {
   try {
+    if (await switchIfAlreadyOpen(handle, tabs, dispatch)) return;
+
     if (isProjectFile(file)) {
       const project = await readProjectFile(file);
       const tabId = crypto.randomUUID();
       // Keep the file handle so Ctrl+S after a reload still targets this .mkup.
       void putSession({ id: tabId, fileName: file.name, project: file, handle, savedAt: Date.now() });
-      dispatch({
-        type: "LOAD_PROJECT",
-        tabId,
-        bytes: project.bytes,
-        fileName: project.fileName,
-        fileType: project.fileType,
-        mimeType: project.mimeType,
-        scale: project.scale,
-        measurements: project.measurements,
-        rectangles: project.rectangles,
-        notes: project.notes,
-        shapes: project.shapes,
-        groups: project.groups,
-        displayUnit: project.displayUnit,
-        zoom: project.zoom,
-        rotation: project.rotation,
-        legacyRotatedImage: project.legacyRotatedImage,
-      toolColors: project.toolColors,
-        handle,
-      });
+      dispatch({ type: "LOAD_PROJECT", ...project, tabId, handle });
       return;
     }
 
@@ -122,6 +126,7 @@ export async function openDocumentFile(
 export async function pickAndOpenFile(
   dispatch: Dispatch<AppAction>,
   fallbackInput: HTMLInputElement | null,
+  tabs: OpenTab[] = [],
 ): Promise<void> {
   const showOpenFilePicker = (window as WindowWithOpenFilePicker).showOpenFilePicker;
   if (typeof showOpenFilePicker !== "function") {
@@ -141,13 +146,14 @@ export async function pickAndOpenFile(
   const handle = handles[0];
   if (!handle) return;
   const file = await handle.getFile();
-  await openDocumentFile(file, dispatch, keepsHandle(file) ? handle : null);
+  await openDocumentFile(file, dispatch, keepsHandle(file) ? handle : null, tabs);
 }
 
 /** Open the first dropped file, keeping a handle for dropped .mkup projects and PDFs. */
 export async function openDroppedFile(
   dataTransfer: DataTransfer,
   dispatch: Dispatch<AppAction>,
+  tabs: OpenTab[],
 ): Promise<void> {
   const file = dataTransfer.files[0];
   if (!file) return;
@@ -164,6 +170,7 @@ export async function openDroppedFile(
     file,
     dispatch,
     handle && handle.kind === "file" ? (handle as FileSystemFileHandle) : null,
+    tabs,
   );
 }
 
@@ -171,27 +178,17 @@ export async function openDroppedFile(
 export async function restoreSession(
   entry: SessionEntry,
   dispatch: Dispatch<AppAction>,
+  tabs: OpenTab[],
 ): Promise<void> {
   try {
+    if (await switchIfAlreadyOpen(entry.handle, tabs, dispatch)) return;
+
     const project = await readProjectFile(new File([entry.project], entry.fileName));
     dispatch({
       type: "LOAD_PROJECT",
+      ...project,
+      bytes: entry.bytes ? new Uint8Array(await entry.bytes.arrayBuffer()) : project.bytes,
       tabId: entry.id,
-      bytes: project.bytes,
-      fileName: project.fileName,
-      fileType: project.fileType,
-      mimeType: project.mimeType,
-      scale: project.scale,
-      measurements: project.measurements,
-      rectangles: project.rectangles,
-      notes: project.notes,
-      shapes: project.shapes,
-      groups: project.groups,
-      displayUnit: project.displayUnit,
-      zoom: project.zoom,
-      rotation: project.rotation,
-      legacyRotatedImage: project.legacyRotatedImage,
-      toolColors: project.toolColors,
       handle: entry.handle,
     });
   } catch (error) {

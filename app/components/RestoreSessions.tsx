@@ -43,7 +43,7 @@ export function RestoreSessions() {
           <li key={entry.id} className="group flex items-center gap-2">
             <button
               type="button"
-              onClick={() => void restoreSession(entry, dispatch)}
+              onClick={() => void restoreSession(entry, dispatch, tabs)}
               className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-surface-muted"
             >
               <span className="truncate text-text-primary">{entry.fileName}</span>

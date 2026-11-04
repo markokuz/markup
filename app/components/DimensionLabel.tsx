@@ -78,6 +78,11 @@ export function DimensionLabel({
 
   const handleCommit = () => {
     const raw = inputRef.current?.value ?? "";
+    // The box shows a rounded value; applying it unchanged would nudge the markup.
+    if (raw === editValue) {
+      onCancel();
+      return;
+    }
     const parsed = parseDimensionInput(raw, displayUnit);
     if (parsed !== null) {
       onCommit(parsed);

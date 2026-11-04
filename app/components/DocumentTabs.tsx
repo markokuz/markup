@@ -135,7 +135,7 @@ export function DocumentTabs() {
           type="button"
           className="btn-secondary shrink-0 px-2.5 py-1.5 text-sm"
           title="Open another file"
-          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
+          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current, tabs)}
         >
           +
         </button>

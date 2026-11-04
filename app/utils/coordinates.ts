@@ -54,19 +54,6 @@ export function computeDocOffsetFromScreen(
   };
 }
 
-/** Convert a document-space label offset to screen coordinates. */
-export function docLabelToScreen(
-  viewport: DocumentViewport,
-  anchorDoc: Point2D,
-  offsetDoc: Point2D,
-): Point2D {
-  return toScreenPoint(
-    viewport,
-    anchorDoc.x + offsetDoc.x,
-    anchorDoc.y + offsetDoc.y,
-  );
-}
-
 /** Default label offset (16px above anchor) stored in document space. */
 export function defaultScreenLabelOffsetDoc(
   viewport: DocumentViewport,
@@ -104,14 +91,6 @@ export function getLineLabelAnchorDoc(measurement: Measurement): Point2D {
   return midpoint(measurement.start, measurement.end);
 }
 
-export function getLineLabelDocPosition(measurement: Measurement): Point2D {
-  const anchor = getLineLabelAnchorDoc(measurement);
-  return {
-    x: anchor.x + measurement.labelOffset.x,
-    y: anchor.y + measurement.labelOffset.y,
-  };
-}
-
 export function getRectWidthLabelAnchorDoc(
   rectangle: RectMeasurement,
   fileType: DocumentType,
@@ -125,25 +104,6 @@ export function getRectWidthLabelAnchorDoc(
 export function getRectHeightLabelAnchorDoc(rectangle: RectMeasurement): Point2D {
   const centerY = (rectangle.topLeft.y + rectangle.bottomRight.y) / 2;
   return { x: rectangle.topLeft.x, y: centerY };
-}
-
-export function getRectWidthLabelDocPosition(
-  rectangle: RectMeasurement,
-  fileType: DocumentType,
-): Point2D {
-  const anchor = getRectWidthLabelAnchorDoc(rectangle, fileType);
-  return {
-    x: anchor.x + rectangle.widthLabelOffset.x,
-    y: anchor.y + rectangle.widthLabelOffset.y,
-  };
-}
-
-export function getRectHeightLabelDocPosition(rectangle: RectMeasurement): Point2D {
-  const anchor = getRectHeightLabelAnchorDoc(rectangle);
-  return {
-    x: anchor.x + rectangle.heightLabelOffset.x,
-    y: anchor.y + rectangle.heightLabelOffset.y,
-  };
 }
 
 export interface ScreenRect {

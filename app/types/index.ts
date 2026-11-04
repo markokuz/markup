@@ -297,13 +297,10 @@ export type AppAction =
   | { type: "SET_PENDING_MARQUEE"; marquee: PendingMarquee | null }
   | { type: "ADD_MEASUREMENT"; measurement: Measurement }
   | { type: "UPDATE_MEASUREMENT"; id: string; updates: Partial<Measurement> }
-  | { type: "DELETE_MEASUREMENT"; id: string }
   | { type: "ADD_RECTANGLE"; rectangle: RectMeasurement }
   | { type: "UPDATE_RECTANGLE"; id: string; updates: Partial<RectMeasurement> }
-  | { type: "DELETE_RECTANGLE"; id: string }
   | { type: "ADD_NOTE"; note: NoteAnnotation }
   | { type: "UPDATE_NOTE"; id: string; updates: Partial<NoteAnnotation> }
-  | { type: "DELETE_NOTE"; id: string }
   | { type: "ADD_SHAPE"; shape: ShapeAnnotation; drawing?: boolean }
   | { type: "APPEND_SHAPE_POINT"; id: string; point: Point2D }
   | { type: "FINISH_SHAPE" }
@@ -353,7 +350,6 @@ export type AppAction =
   | { type: "SET_SCALE"; scale: Scale; calibrationMeasurement: Measurement }
   | { type: "OPEN_CALIBRATE_DIALOG"; line: PendingCalibrationLine }
   | { type: "CLOSE_CALIBRATE_DIALOG" }
-  | { type: "CLEAR_ALL" }
   | { type: "RECORD_UNDO" }
   | { type: "UNDO" }
   | { type: "REDO" }

@@ -32,6 +32,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+Run the tests with `npm test` (needs Node 22.18 or newer).
+
 ## How to use
 
 ### 1. Open a document

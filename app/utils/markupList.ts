@@ -193,8 +193,10 @@ export function summarizeRows(rows: MarkupRow[], unit: Unit): MarkupTotal[] {
 
 function csvCell(value: string | number | undefined): string {
   if (value === undefined) return "";
-  const text = typeof value === "number" ? String(Math.round(value * 1000) / 1000) : value;
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  if (typeof value === "number") return String(Math.round(value * 1000) / 1000);
+  // Excel runs a cell starting with these as a formula; a note in a shared file shouldn't get to.
+  const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function rowsToCsv(rows: MarkupRow[], unit: Unit): string {

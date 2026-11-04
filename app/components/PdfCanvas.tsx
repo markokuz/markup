@@ -430,7 +430,8 @@ export function PdfViewer() {
   if (!fileBytes) {
     return (
       <div
-        className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"
+        // "Safe" centring: plain centring would push the top out of reach once this overflows.
+        className="flex flex-1 flex-col items-center justify-center-safe gap-4 overflow-y-auto p-8 text-center"
       >
         <div className="flex flex-col items-center rounded-2xl border border-dashed border-border bg-surface p-12 shadow-sm">
           <DropIcon className="mb-4 h-12 w-12 text-text-secondary" />

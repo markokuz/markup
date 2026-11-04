@@ -1,23 +1,14 @@
 import type { Dispatch } from "react";
 import type { AppAction, DocumentTab, Unit } from "@/app/types";
+import { buildProjectBlob, getProjectFileName } from "@/app/utils/projectFile";
 import {
-  buildProjectBlob,
-  getProjectFileName,
-  persistProjectBlob,
-} from "@/app/utils/projectFile";
-import {
+  saveBlobAs,
   SavePermissionError,
-  supportsSaveFilePicker,
   writeBlobToHandle,
-  writeBlobWithSaveFilePicker,
 } from "@/app/utils/saveFilePicker";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { putSession } from "@/app/utils/sessionStore";
-import {
-  buildMarkedUpImageBlob,
-  downloadBlob,
-  getScreenUpDocDirection,
-} from "@/app/utils/exportDocument";
+import { buildMarkedUpImageBlob, getScreenUpDocDirection } from "@/app/utils/exportDocument";
 import { buildPdfWithMarkups } from "@/app/utils/pdfSave";
 
 /**
@@ -69,13 +60,10 @@ export async function saveTab(
   mode: SaveMode,
   dispatch: Dispatch<AppAction>,
 ): Promise<string | null> {
-  if (!tab.fileBytes || !tab.fileName || !tab.fileType) return null;
+  const { fileBytes, fileName, fileType } = tab;
+  if (!fileBytes || !fileName || !fileType) return null;
 
-  const project = buildProjectBlob({
-    fileName: tab.fileName,
-    fileType: tab.fileType,
-    mimeType: tab.fileMimeType ?? "",
-    fileBytes: tab.fileBytes,
+  const markups = {
     scale: tab.scale,
     measurements: tab.measurements,
     rectangles: tab.rectangles,
@@ -86,17 +74,30 @@ export async function saveTab(
     zoom: tab.zoom,
     rotation: tab.rotation,
     toolColors: tab.toolColors,
-  });
+  };
+  const projectBlob = (bytes: Uint8Array) =>
+    buildProjectBlob({
+      ...markups,
+      fileName,
+      fileType,
+      mimeType: tab.fileMimeType ?? "",
+      fileBytes: bytes,
+    });
 
+  // The document goes beside the markups as raw bytes: only a real .mkup needs it as
+  // base64, and converting a big PDF on every save would freeze the page.
+  const backupProject = projectBlob(new Uint8Array());
+  const backupBytes = new Blob([fileBytes as Uint8Array<ArrayBuffer>]);
   const backup = (handle: FileSystemFileHandle | null) =>
     putSession({
       id: tab.id,
-      fileName: handle?.name ?? getProjectFileName(tab.fileName!),
-      project,
+      fileName: handle?.name ?? getProjectFileName(fileName),
+      project: backupProject,
+      bytes: backupBytes,
       handle,
       savedAt: Date.now(),
     });
-  await backup(tab.projectHandle);
+  const backedUp = await backup(tab.projectHandle);
 
   // The saved file becomes the one this tab edits: later Ctrl+S saves go to it.
   const adopt = async (handle: FileSystemFileHandle) => {
@@ -105,54 +106,50 @@ export async function saveTab(
       tabId: tab.id,
       handle,
       // An image keeps its own name: decoding TIFF/HEIC sources goes by it.
-      ...(tab.fileType === "pdf" && !isProjectHandle(handle) ? { fileName: handle.name } : {}),
+      ...(fileType === "pdf" && !isProjectHandle(handle) ? { fileName: handle.name } : {}),
     });
     await backup(handle);
   };
 
-  if (mode === "save-project-as") {
-    const fileName =
-      tab.projectHandle && isProjectHandle(tab.projectHandle)
-        ? tab.projectHandle.name
-        : getProjectFileName(tab.fileName);
-    const result = await persistProjectBlob(
-      project,
-      fileName,
-      supportsSaveFilePicker() ? "choose-location" : "download",
-    );
-    if (!result.saved) return null;
+  const writeToLinkedFile = async (handle: FileSystemFileHandle, blob: Blob) => {
+    try {
+      await writeBlobToHandle(handle, blob);
+    } catch (error) {
+      // SavePermissionError's message promises a browser copy; only let it through if there is one.
+      if (error instanceof SavePermissionError && !backedUp) {
+        throw new Error("File access was declined and the browser backup failed, so nothing was saved.");
+      }
+      throw error;
+    }
+    dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
+    return handle.name;
+  };
+
+  const saveAs = async (blob: Blob, suggestedName: string) => {
+    const result = await saveBlobAs(blob, suggestedName);
+    if (!result) return null;
     if (result.handle) await adopt(result.handle);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-    return result.handle?.name ?? fileName;
-  }
+    return result.handle?.name ?? suggestedName;
+  };
 
-  if (mode === "save" && tab.projectHandle && isProjectHandle(tab.projectHandle)) {
-    await writeBlobToHandle(tab.projectHandle, project);
-    dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-    return tab.projectHandle.name;
+  const linked = tab.projectHandle;
+  if (mode === "save-project-as") {
+    return saveAs(
+      projectBlob(fileBytes),
+      linked && isProjectHandle(linked) ? linked.name : getProjectFileName(fileName),
+    );
+  }
+  if (mode === "save" && linked && isProjectHandle(linked)) {
+    return writeToLinkedFile(linked, projectBlob(fileBytes));
   }
 
   const output =
-    tab.fileType === "pdf"
-      ? await buildPdfWithMarkups(
-          tab.fileBytes,
-          {
-            scale: tab.scale,
-            measurements: tab.measurements,
-            rectangles: tab.rectangles,
-            notes: tab.notes,
-            shapes: tab.shapes,
-            groups: tab.groups,
-            displayUnit,
-            zoom: tab.zoom,
-            rotation: tab.rotation,
-            toolColors: tab.toolColors,
-          },
-          getScreenUpDocDirection(tab.documentViewport, "pdf"),
-        )
+    fileType === "pdf"
+      ? await buildPdfWithMarkups(fileBytes, markups, getScreenUpDocDirection(tab.documentViewport, "pdf"))
       : await buildMarkedUpImageBlob(
-          tab.fileBytes,
-          tab.fileName,
+          fileBytes,
+          fileName,
           tab.fileMimeType ?? "",
           tab.measurements,
           tab.rectangles,
@@ -160,35 +157,12 @@ export async function saveTab(
           tab.shapes,
           tab.scale,
           displayUnit,
-          tab.zoom,
           getScreenUpDocDirection(tab.documentViewport, "image"),
         );
   if (!output) throw new Error("nothing was generated");
 
-  if (mode === "save" && tab.projectHandle && !isProjectHandle(tab.projectHandle)) {
-    await writeBlobToHandle(tab.projectHandle, output);
-    dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-    return tab.projectHandle.name;
-  }
-
-  const suggestedName = tab.fileType === "pdf" ? tab.fileName : markedUpPngName(tab.fileName);
-  if (supportsSaveFilePicker()) {
-    let handle: FileSystemFileHandle | null;
-    try {
-      handle = await writeBlobWithSaveFilePicker(output, suggestedName);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return null;
-      throw error;
-    }
-    if (handle) {
-      await adopt(handle);
-      dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-      return handle.name;
-    }
-  }
-  downloadBlob(output, suggestedName);
-  dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
-  return suggestedName;
+  if (mode === "save" && linked) return writeToLinkedFile(linked, output);
+  return saveAs(output, fileType === "pdf" ? fileName : markedUpPngName(fileName));
 }
 
 /** saveTab plus the save toast: Saving… → Saved / cancelled / browser-only / error. */

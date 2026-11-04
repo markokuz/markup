@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocumentRotation, ShapeAnnotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { supportsSaveFilePicker } from "@/app/utils/exportDocument";
+import { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
 import { ColorWheel } from "@/app/components/ColorWheel";
 import { SettingsButton } from "@/app/components/SettingsDialog";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
@@ -136,7 +136,7 @@ export function Toolbar() {
         />
         <button
           type="button"
-          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current)}
+          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current, state.tabs)}
           className="btn-secondary h-9"
         >
           Upload File

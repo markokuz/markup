@@ -31,7 +31,6 @@ import {
 } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import {
-  arrowPolygonPoints,
   computeDimensionLayout,
   computeInlineEdgeSegments,
   computePdfLabelAngleDeg,
@@ -65,12 +64,8 @@ import {
   drawWidth,
   getShapeLabel,
 } from "@/app/utils/shapeMetrics";
-import { writeBlobWithSaveFilePicker } from "@/app/utils/saveFilePicker";
 
-export type ExportSaveMode = "download" | "choose-location";
-export { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
-
-export interface ExportStyle {
+interface ExportStyle {
   lineWidth: number;
   calibrationLineWidth: number;
   borderWidth: number;
@@ -82,12 +77,11 @@ export interface ExportStyle {
 }
 
 /**
- * Size markups in document units to visually match what the user drew on screen.
- * The on-screen stroke is 2 screen-px and label is 12 screen-px regardless of zoom,
- * so in document units that is `screenSize / zoom`. Scaling by page size instead
- * makes markups huge on large-format drawings.
+ * Markup sizes for a save, in document units: the on-screen 2 px stroke and 12 px label
+ * as they'd look at `zoom`. Scaling by page size instead makes markups huge on
+ * large-format drawings.
  */
-export function getExportStyle(zoom: number): ExportStyle {
+function getExportStyle(zoom: number): ExportStyle {
   const scale = 1 / Math.max(zoom, 0.0001);
   return {
     lineWidth: 2 * scale,
@@ -990,23 +984,6 @@ function drawShapesOnPdf(
   }
 }
 
-export async function buildMarkedUpPdfBlob(
-  fileBytes: Uint8Array,
-  measurements: Measurement[],
-  rectangles: RectMeasurement[],
-  notes: NoteAnnotation[],
-  shapes: ShapeAnnotation[],
-  scale: Scale | null,
-  displayUnit: Unit,
-  zoom: number,
-  screenUpDoc: Point2D = { x: 0, y: 1 },
-): Promise<Blob> {
-  const pdfDoc = await PDFDocument.load(fileBytes);
-  await drawMarkupsOnPdf(pdfDoc, measurements, rectangles, notes, shapes, scale, displayUnit, zoom, screenUpDoc);
-  const output = await pdfDoc.save();
-  return new Blob([output.buffer as ArrayBuffer], { type: "application/pdf" });
-}
-
 /** Draws every markup onto page 1 of an already-loaded PDF. */
 export async function drawMarkupsOnPdf(
   pdfDoc: PDFDocument,
@@ -1016,9 +993,10 @@ export async function drawMarkupsOnPdf(
   shapes: ShapeAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
-  zoom: number,
   screenUpDoc: Point2D = { x: 0, y: 1 },
 ): Promise<void> {
+  // Labels are 12 pt on the sheet, whatever view the file happened to be saved from.
+  const zoom = 1;
   const page = pdfDoc.getPage(0);
   const style = getExportStyle(zoom);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -1175,6 +1153,9 @@ export async function drawMarkupsOnPdf(
 
 }
 
+/** A pixel has no real-world size, so saved images get labels as if shown about this wide. */
+const EXPORT_IMAGE_VIEW_PX = 1000;
+
 export async function buildMarkedUpImageBlob(
   fileBytes: Uint8Array,
   fileName: string,
@@ -1185,10 +1166,10 @@ export async function buildMarkedUpImageBlob(
   shapes: ShapeAnnotation[],
   scale: Scale | null,
   displayUnit: Unit,
-  zoom: number,
   screenUpDoc: Point2D = { x: 0, y: -1 },
 ): Promise<Blob | null> {
   const source = await loadImageSource(fileBytes, fileName, mimeType);
+  const zoom = Math.min(1, EXPORT_IMAGE_VIEW_PX / Math.max(source.width, source.height));
   const canvas = document.createElement("canvas");
   canvas.width = source.width;
   canvas.height = source.height;
@@ -1237,96 +1218,4 @@ export async function buildMarkedUpImageBlob(
   });
 
   return blob;
-}
-
-function stripExtension(fileName: string): string {
-  return fileName.replace(/\.[^.]+$/, "");
-}
-
-export function getMarkedUpExportFileName(
-  fileType: DocumentType,
-  originalFileName: string,
-): string {
-  const base = stripExtension(originalFileName);
-  return fileType === "pdf" ? `marked-up-${base}.pdf` : `marked-up-${base}.png`;
-}
-
-export function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function persistExportedBlob(
-  blob: Blob,
-  fileName: string,
-  saveMode: ExportSaveMode,
-): Promise<boolean> {
-  if (saveMode === "choose-location") {
-    try {
-      const handle = await writeBlobWithSaveFilePicker(blob, fileName);
-      if (handle) {
-        return true;
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  downloadBlob(blob, fileName);
-  return true;
-}
-
-export async function exportMarkedUpDocument(
-  fileBytes: Uint8Array,
-  fileType: DocumentType,
-  fileName: string,
-  mimeType: string,
-  measurements: Measurement[],
-  rectangles: RectMeasurement[],
-  notes: NoteAnnotation[],
-  shapes: ShapeAnnotation[],
-  scale: Scale | null,
-  displayUnit: Unit,
-  zoom: number,
-  saveMode: ExportSaveMode = "download",
-  screenUpDoc?: Point2D,
-): Promise<void> {
-  const blob =
-    fileType === "pdf"
-      ? await buildMarkedUpPdfBlob(
-          fileBytes,
-          measurements,
-          rectangles,
-          notes,
-          shapes,
-          scale,
-          displayUnit,
-          zoom,
-          screenUpDoc,
-        )
-      : await buildMarkedUpImageBlob(
-          fileBytes,
-          fileName,
-          mimeType,
-          measurements,
-          rectangles,
-          notes,
-          shapes,
-          scale,
-          displayUnit,
-          zoom,
-          screenUpDoc,
-        );
-
-  if (!blob) return;
-
-  const outputFileName = getMarkedUpExportFileName(fileType, fileName);
-  await persistExportedBlob(blob, outputFileName, saveMode);
 }

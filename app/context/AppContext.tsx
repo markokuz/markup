@@ -380,18 +380,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           m.id === action.id ? { ...m, ...action.updates } : m,
         ),
       }));
-    case "DELETE_MEASUREMENT":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        history: appendHistory(tab),
-        measurements: tab.measurements.filter((m) => m.id !== action.id),
-        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
-        editingDimension:
-          tab.editingDimension?.target === "line" &&
-          tab.editingDimension.id === action.id
-            ? null
-            : tab.editingDimension,
-      }));
     case "ADD_RECTANGLE":
       return updateActiveTab(state, (tab) => ({
         ...tab,
@@ -405,18 +393,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         rectangles: tab.rectangles.map((r) =>
           r.id === action.id ? { ...r, ...action.updates } : r,
         ),
-      }));
-    case "DELETE_RECTANGLE":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        history: appendHistory(tab),
-        rectangles: tab.rectangles.filter((r) => r.id !== action.id),
-        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
-        editingDimension:
-          tab.editingDimension?.target === "rectangle" &&
-          tab.editingDimension.id === action.id
-            ? null
-            : tab.editingDimension,
       }));
     case "ADD_NOTE":
       return {
@@ -434,14 +410,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         notes: tab.notes.map((n) =>
           n.id === action.id ? { ...n, ...action.updates } : n,
         ),
-      }));
-    case "DELETE_NOTE":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        history: appendHistory(tab),
-        notes: tab.notes.filter((n) => n.id !== action.id),
-        selectedIds: removeIdsFromSelection(tab.selectedIds, [action.id]),
-        editingNoteId: tab.editingNoteId === action.id ? null : tab.editingNoteId,
       }));
     case "ADD_SHAPE": {
       const { shape } = action;
@@ -618,25 +586,6 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "CLOSE_CALIBRATE_DIALOG":
       return updateActiveTab(state, (tab) => ({
         ...tab,
-        calibrateDialogOpen: false,
-        pendingCalibrationLine: null,
-      }));
-    case "CLEAR_ALL":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        history: appendHistory(tab),
-        scale: null,
-        measurements: [],
-        rectangles: [],
-        notes: [],
-        shapes: [],
-        groups: [],
-        drawingShapeId: null,
-        selectedIds: [],
-        pendingPoint: null,
-        pendingMarquee: null,
-        editingDimension: null,
-        editingNoteId: null,
         calibrateDialogOpen: false,
         pendingCalibrationLine: null,
       }));

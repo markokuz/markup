@@ -21,12 +21,13 @@ export function DocumentTabs() {
 
   const { scrollRef, overflow, updateOverflow, scrollBy } = useScrollHints("x", tabs.length);
 
-  // A tab opened or switched to past the edge would otherwise stay out of sight.
+  // A tab opened or switched to past the edge would otherwise stay out of sight. Not on
+  // every tab count change: closing another tab mustn't slide the row out from under the mouse.
   const activeTabRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
     updateOverflow();
-  }, [activeTabId, tabs.length, updateOverflow]);
+  }, [activeTabId, updateOverflow]);
 
   if (tabs.length === 0) return null;
 
@@ -51,8 +52,9 @@ export function DocumentTabs() {
       <div
         key={tab.id}
         ref={isActive ? activeTabRef : undefined}
-        // The margin keeps a scrolled-to tab clear of the fade at the row's edge.
-        className={`group flex max-w-[220px] shrink-0 scroll-mx-8 items-center rounded-md text-sm transition ${
+        // One width, so the next tab's close button lands where the last one was and a row of
+        // tabs can be closed by clicking one spot. The margin clears the fade at the row's edge.
+        className={`group flex w-[220px] shrink-0 scroll-mx-8 items-center rounded-md text-sm transition ${
           isActive
             ? "border border-border bg-surface text-text-primary shadow-sm"
             : "border border-transparent text-text-secondary hover:bg-surface-muted hover:text-text-primary"

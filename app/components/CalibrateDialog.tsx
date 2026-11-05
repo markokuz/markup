@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { docDistance } from "@/app/utils/coordinates";
+import { parseDimensionInput } from "@/app/utils/dimensions";
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
@@ -35,9 +36,14 @@ export function CalibrateDialog() {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const numeric = parseFloat(value);
-    if (!numeric || numeric <= 0) {
-      setError("Enter a positive number.");
+    // Same forms as typing a line's length: 5'4", 5' 4 1/2", 5.5, 6 1/2...
+    const numeric = parseDimensionInput(value, unit);
+    if (numeric === null) {
+      setError(
+        unit === "ft"
+          ? `Enter a length like 5'4", 5.5 or 6 1/2.`
+          : "Enter a positive number, like 2.5 or 6 1/2.",
+      );
       return;
     }
 
@@ -102,13 +108,12 @@ export function CalibrateDialog() {
               </label>
               <input
                 id="calibrate-value"
-                type="number"
-                step="any"
-                min="0"
+                type="text"
+                autoComplete="off"
                 ref={inputRef}
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                placeholder="10"
+                placeholder={unit === "ft" ? `5'4"` : "10"}
                 className="input-field w-full px-3 py-2"
               />
             </div>

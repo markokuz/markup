@@ -78,10 +78,8 @@ import {
 
 interface ExportStyle {
   lineWidth: number;
-  calibrationLineWidth: number;
   borderWidth: number;
   fontSize: number;
-  calibrationDash: [number, number];
   arrowLen: number;
   arrowHalfWidth: number;
   midpointTickHalf: number;
@@ -96,10 +94,8 @@ function getExportStyle(zoom: number): ExportStyle {
   const scale = 1 / Math.max(zoom, 0.0001);
   return {
     lineWidth: 2 * scale,
-    calibrationLineWidth: 1.5 * scale,
     borderWidth: 2 * scale,
     fontSize: 12 * scale,
-    calibrationDash: [6 * scale, 4 * scale],
     arrowLen: 9 * scale,
     arrowHalfWidth: 4 * scale,
     midpointTickHalf: MIDPOINT_TICK_HALF_PX * scale,

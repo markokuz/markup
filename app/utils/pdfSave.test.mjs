@@ -17,14 +17,12 @@ const original = await source.save();
 
 const data = {
   scale: { unitsPerPdfPoint: 0.02, calibrationUnit: "ft" },
-  measurements: [{ id: "m1", start: { x: 100, y: 300 }, end: { x: 400, y: 300 }, labelOffset: { x: 0, y: 12 } }],
+  measurements: [{ id: "m1", start: { x: 100, y: 300 }, end: { x: 400, y: 300 } }],
   rectangles: [
     {
       id: "r1",
       topLeft: { x: 200, y: 200 },
       bottomRight: { x: 300, y: 260 },
-      widthLabelOffset: { x: 0, y: 0 },
-      heightLabelOffset: { x: 0, y: 0 },
       rotation: 30,
     },
   ],

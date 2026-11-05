@@ -1,6 +1,6 @@
-export const MIN_ZOOM = 0.25;
+const MIN_ZOOM = 0.25;
 /** High enough to read small print on a dense drawing sheet. */
-export const MAX_ZOOM = 16;
+const MAX_ZOOM = 16;
 
 /** Stops for the toolbar's + and − buttons. */
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8, 12, 16];

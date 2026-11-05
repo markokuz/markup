@@ -30,13 +30,11 @@ interface DimensionLabelProps {
   isSelected: boolean;
   showHandles: boolean;
   isEditing: boolean;
-  inline?: boolean;
   clickable?: boolean;
   onSelect: (additive?: boolean) => void;
   onStartEdit: () => void;
   onCommit: (value: number) => void;
   onCancel: () => void;
-  onDragStart: (event: React.PointerEvent) => void;
 }
 
 export function DimensionLabel({
@@ -53,21 +51,16 @@ export function DimensionLabel({
   onStartEdit,
   onCommit,
   onCancel,
-  onDragStart,
-  inline = false,
   clickable = false,
 }: DimensionLabelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
-  const dragStartedRef = useRef(false);
+  const pressedRef = useRef(false);
   const labelWidth = Math.max(label.length * 7 + 12, 24);
   const editValue = formatDistanceEditValue(valueInDisplayUnit, displayUnit);
   const unitSuffix =
     displayUnit === "ft" ? "'" : displayUnit === "in" ? '"' : displayUnit;
-  const rectX = inline ? x - labelWidth / 2 : x - 4;
-  const rectY = inline ? y - 10 : y - 14;
-  const textX = inline ? x : x + 2;
-  const textY = inline ? y : y;
+  const rectX = x - labelWidth / 2;
+  const rectY = y - 10;
 
   useEffect(() => {
     if (isEditing) {
@@ -101,8 +94,7 @@ export function DimensionLabel({
 
     if (!showHandles) return;
     event.stopPropagation();
-    pointerStartRef.current = { x: event.clientX, y: event.clientY };
-    dragStartedRef.current = false;
+    pressedRef.current = true;
 
     if (!isSelected || additive) {
       onSelect(additive);
@@ -112,33 +104,9 @@ export function DimensionLabel({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handlePointerMove = (event: React.PointerEvent) => {
-    if (!showHandles || !isSelected || !pointerStartRef.current || dragStartedRef.current) {
-      return;
-    }
-
-    if (inline) return;
-
-    const dx = event.clientX - pointerStartRef.current.x;
-    const dy = event.clientY - pointerStartRef.current.y;
-    if (Math.hypot(dx, dy) > 4) {
-      dragStartedRef.current = true;
-      onDragStart(event);
-    }
-  };
-
   const handlePointerUp = () => {
-    if (!showHandles || !isSelected) {
-      pointerStartRef.current = null;
-      return;
-    }
-
-    if (!dragStartedRef.current && pointerStartRef.current) {
-      onStartEdit();
-    }
-
-    pointerStartRef.current = null;
-    dragStartedRef.current = false;
+    if (showHandles && isSelected && pressedRef.current) onStartEdit();
+    pressedRef.current = false;
   };
 
   if (isEditing) {
@@ -189,20 +157,19 @@ export function DimensionLabel({
           cursor: showHandles || clickable ? "pointer" : "default",
         }}
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       />
       <text
-        x={textX}
-        y={textY}
+        x={x}
+        y={y}
         fill={color}
         stroke="#ffffff"
         strokeWidth={3}
         fontSize={12}
         fontWeight={600}
         fontFamily="var(--font-geist-mono), monospace"
-        textAnchor={inline ? "middle" : "start"}
-        dominantBaseline={inline ? "middle" : "auto"}
+        textAnchor="middle"
+        dominantBaseline="middle"
         style={{ pointerEvents: "none", userSelect: "none", paintOrder: "stroke" }}
       >
         <DimensionText label={label} />

@@ -66,7 +66,7 @@ export function textLines(text: string | undefined): string[] {
 let measureContext: CanvasRenderingContext2D | null = null;
 
 /** Where line `index`'s hanging baseline sits below the text box's top, in screen px. */
-export function textLineOffset(index: number, px: number): number {
+function textLineOffset(index: number, px: number): number {
   return index * px * TEXT_LINE_HEIGHT + (px * (TEXT_LINE_HEIGHT - 1)) / 2;
 }
 

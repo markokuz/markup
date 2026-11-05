@@ -30,7 +30,7 @@ assert.equal(cells({ type: "Length", length: -5 }), ",Length,,,-5,,,,,#000000,")
 
 // A run is measured along every segment, and totals with two-point lines of the same colour.
 const scaled = {
-  measurements: [{ id: "line", start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, labelOffset: { x: 0, y: 0 }, color: "#111111" }],
+  measurements: [{ id: "line", start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, color: "#111111" }],
   rectangles: [],
   notes: [],
   shapes: [
@@ -62,7 +62,7 @@ assert.equal(holed.perimeter, 40);
 assert.match(holed.display, /1 cutout$/);
 
 // Each markup is measured at its own sheet's scale, and an uncalibrated sheet says so.
-const line = (id, page) => ({ id, page, start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, labelOffset: { x: 0, y: 0 } });
+const line = (id, page) => ({ id, page, start: { x: 0, y: 0 }, end: { x: 10, y: 0 } });
 const sheetRows = buildMarkupRows({
   ...scaled,
   shapes: [],

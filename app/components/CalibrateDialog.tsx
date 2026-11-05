@@ -3,12 +3,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { defaultScreenLabelOffsetDoc, docDistance, midpoint } from "@/app/utils/coordinates";
+import { docDistance } from "@/app/utils/coordinates";
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
-  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport, settings, sheets, scales, page } =
-    useAppState();
+  const { calibrateDialogOpen, pendingCalibrationLine, settings, sheets, scales, page } = useAppState();
   const dispatch = useAppDispatch();
   const [value, setValue] = useState("");
   const [allSheets, setAllSheets] = useState(false);
@@ -51,14 +50,6 @@ export function CalibrateDialog() {
       return;
     }
 
-    const anchorDoc = midpoint(
-      pendingCalibrationLine.start,
-      pendingCalibrationLine.end,
-    );
-    const labelOffset = documentViewport
-      ? defaultScreenLabelOffsetDoc(documentViewport, anchorDoc)
-      : { x: 0, y: -12 };
-
     dispatch({
       type: "SET_SCALE",
       scale: {
@@ -69,7 +60,6 @@ export function CalibrateDialog() {
         id: crypto.randomUUID(),
         start: pendingCalibrationLine.start,
         end: pendingCalibrationLine.end,
-        labelOffset,
         isCalibration: true,
       },
       allSheets,

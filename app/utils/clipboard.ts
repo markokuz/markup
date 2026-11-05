@@ -1,5 +1,4 @@
 import type {
-  DocumentType,
   Measurement,
   NoteAnnotation,
   Point2D,
@@ -7,12 +6,7 @@ import type {
   Scale,
   ShapeAnnotation,
 } from "@/app/types";
-import {
-  defaultScreenLabelOffsetDoc,
-  getRectHeightLabelAnchorDoc,
-  getRectWidthLabelAnchorDoc,
-  midpoint,
-} from "@/app/utils/coordinates";
+import { midpoint } from "@/app/utils/coordinates";
 import { normalizeRect } from "@/app/utils/dimensions";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { toMeters } from "@/app/utils/units";
@@ -136,7 +130,6 @@ interface PasteTarget {
   viewport: DocumentViewport;
   zoom: number;
   scale: Scale | null;
-  fileType: DocumentType;
   /** Where the group's centre should land, in overlay (screen) coordinates. */
   targetScreen: Point2D;
 }
@@ -165,49 +158,26 @@ export function buildPaste(target: PasteTarget): {
       targetScreen.y + (p.y - clip.center.y) * sizeFactor * zoom,
     );
 
-  const measurements: Measurement[] = clip.lines.map((line) => {
-    const start = toDoc(line.start);
-    const end = toDoc(line.end);
-    return {
-      id: crypto.randomUUID(),
-      start,
-      end,
-      labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
-      ...(line.color ? { color: line.color } : {}),
-      ...(line.label ? { label: line.label } : {}),
-      ...(line.plain ? { plain: true } : {}),
-      ...(line.midpointTick ? { midpointTick: true } : {}),
-      ...(line.locked ? { locked: true } : {}),
-    };
-  });
+  const measurements: Measurement[] = clip.lines.map((line) => ({
+    id: crypto.randomUUID(),
+    start: toDoc(line.start),
+    end: toDoc(line.end),
+    ...(line.color ? { color: line.color } : {}),
+    ...(line.label ? { label: line.label } : {}),
+    ...(line.plain ? { plain: true } : {}),
+    ...(line.midpointTick ? { midpointTick: true } : {}),
+    ...(line.locked ? { locked: true } : {}),
+  }));
 
-  const rectangles: RectMeasurement[] = clip.rects.map((rect) => {
-    const bounds = normalizeRect(toDoc(rect.cornerA), toDoc(rect.cornerB));
-    const base = {
-      id: crypto.randomUUID(),
-      ...bounds,
-      widthLabelOffset: { x: 0, y: 0 },
-      heightLabelOffset: { x: 0, y: 0 },
-      ...(rect.color ? { color: rect.color } : {}),
-      ...(rect.label ? { label: rect.label } : {}),
-      ...(rect.rotation ? { rotation: rect.rotation } : {}),
-      ...(rect.plain ? { plain: true } : {}),
-      ...(rect.locked ? { locked: true } : {}),
-    };
-    return {
-      ...base,
-      widthLabelOffset: defaultScreenLabelOffsetDoc(
-        viewport,
-        getRectWidthLabelAnchorDoc(base, target.fileType),
-        { x: 0, y: -16 },
-      ),
-      heightLabelOffset: defaultScreenLabelOffsetDoc(
-        viewport,
-        getRectHeightLabelAnchorDoc(base),
-        { x: -16, y: 0 },
-      ),
-    };
-  });
+  const rectangles: RectMeasurement[] = clip.rects.map((rect) => ({
+    id: crypto.randomUUID(),
+    ...normalizeRect(toDoc(rect.cornerA), toDoc(rect.cornerB)),
+    ...(rect.color ? { color: rect.color } : {}),
+    ...(rect.label ? { label: rect.label } : {}),
+    ...(rect.rotation ? { rotation: rect.rotation } : {}),
+    ...(rect.plain ? { plain: true } : {}),
+    ...(rect.locked ? { locked: true } : {}),
+  }));
 
   const notes: NoteAnnotation[] = clip.notes.map((note) => ({
     ...note,

@@ -29,7 +29,7 @@ export interface Point2D {
 }
 
 /** Fields every markup kind shares. */
-export interface MarkupFlags {
+interface MarkupFlags {
   /** Can't be moved, resized or rotated until unlocked (it can still be edited and deleted). */
   locked?: boolean;
   /** Zero-based page of the PDF it is on. Absent: page 1. */
@@ -52,7 +52,6 @@ export interface Measurement extends MarkupFlags {
   id: string;
   start: Point2D;
   end: Point2D;
-  labelOffset: Point2D;
   isCalibration?: boolean;
   color?: string;
   /** User-given name shown in the Markups list (e.g. "Kitchen"). */
@@ -67,8 +66,6 @@ export interface RectMeasurement extends MarkupFlags {
   id: string;
   topLeft: Point2D;
   bottomRight: Point2D;
-  widthLabelOffset: Point2D;
-  heightLabelOffset: Point2D;
   color?: string;
   label?: string;
   /** Drawn as a plain markup box: no dimension labels. */
@@ -89,7 +86,7 @@ export interface NoteAnnotation extends MarkupFlags {
   label?: string;
 }
 
-export type ShapeKind = "area" | "polyline" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
+type ShapeKind = "area" | "polyline" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
 
 /** Generic multi-point markup: area polygon, measured run, count group, revision cloud, freehand drawing or callout. */
 export interface ShapeAnnotation extends MarkupFlags {
@@ -132,7 +129,7 @@ export interface Scale {
   calibrationUnit: Unit;
 }
 
-export interface PendingCalibrationLine {
+interface PendingCalibrationLine {
   start: Point2D;
   end: Point2D;
 }
@@ -142,7 +139,7 @@ export interface PendingMarquee {
   current: Point2D;
 }
 
-export interface EditingDimension {
+interface EditingDimension {
   target: "line" | "rectangle";
   id: string;
   field: "length" | "width" | "height";

@@ -11,7 +11,7 @@ export function toMeters(value: number, unit: Unit): number {
   return value * TO_METERS[unit];
 }
 
-export function fromMeters(meters: number, unit: Unit): number {
+function fromMeters(meters: number, unit: Unit): number {
   return meters / TO_METERS[unit];
 }
 

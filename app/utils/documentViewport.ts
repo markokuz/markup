@@ -1,7 +1,5 @@
 import type { DocumentRotation } from "@/app/types";
 
-export type DocumentType = "pdf" | "image";
-
 export interface DocumentViewport {
   width: number;
   height: number;

@@ -4,21 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Measurement,
   Point2D,
-  RectMeasurement,
   ShapeAnnotation as ShapeAnnotationType,
 } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import {
-  computeDocOffsetFromScreen,
-  defaultScreenLabelOffsetDoc,
   docRectFromScreenCorners,
   getLocalCoords,
   getOppositeScreenCorner,
   getScreenCornerPoint,
-  getLineLabelAnchorDoc,
-  getRectHeightLabelAnchorDoc,
-  getRectWidthLabelAnchorDoc,
-  midpoint,
   snapScreenPointToAxis,
   toDocPoint,
   toScreenPoint,
@@ -101,7 +94,6 @@ interface AnnotationLayerProps {
 type DragMode =
   | { type: "endpoint"; id: string; endpoint: "start" | "end" }
   | { type: "body"; id: string; originPdf: Point2D; startPdf: Point2D; endPdf: Point2D }
-  | { type: "label"; id: string }
   | { type: "rectBody"; id: string; originPdf: Point2D; topLeft: Point2D; bottomRight: Point2D }
   /** Corner/edge resize; points are in the rectangle's unturned frame about `centre`. */
   | { type: "rectCorner"; id: string; fixedCornerScreen: Point2D; rotation: number; centre: Point2D }
@@ -118,9 +110,7 @@ type DragMode =
   | { type: "rotate"; target: Transformable; frame: TransformFrame; startAngle: number }
   | { type: "scale"; target: Transformable; frame: TransformFrame; corner: number }
   | { type: "shapePoint"; id: string; index: number }
-  | { type: "rectWidthLabel"; id: string }
   | { type: "marquee"; startScreen: Point2D; currentScreen: Point2D; additive: boolean }
-  | { type: "rectHeightLabel"; id: string }
   | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D }
   | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[] }
   /** A freehand stroke being dragged out: a cloud outline or a drawing. */
@@ -335,13 +325,12 @@ export function AnnotationLayer({
           id: createId(),
           start,
           end,
-          labelOffset: defaultScreenLabelOffsetDoc(viewport, midpoint(start, end)),
           color: toolColors.measure,
           ...(state.lineMode === "plain" ? { plain: true } : {}),
         },
       });
     },
-    [dispatch, state.lineMode, toolColors.measure, viewport],
+    [dispatch, state.lineMode, toolColors.measure],
   );
 
   /** End of a line `text` long (display units) from `start` toward `toward`; null if unreadable. */
@@ -695,31 +684,13 @@ export function AnnotationLayer({
           const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
 
           if (width >= MIN_RECT_SIZE || height >= MIN_RECT_SIZE) {
-            const rectangle = {
-              id: createId(),
-              ...normalized,
-              widthLabelOffset: { x: 0, y: 0 },
-              heightLabelOffset: { x: 0, y: 0 },
-              color: toolColors.rectangle,
-              ...(plainRect ? { plain: true } : {}),
-            };
-            const widthAnchorDoc = getRectWidthLabelAnchorDoc(
-              rectangle,
-              state.fileType ?? "image",
-            );
-            const heightAnchorDoc = getRectHeightLabelAnchorDoc(rectangle);
             dispatch({
               type: "ADD_RECTANGLE",
               rectangle: {
-                ...rectangle,
-                widthLabelOffset: defaultScreenLabelOffsetDoc(viewport, widthAnchorDoc, {
-                  x: 0,
-                  y: -16,
-                }),
-                heightLabelOffset: defaultScreenLabelOffsetDoc(viewport, heightAnchorDoc, {
-                  x: -16,
-                  y: 0,
-                }),
+                id: createId(),
+                ...normalized,
+                color: toolColors.rectangle,
+                ...(plainRect ? { plain: true } : {}),
               },
             });
           } else {
@@ -764,7 +735,6 @@ export function AnnotationLayer({
       takeSnapshot,
       state.displayUnit,
       state.editingNoteId,
-      state.fileType,
       state.measurements,
       state.notes,
       state.pendingPoint,
@@ -783,16 +753,6 @@ export function AnnotationLayer({
       state.tool,
       viewport,
     ],
-  );
-
-  /** A screen point in a rectangle's own (unturned) frame. */
-  const unturnRectPoint = useCallback(
-    (rectangle: RectMeasurement, p: Point2D): Point2D => {
-      if (!rectangle.rotation) return p;
-      const r = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
-      return rotateAround(p, { x: r.x + r.width / 2, y: r.y + r.height / 2 }, -rectangle.rotation);
-    },
-    [viewport],
   );
 
   const handlePointerMove = useCallback(
@@ -906,17 +866,6 @@ export function AnnotationLayer({
               end: { x: drag.endPdf.x + dx, y: drag.endPdf.y + dy },
             },
           });
-        } else if (drag.type === "label") {
-          const measurement = state.measurements.find((m) => m.id === drag.id);
-          if (!measurement) return;
-          const anchorDoc = getLineLabelAnchorDoc(measurement);
-          dispatch({
-            type: "UPDATE_MEASUREMENT",
-            id: drag.id,
-            updates: {
-              labelOffset: computeDocOffsetFromScreen(viewport, anchorDoc, local),
-            },
-          });
         } else if (drag.type === "rectBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
           const dy = pdfPoint.y - drag.originPdf.y;
@@ -970,39 +919,6 @@ export function AnnotationLayer({
             id: drag.id,
             updates: { points: shape.points.map((p, i) => (i === drag.index ? pdfPoint : p)) },
           });
-        } else if (drag.type === "rectWidthLabel") {
-          const rectangle = state.rectangles.find((r) => r.id === drag.id);
-          if (!rectangle) return;
-          const anchorDoc = getRectWidthLabelAnchorDoc(
-            rectangle,
-            state.fileType ?? "image",
-          );
-          dispatch({
-            type: "UPDATE_RECTANGLE",
-            id: drag.id,
-            updates: {
-              widthLabelOffset: computeDocOffsetFromScreen(
-                viewport,
-                anchorDoc,
-                unturnRectPoint(rectangle, local),
-              ),
-            },
-          });
-        } else if (drag.type === "rectHeightLabel") {
-          const rectangle = state.rectangles.find((r) => r.id === drag.id);
-          if (!rectangle) return;
-          const anchorDoc = getRectHeightLabelAnchorDoc(rectangle);
-          dispatch({
-            type: "UPDATE_RECTANGLE",
-            id: drag.id,
-            updates: {
-              heightLabelOffset: computeDocOffsetFromScreen(
-                viewport,
-                anchorDoc,
-                unturnRectPoint(rectangle, local),
-              ),
-            },
-          });
         } else if (drag.type === "shapeBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
           const dy = pdfPoint.y - drag.originPdf.y;
@@ -1043,7 +959,7 @@ export function AnnotationLayer({
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
   );
 
   /**
@@ -1317,12 +1233,6 @@ export function AnnotationLayer({
     };
   };
 
-  const onLabelDragStart = (id: string, event: React.PointerEvent) => {
-    dispatch({ type: "RECORD_UNDO" });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { type: "label", id };
-  };
-
   const onRectBodyPointerDown = (id: string, event: React.PointerEvent) => {
     const rectangle = state.rectangles.find((r) => r.id === id);
     if (!rectangle || rectangle.locked) return;
@@ -1408,18 +1318,6 @@ export function AnnotationLayer({
     dragRef.current = { type: "shapePoint", id, index };
   };
 
-  const onWidthLabelDragStart = (id: string, event: React.PointerEvent) => {
-    dispatch({ type: "RECORD_UNDO" });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { type: "rectWidthLabel", id };
-  };
-
-  const onHeightLabelDragStart = (id: string, event: React.PointerEvent) => {
-    dispatch({ type: "RECORD_UNDO" });
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { type: "rectHeightLabel", id };
-  };
-
   const onNoteBodyPointerDown = (id: string, event: React.PointerEvent) => {
     const note = state.notes.find((n) => n.id === id);
     if (!note || note.locked) return;
@@ -1476,7 +1374,6 @@ export function AnnotationLayer({
       onSelect={(id, additive) => handleSelect(id, additive)}
       onEndpointPointerDown={onEndpointPointerDown}
       onBodyPointerDown={onBodyPointerDown}
-      onLabelDragStart={onLabelDragStart}
       onStartEditLength={handleStartEditLength}
       onCommitLength={handleCommitLength}
       onCancelEdit={() => dispatch({ type: "CLEAR_EDITING_DIMENSION" })}
@@ -1488,7 +1385,6 @@ export function AnnotationLayer({
       key={rectangle.id}
       rectangle={rectangle}
       viewport={viewport}
-      fileType={state.fileType ?? "image"}
       scale={rectangle.plain ? null : state.scale}
       displayUnit={state.displayUnit}
       isSelected={state.selectedIds.includes(rectangle.id)}
@@ -1508,8 +1404,6 @@ export function AnnotationLayer({
       onBodyPointerDown={onRectBodyPointerDown}
       onCornerPointerDown={onRectCornerPointerDown}
       onEdgeHandlePointerDown={onRectEdgePointerDown}
-      onWidthLabelDragStart={onWidthLabelDragStart}
-      onHeightLabelDragStart={onHeightLabelDragStart}
       onStartEditWidth={handleStartEditWidth}
       onStartEditHeight={handleStartEditHeight}
       onCommitWidth={handleCommitWidth}

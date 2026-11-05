@@ -55,7 +55,6 @@ interface MeasurementLineProps {
     event: React.PointerEvent,
   ) => void;
   onBodyPointerDown: (id: string, event: React.PointerEvent) => void;
-  onLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onStartEditLength: (id: string) => void;
   onCommitLength: (id: string, value: number) => void;
   onCancelEdit: () => void;
@@ -73,7 +72,6 @@ export function MeasurementLine({
   onSelect,
   onEndpointPointerDown,
   onBodyPointerDown,
-  onLabelDragStart,
   onStartEditLength,
   onCommitLength,
   onCancelEdit,
@@ -170,7 +168,6 @@ export function MeasurementLine({
         onStartEdit={() => onStartEditLength(measurement.id)}
         onCommit={(value) => onCommitLength(measurement.id, value)}
         onCancel={onCancelEdit}
-        onDragStart={(event) => onLabelDragStart(measurement.id, event)}
       />
       {tick && (
         <line

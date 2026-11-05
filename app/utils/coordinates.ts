@@ -1,5 +1,5 @@
 import type { DocumentViewport } from "@/app/utils/documentViewport";
-import type { DocumentType, Measurement, Point2D, RectMeasurement } from "@/app/types";
+import type { Point2D } from "@/app/types";
 import { splitFeetInches } from "@/app/utils/units";
 
 export function toDocPoint(
@@ -41,32 +41,6 @@ export function midpoint(a: Point2D, b: Point2D): Point2D {
   };
 }
 
-/** Convert a screen-space label position to a document-space offset from an anchor. */
-export function computeDocOffsetFromScreen(
-  viewport: DocumentViewport,
-  anchorDoc: Point2D,
-  labelScreen: Point2D,
-): Point2D {
-  const labelDoc = toDocPoint(viewport, labelScreen.x, labelScreen.y);
-  return {
-    x: labelDoc.x - anchorDoc.x,
-    y: labelDoc.y - anchorDoc.y,
-  };
-}
-
-/** Default label offset (16px above anchor) stored in document space. */
-export function defaultScreenLabelOffsetDoc(
-  viewport: DocumentViewport,
-  anchorDoc: Point2D,
-  screenOffset: Point2D = { x: 0, y: -16 },
-): Point2D {
-  const anchorScreen = toScreenPoint(viewport, anchorDoc.x, anchorDoc.y);
-  return computeDocOffsetFromScreen(viewport, anchorDoc, {
-    x: anchorScreen.x + screenOffset.x,
-    y: anchorScreen.y + screenOffset.y,
-  });
-}
-
 /** Half the length of a plain line's centre tick, in screen px. */
 export const MIDPOINT_TICK_HALF_PX = 7;
 
@@ -85,25 +59,6 @@ export function midpointTickEnds(
     { x: mid.x + nx, y: mid.y + ny },
     { x: mid.x - nx, y: mid.y - ny },
   ];
-}
-
-export function getLineLabelAnchorDoc(measurement: Measurement): Point2D {
-  return midpoint(measurement.start, measurement.end);
-}
-
-export function getRectWidthLabelAnchorDoc(
-  rectangle: RectMeasurement,
-  fileType: DocumentType,
-): Point2D {
-  const centerX = (rectangle.topLeft.x + rectangle.bottomRight.x) / 2;
-  const visualTopY =
-    fileType === "image" ? rectangle.topLeft.y : rectangle.bottomRight.y;
-  return { x: centerX, y: visualTopY };
-}
-
-export function getRectHeightLabelAnchorDoc(rectangle: RectMeasurement): Point2D {
-  const centerY = (rectangle.topLeft.y + rectangle.bottomRight.y) / 2;
-  return { x: rectangle.topLeft.x, y: centerY };
 }
 
 export interface ScreenRect {
@@ -260,7 +215,7 @@ export function snapScreenPointToAxis(
   return { x: anchor.x + dir.x * along, y: anchor.y + dir.y * along };
 }
 
-export interface InlineLineLayout {
+interface InlineLineLayout {
   segment1Start: Point2D;
   segment1End: Point2D;
   segment2Start: Point2D;
@@ -272,7 +227,7 @@ export interface InlineLineLayout {
 }
 
 /** Keep inline dimension labels readable (never upside down). */
-export function normalizeLabelAngleDeg(angleDeg: number): number {
+function normalizeLabelAngleDeg(angleDeg: number): number {
   let angle = angleDeg;
   while (angle <= -90) angle += 180;
   while (angle > 90) angle -= 180;
@@ -310,7 +265,7 @@ export function computePdfLabelAngleDeg(start: Point2D, end: Point2D): number {
 }
 
 /** Split a line at its midpoint to leave a gap for an inline dimension label. */
-export function computeInlineLineSegments(
+function computeInlineLineSegments(
   start: Point2D,
   end: Point2D,
   labelWidth: number,

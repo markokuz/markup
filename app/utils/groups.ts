@@ -39,7 +39,7 @@ export function childGroups(groups: MarkupGroup[], parentId: string | null): Mar
 }
 
 /** `groupId` and every group nested anywhere inside it. */
-export function groupSubtree(groups: MarkupGroup[], groupId: string): MarkupGroup[] {
+function groupSubtree(groups: MarkupGroup[], groupId: string): MarkupGroup[] {
   const result: MarkupGroup[] = [];
   const visit = (id: string) => {
     const group = groups.find((g) => g.id === id);
@@ -148,7 +148,7 @@ export function withGroups<T extends MarkupSource & { groups?: MarkupGroup[] }>(
  * Groups from files saved when each markup carried its own `groupId`/`groupName`,
  * plus the markups with those fields stripped.
  */
-export function groupsFromLegacy<T extends MarkupSource>(
+function groupsFromLegacy<T extends MarkupSource>(
   source: T,
 ): { groups: MarkupGroup[]; markups: T } {
   const groups = new Map<string, MarkupGroup>();

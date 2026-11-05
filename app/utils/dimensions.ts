@@ -85,7 +85,7 @@ export function applyLineLength(
   };
 }
 
-export function applyRectWidth(
+function applyRectWidth(
   rect: RectMeasurement,
   typedValue: number,
   scale: Scale,
@@ -100,7 +100,7 @@ export function applyRectWidth(
   };
 }
 
-export function applyRectHeight(
+function applyRectHeight(
   rect: RectMeasurement,
   typedValue: number,
   scale: Scale,

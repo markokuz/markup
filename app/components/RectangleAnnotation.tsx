@@ -1,6 +1,6 @@
 "use client";
 
-import type { DocumentType, Point2D, RectMeasurement, Scale, Unit } from "@/app/types";
+import type { Point2D, RectMeasurement, Scale, Unit } from "@/app/types";
 import {
   computeInlineEdgeSegments,
   estimateLabelWidth,
@@ -47,7 +47,6 @@ function fullEdge(a: Point2D, b: Point2D): ReturnType<typeof computeInlineEdgeSe
 interface RectangleAnnotationProps {
   rectangle: RectMeasurement;
   viewport: DocumentViewport;
-  fileType: DocumentType;
   scale: Scale | null;
   displayUnit: Unit;
   isSelected: boolean;
@@ -63,8 +62,6 @@ interface RectangleAnnotationProps {
   ) => void;
   /** Side handle: resizes along one axis only. */
   onEdgeHandlePointerDown: (id: string, edge: RectEdge, event: React.PointerEvent) => void;
-  onWidthLabelDragStart: (id: string, event: React.PointerEvent) => void;
-  onHeightLabelDragStart: (id: string, event: React.PointerEvent) => void;
   onStartEditWidth: (id: string) => void;
   onStartEditHeight: (id: string) => void;
   onCommitWidth: (id: string, value: number) => void;
@@ -184,7 +181,6 @@ function renderEdgeSegment(
 export function RectangleAnnotation({
   rectangle,
   viewport,
-  fileType: _fileType,
   scale,
   displayUnit,
   isSelected,
@@ -195,8 +191,6 @@ export function RectangleAnnotation({
   onBodyPointerDown,
   onCornerPointerDown,
   onEdgeHandlePointerDown,
-  onWidthLabelDragStart,
-  onHeightLabelDragStart,
   onStartEditWidth,
   onStartEditHeight,
   onCommitWidth,
@@ -387,13 +381,11 @@ export function RectangleAnnotation({
             isSelected={isSelected}
             showHandles={showHandles && !!scale}
             isEditing={editingField === "width"}
-            inline
             clickable={isSelectMode && !showHandles}
             onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
             onStartEdit={() => onStartEditWidth(rectangle.id)}
             onCommit={(value) => onCommitWidth(rectangle.id, value)}
             onCancel={onCancelEdit}
-            onDragStart={(event) => onWidthLabelDragStart(rectangle.id, event)}
           />
         </g>
       )}
@@ -411,13 +403,11 @@ export function RectangleAnnotation({
             isSelected={isSelected}
             showHandles={showHandles && !!scale}
             isEditing={editingField === "height"}
-            inline
             clickable={isSelectMode && !showHandles}
             onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
             onStartEdit={() => onStartEditHeight(rectangle.id)}
             onCommit={(value) => onCommitHeight(rectangle.id, value)}
             onCancel={onCancelEdit}
-            onDragStart={(event) => onHeightLabelDragStart(rectangle.id, event)}
           />
         </g>
       )}

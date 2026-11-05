@@ -14,12 +14,6 @@
   --accent: #ff5c00;
   --accent-hover: #e65200;
   --canvas-bg: #e8e8e8;
-  --warning-bg: #fff8e6;
-  --warning-border: #f5d565;
-  --warning-text: #8a6d00;
-  --success-bg: #eefbf3;
-  --success-border: #86efac;
-  --success-text: #166534;
   --save: #059669;
   --save-hover: #047857;
   --foreground: var(--text-primary);
@@ -40,14 +34,12 @@
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
   --color-border: var(--border);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
   --color-canvas-bg: var(--canvas-bg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);

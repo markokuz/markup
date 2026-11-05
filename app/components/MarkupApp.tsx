@@ -149,7 +149,6 @@ function MarkupShell() {
           viewport: current.documentViewport,
           zoom: current.zoom,
           scale: current.scale,
-          fileType: current.fileType,
           targetScreen,
         });
         if (pasted) {

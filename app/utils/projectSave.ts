@@ -56,7 +56,7 @@ function markedUpPngName(fileName: string): string {
  * refreshes the browser backup first, so declining Chrome's file-permission prompt
  * (SavePermissionError) still keeps the work.
  */
-export async function saveTab(
+async function saveTab(
   tab: SavableTab,
   displayUnit: Unit,
   mode: SaveMode,

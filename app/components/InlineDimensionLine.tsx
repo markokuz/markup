@@ -19,7 +19,6 @@ interface InlineDimensionLineProps {
   valueInDisplayUnit?: number;
   color: string;
   strokeWidth?: number;
-  strokeDasharray?: string;
   displayUnit?: import("@/app/types").Unit;
   isSelected?: boolean;
   showHandles?: boolean;
@@ -31,7 +30,6 @@ interface InlineDimensionLineProps {
   onStartEdit?: () => void;
   onCommit?: (value: number) => void;
   onCancel?: () => void;
-  onDragStart?: (event: React.PointerEvent) => void;
   onBodyPointerDown?: (event: React.PointerEvent) => void;
   onEndpointPointerDown?: (
     endpoint: "start" | "end",
@@ -49,7 +47,6 @@ export function InlineDimensionLine({
   valueInDisplayUnit = 0,
   color,
   strokeWidth = 2,
-  strokeDasharray,
   displayUnit = "ft",
   isSelected = false,
   showHandles = false,
@@ -60,7 +57,6 @@ export function InlineDimensionLine({
   onStartEdit,
   onCommit,
   onCancel,
-  onDragStart,
   onBodyPointerDown,
   onEndpointPointerDown,
   showEndpointHandles = false,
@@ -113,7 +109,6 @@ export function InlineDimensionLine({
           y2={b.y}
           stroke={color}
           strokeWidth={strokeWidth}
-          strokeDasharray={strokeDasharray}
           strokeLinecap="butt"
           style={{ pointerEvents: interactive ? "stroke" : "none" }}
           onPointerDown={handleLinePointerDown}
@@ -147,13 +142,11 @@ export function InlineDimensionLine({
             isSelected={isSelected}
             showHandles={showHandles}
             isEditing={isEditing}
-            inline
             clickable={interactive && !showHandles}
             onSelect={(additive) => onSelect?.(additive)}
             onStartEdit={() => onStartEdit?.()}
             onCommit={(value) => onCommit?.(value)}
             onCancel={() => onCancel?.()}
-            onDragStart={(event) => onDragStart?.(event)}
           />
         </g>
       )}

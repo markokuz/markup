@@ -75,7 +75,7 @@ export function screenRectFromPoints(a: Point2D, b: Point2D): ScreenRect {
 }
 
 /** Expand zero/thin marquee boxes so line and edge intersection tests stay reliable. */
-export function normalizeMarqueeRect(rect: ScreenRect, minSize = 4): ScreenRect {
+function normalizeMarqueeRect(rect: ScreenRect, minSize = 4): ScreenRect {
   if (rect.width >= minSize && rect.height >= minSize) {
     return rect;
   }
@@ -127,7 +127,7 @@ function segmentsIntersect(p1: Point2D, q1: Point2D, p2: Point2D, q2: Point2D): 
   return false;
 }
 
-export function segmentIntersectsRect(
+function segmentIntersectsRect(
   p1: Point2D,
   p2: Point2D,
   rect: ScreenRect,
@@ -150,7 +150,7 @@ export function segmentIntersectsRect(
   return false;
 }
 
-export function rectsIntersect(a: ScreenRect, b: ScreenRect): boolean {
+function rectsIntersect(a: ScreenRect, b: ScreenRect): boolean {
   return !(
     a.x + a.width < b.x ||
     b.x + b.width < a.x ||

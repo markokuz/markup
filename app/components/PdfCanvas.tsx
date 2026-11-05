@@ -12,7 +12,7 @@ import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
 import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
 import { viewerBridge } from "@/app/utils/viewerBridge";
-import { pendingZoomAnchor } from "@/app/utils/zoomAnchor";
+import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/zoomAnchor";
 import { clampZoom } from "@/app/utils/zoomLevels";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
@@ -130,21 +130,16 @@ export function PdfViewer() {
   }, []);
 
   const getPreviewOrigin = useCallback(
-    (clientX: number, clientY: number) => {
-      const overlay = overlayRef.current;
-      if (!overlay || !viewport) {
+    (scale: number, clientX: number, clientY: number) => {
+      const scrollEl = scrollRef.current;
+      if (!scrollEl || !viewport) {
         return { x: 0, y: 0 };
       }
 
-      const rect = overlay.getBoundingClientRect();
-      const ratioX =
-        rect.width > 0 ? (clientX - rect.left) / rect.width : 0.5;
-      const ratioY =
-        rect.height > 0 ? (clientY - rect.top) / rect.height : 0.5;
-
+      const rect = scrollEl.getBoundingClientRect();
       return {
-        x: ratioX * viewport.width,
-        y: ratioY * viewport.height,
+        x: previewOrigin(scrollEl.scrollLeft, clientX - rect.left, viewport.width, scale, scrollEl.clientWidth),
+        y: previewOrigin(scrollEl.scrollTop, clientY - rect.top, viewport.height, scale, scrollEl.clientHeight),
       };
     },
     [viewport],
@@ -160,7 +155,7 @@ export function PdfViewer() {
         return;
       }
 
-      const origin = getPreviewOrigin(clientX, clientY);
+      const origin = getPreviewOrigin(scale, clientX, clientY);
       el.style.transformOrigin = `${origin.x}px ${origin.y}px`;
       el.style.transform = `scale(${scale})`;
     },
@@ -218,9 +213,10 @@ export function PdfViewer() {
     const offsetY =
       anchor === "center" ? rect.height / 2 : anchor.clientY - rect.top;
 
+    // `viewport` is still the old zoom's size here: useDocument's update lands on the next render.
     const scale = newZoom / oldZoom;
-    scrollEl.scrollLeft = (scrollEl.scrollLeft + offsetX) * scale - offsetX;
-    scrollEl.scrollTop = (scrollEl.scrollTop + offsetY) * scale - offsetY;
+    scrollEl.scrollLeft = scrollAfterZoom(scrollEl.scrollLeft, offsetX, viewport.width, scale, scrollEl.clientWidth);
+    scrollEl.scrollTop = scrollAfterZoom(scrollEl.scrollTop, offsetY, viewport.height, scale, scrollEl.clientHeight);
 
     prevZoomRef.current = newZoom;
     committedZoomRef.current = newZoom;
@@ -478,7 +474,7 @@ export function PdfViewer() {
         onPointerUp={handlePanPointerUp}
         onPointerLeave={handlePanPointerUp}
       >
-        <div className="mx-auto flex min-h-full w-fit items-start justify-center">
+        <div className="mx-auto flex min-h-full w-fit items-center justify-center">
           <div
             ref={overlayRef}
             className="relative shadow-md"

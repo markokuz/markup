@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
@@ -17,6 +18,15 @@ export function DocumentTabs() {
   useEffect(() => {
     pruneTabScroll(tabs.map((tab) => tab.id));
   }, [tabs]);
+
+  const { scrollRef, overflow, updateOverflow, scrollBy } = useScrollHints("x", tabs.length);
+
+  // A tab opened or switched to past the edge would otherwise stay out of sight.
+  const activeTabRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    updateOverflow();
+  }, [activeTabId, tabs.length, updateOverflow]);
 
   if (tabs.length === 0) return null;
 
@@ -40,7 +50,9 @@ export function DocumentTabs() {
     return (
       <div
         key={tab.id}
-        className={`group flex max-w-[220px] shrink-0 items-center rounded-md text-sm transition ${
+        ref={isActive ? activeTabRef : undefined}
+        // The margin keeps a scrolled-to tab clear of the fade at the row's edge.
+        className={`group flex max-w-[220px] shrink-0 scroll-mx-8 items-center rounded-md text-sm transition ${
           isActive
             ? "border border-border bg-surface text-text-primary shadow-sm"
             : "border border-transparent text-text-secondary hover:bg-surface-muted hover:text-text-primary"
@@ -129,17 +141,29 @@ export function DocumentTabs() {
 
   return (
     <div className="flex items-center gap-1 border-b border-border bg-surface px-2">
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {tabs.map(renderTab)}
-        <button
-          type="button"
-          className="btn-secondary shrink-0 px-2.5 py-1.5 text-sm"
-          title="Open another file"
-          onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current, tabs)}
+      <div className="relative min-w-0">
+        <div
+          ref={scrollRef}
+          onScroll={updateOverflow}
+          onWheel={(event) => {
+            // A mouse wheel only goes up and down; here that should move along the row.
+            event.currentTarget.scrollLeft += event.deltaY;
+          }}
+          className="flex items-center gap-0.5 overflow-x-auto py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          +
-        </button>
+          {tabs.map(renderTab)}
+        </div>
+        {overflow.start && <ScrollHint direction="left" title="More tabs to the left" onClick={() => scrollBy(-1)} />}
+        {overflow.end && <ScrollHint direction="right" title="More tabs to the right" onClick={() => scrollBy(1)} />}
       </div>
+      <button
+        type="button"
+        className="btn-secondary shrink-0 px-2.5 py-1.5 text-sm"
+        title="Open another file"
+        onClick={() => void pickAndOpenFile(dispatch, fileInputRef.current, tabs)}
+      >
+        +
+      </button>
       <input
         ref={fileInputRef}
         type="file"

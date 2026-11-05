@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useState } from "react";
 import type { CloudMode, DrawMode, ToolMode } from "@/app/types";
+import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
@@ -138,34 +139,11 @@ function ModeToggle<T extends string>({
 export function SideToolbar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // Which ends of the tool list are cut off when the window is short.
-  const [overflow, setOverflow] = useState({ up: false, down: false });
-
-  const updateOverflow = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const up = el.scrollTop > 1;
-    const down = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-    setOverflow((prev) => (prev.up === up && prev.down === down ? prev : { up, down }));
-  }, []);
-
-  const hasFile = Boolean(state.fileBytes);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    updateOverflow();
-    // The window resizing, or a tool's options opening under it, changes what fits.
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(el);
-    for (const child of Array.from(el.children)) observer.observe(child);
-    return () => observer.disconnect();
-  }, [hasFile, state.tool, updateOverflow]);
-
-  const scrollBy = (direction: 1 | -1) => {
-    const el = scrollRef.current;
-    el?.scrollBy({ top: direction * el.clientHeight * 0.6, behavior: "smooth" });
-  };
+  // A short window can cut off the tool list; a tool's options opening under it change what fits.
+  const { scrollRef, overflow, updateOverflow, scrollBy } = useScrollHints(
+    "y",
+    `${Boolean(state.fileBytes)}:${state.tool}`,
+  );
 
   if (!state.fileBytes) return null;
 
@@ -253,36 +231,9 @@ export function SideToolbar() {
           </Fragment>
         ))}
       </div>
-      {overflow.up && <MoreToolsHint direction="up" onClick={() => scrollBy(-1)} />}
-      {overflow.down && <MoreToolsHint direction="down" onClick={() => scrollBy(1)} />}
+      {overflow.start && <ScrollHint direction="up" title="More tools above" onClick={() => scrollBy(-1)} />}
+      {overflow.end && <ScrollHint direction="down" title="More tools below" onClick={() => scrollBy(1)} />}
     </aside>
-  );
-}
-
-/** Fade and chevron over a cut-off end of the tool list; clicking scrolls that way. */
-function MoreToolsHint({ direction, onClick }: { direction: "up" | "down"; onClick: () => void }) {
-  const down = direction === "down";
-  return (
-    <button
-      type="button"
-      tabIndex={-1}
-      title={down ? "More tools below" : "More tools above"}
-      aria-label={down ? "Scroll to more tools below" : "Scroll to more tools above"}
-      onClick={onClick}
-      className={`absolute inset-x-0 flex h-7 justify-center from-surface via-surface/90 to-transparent text-text-secondary hover:text-text-primary ${
-        down ? "bottom-0 items-end bg-linear-to-t pb-0.5" : "top-0 items-start bg-linear-to-b pt-0.5"
-      }`}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-        <path
-          d={down ? "M3 5l4 4 4-4" : "M3 9l4-4 4 4"}
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
   );
 }
 

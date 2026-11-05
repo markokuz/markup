@@ -1013,22 +1013,45 @@ function drawShapesOnPdf(
   }
 }
 
-/** Draws every markup onto page 1 of an already-loaded PDF. */
+/** What to draw on one page of a PDF. */
+export interface PageMarkups {
+  /** Zero-based. */
+  page: number;
+  measurements: Measurement[];
+  rectangles: RectMeasurement[];
+  notes: NoteAnnotation[];
+  shapes: ShapeAnnotation[];
+  scale: Scale | null;
+  /** Doc-space direction that reads as up on this page; see getScreenUpDocDirection. */
+  screenUpDoc: Point2D;
+}
+
+/** Draws each page's markups onto an already-loaded PDF, using one set of fonts for them all. */
 export async function drawMarkupsOnPdf(
   pdfDoc: PDFDocument,
-  measurements: Measurement[],
-  rectangles: RectMeasurement[],
-  notes: NoteAnnotation[],
-  shapes: ShapeAnnotation[],
-  scale: Scale | null,
+  pages: PageMarkups[],
   displayUnit: Unit,
-  screenUpDoc: Point2D = { x: 0, y: 1 },
+): Promise<void> {
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const textFonts = pages.some((p) => p.shapes.some((s) => s.kind === "text" && (s.bold || s.italic)))
+    ? await embedTextFonts(pdfDoc, font)
+    : { "": font, b: font, i: font, bi: font };
+  for (const markups of pages) {
+    await drawPageMarkupsOnPdf(pdfDoc, markups, displayUnit, font, textFonts);
+  }
+}
+
+async function drawPageMarkupsOnPdf(
+  pdfDoc: PDFDocument,
+  { page: pageIndex, measurements, rectangles, notes, shapes, scale, screenUpDoc }: PageMarkups,
+  displayUnit: Unit,
+  font: PDFFont,
+  textFonts: TextFonts,
 ): Promise<void> {
   // Labels are 12 pt on the sheet, whatever view the file happened to be saved from.
   const zoom = 1;
-  const page = pdfDoc.getPage(0);
+  const page = pdfDoc.getPage(pageIndex);
   const style = getExportStyle(zoom);
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   await drawSnapshotsOnPdf(pdfDoc, page, shapes);
 
   for (const measurement of getExportMeasurements(measurements)) {
@@ -1162,9 +1185,6 @@ export async function drawMarkupsOnPdf(
     if (rectangle.rotation) page.pushOperators(popGraphicsState());
   }
 
-  const textFonts = shapes.some((s) => s.kind === "text" && (s.bold || s.italic))
-    ? await embedTextFonts(pdfDoc, font)
-    : { "": font, b: font, i: font, bi: font };
   drawShapesOnPdf(page, shapes, scale, displayUnit, style, zoom, screenUpDoc, font, textFonts);
 
   for (const note of notes) {

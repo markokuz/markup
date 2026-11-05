@@ -24,6 +24,7 @@ interface DetailRect {
  */
 export function PdfDetailLayer({
   bytes,
+  page,
   zoom,
   rotation,
   viewportWidth,
@@ -32,6 +33,7 @@ export function PdfDetailLayer({
   scrollRef,
 }: {
   bytes: Uint8Array;
+  page: number;
   zoom: number;
   rotation: number;
   viewportWidth: number;
@@ -94,6 +96,7 @@ export function PdfDetailLayer({
       renderPdfRegion(
         bytes,
         {
+          page,
           rotation,
           scale: zoom * dpr,
           x: Math.round(left * dpr),
@@ -132,7 +135,7 @@ export function PdfDetailLayer({
       scrollEl.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [bytes, zoom, rotation, viewportWidth, viewportHeight, baseSharp, scrollRef]);
+  }, [bytes, page, zoom, rotation, viewportWidth, viewportHeight, baseSharp, scrollRef]);
 
   // Pixels from another zoom/rotation would be misplaced; the base shows until the new render lands.
   const visible = rect && rect.zoom === zoom && rect.rotation === rotation;

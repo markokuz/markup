@@ -21,7 +21,6 @@ import {
 } from "@/app/utils/pdfjsConfig";
 import { isAbortError, renderPdfRegion } from "@/app/utils/pdfium";
 import { hashFile, loadCachedRender, saveCachedRender } from "@/app/utils/renderCache";
-import { showSaveStatus } from "@/app/utils/saveStatus";
 
 type PdfJsModule = typeof import("pdfjs-dist");
 
@@ -61,7 +60,13 @@ interface NaturalSize {
   pageRotation: number;
 }
 
-interface CachedSource {
+interface PageInfo {
+  pageCount: number;
+  /** The file's own page labels ("A-101"), if it has them. */
+  pageLabels: string[] | null;
+}
+
+interface CachedSource extends PageInfo {
   page: PDFPageProxy | null;
   image: ImageSource | null;
   naturalSize: NaturalSize;
@@ -71,12 +76,77 @@ interface CachedSource {
    * because heavy CAD sheets take seconds per render whatever the size.
    */
   bitmap: { canvas: HTMLCanvasElement; rotation: number; scale: number } | null;
+}
+
+interface CachedFile {
+  /** Per page; an image only has page 0. */
+  sources: Map<number, CachedSource>;
+  /** Pages holding a master, oldest first. */
+  masters: number[];
   /** Content hash for the between-sessions render cache (PDF only). */
   hash?: Promise<string | null>;
 }
 
-// Keyed by the tab's bytes so a closed tab's entry is garbage-collected with it.
-const sourceCache = new WeakMap<Uint8Array, CachedSource>();
+/** Masters kept in memory per file. At up to 64 MB each, the rest reload from the render cache. */
+const MAX_MASTERS = 3;
+
+// Keyed by the tab's bytes so a closed tab's entries are garbage-collected with it.
+const fileCache = new WeakMap<Uint8Array, CachedFile>();
+
+function cachedFile(bytes: Uint8Array): CachedFile {
+  let file = fileCache.get(bytes);
+  if (!file) {
+    file = { sources: new Map(), masters: [] };
+    fileCache.set(bytes, file);
+  }
+  return file;
+}
+
+/** Marks `page`'s master as just used, freeing the oldest beyond the limit. */
+function keepMaster(file: CachedFile, page: number) {
+  file.masters = [...file.masters.filter((p) => p !== page), page];
+  while (file.masters.length > MAX_MASTERS) {
+    const oldest = file.masters.shift()!;
+    const source = file.sources.get(oldest);
+    if (source) source.bitmap = null;
+  }
+}
+
+interface OpenPdf extends PageInfo {
+  pages: Promise<PDFPageProxy>[];
+}
+
+const openPdfs = new WeakMap<Uint8Array, Promise<OpenPdf>>();
+
+/**
+ * Every page's geometry, read once per file. All pages are asked for up front so the
+ * pdf.js task can be destroyed, and switching sheets never parses the file again.
+ */
+function openPdf(bytes: Uint8Array): Promise<OpenPdf> {
+  let opened = openPdfs.get(bytes);
+  if (!opened) {
+    opened = (async () => {
+      const pdfjs = await getPdfJs();
+      const task = pdfjs.getDocument(getPdfDocumentOptions(bytes.slice()));
+      let pdf;
+      try {
+        pdf = await task.promise;
+      } catch (err) {
+        void task.destroy();
+        throw err;
+      }
+      const pages = Array.from({ length: pdf.numPages }, (_, i) => pdf.getPage(i + 1));
+      const labels = pdf.getPageLabels().catch(() => null);
+      // PDFium does the rendering; the pages' size data outlives this. Otherwise every
+      // PDF ever opened keeps a worker thread and a copy of the file.
+      void Promise.allSettled([...pages, labels]).finally(() => task.destroy());
+      return { pageCount: pdf.numPages, pageLabels: await labels, pages };
+    })();
+    opened.catch(() => openPdfs.delete(bytes));
+    openPdfs.set(bytes, opened);
+  }
+  return opened;
+}
 
 function drawScaled(
   target: HTMLCanvasElement,
@@ -101,6 +171,8 @@ export function useDocument(
   rotation: import("@/app/types").DocumentRotation = 0,
   /** Skip rendering (e.g. until auto-orientation has picked a rotation). */
   holdRender = false,
+  /** Zero-based page to show; images only have page 0. */
+  page = 0,
 ) {
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(
     null,
@@ -123,6 +195,7 @@ export function useDocument(
   const [naturalSize, setNaturalSize] = useState<NaturalSize | null>(
     null,
   );
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
 
   const pageRef = useRef<PDFPageProxy | null>(null);
   const imageRef = useRef<ImageSource | null>(null);
@@ -134,22 +207,23 @@ export function useDocument(
       imageRef.current = null;
       setViewport(null);
       setNaturalSize(null);
+      setPageInfo(null);
       setSourceReady(0);
       setError(null);
       return;
     }
 
-    const cached = sourceCache.get(fileBytes);
+    const cached = cachedFile(fileBytes).sources.get(page);
     if (cached) {
       pageRef.current = cached.page;
       imageRef.current = cached.image;
       setNaturalSize(cached.naturalSize);
+      setPageInfo({ pageCount: cached.pageCount, pageLabels: cached.pageLabels });
       setSourceReady((version) => version + 1);
       return;
     }
 
     let cancelled = false;
-    const bytes = fileBytes.slice();
     const cacheKey = fileBytes;
 
     async function loadSource() {
@@ -158,36 +232,36 @@ export function useDocument(
 
       try {
         if (fileType === "pdf") {
-          const pdfjs = await getPdfJs();
-          const task = pdfjs.getDocument(getPdfDocumentOptions(bytes));
-          try {
-            const pdf = await task.promise;
-            if (cancelled) return;
+          const pdf = await openPdf(cacheKey);
+          if (cancelled) return;
+          const info = { pageCount: pdf.pageCount, pageLabels: pdf.pageLabels };
+          setPageInfo(info);
 
-            const page = await pdf.getPage(1);
-            if (cancelled) return;
-            if (pdf.numPages > 1) {
-              showSaveStatus("info", `This PDF has ${pdf.numPages} pages; only page 1 is shown.`);
-            }
-            pageRef.current = page;
-            imageRef.current = null;
-            // rotation: 0 is absolute in pdf.js, so this is the media box before /Rotate.
-            const base = page.getViewport({ scale: 1, rotation: 0 });
-            const size = { width: base.width, height: base.height, pageRotation: page.rotate };
-            sourceCache.set(cacheKey, { page, image: null, naturalSize: size, bitmap: null });
-            setNaturalSize(size);
-          } finally {
-            // PDFium does the rendering; the page's size data outlives this. Otherwise every
-            // PDF ever opened keeps a worker thread and a copy of the file.
-            void task.destroy();
-          }
+          const pdfPage = await pdf.pages[page];
+          // Past the end: the page count just given moves the tab to a page that exists.
+          if (cancelled || !pdfPage) return;
+          pageRef.current = pdfPage;
+          imageRef.current = null;
+          // rotation: 0 is absolute in pdf.js, so this is the media box before /Rotate.
+          const base = pdfPage.getViewport({ scale: 1, rotation: 0 });
+          const size = { width: base.width, height: base.height, pageRotation: pdfPage.rotate };
+          cachedFile(cacheKey).sources.set(page, {
+            ...info,
+            page: pdfPage,
+            image: null,
+            naturalSize: size,
+            bitmap: null,
+          });
+          setNaturalSize(size);
         } else {
-          const image = await loadImageSource(bytes, fileName ?? "image", mimeType ?? "");
+          const image = await loadImageSource(cacheKey.slice(), fileName ?? "image", mimeType ?? "");
           if (cancelled) return;
           imageRef.current = image;
           pageRef.current = null;
           const size = { width: image.width, height: image.height, pageRotation: 0 };
-          sourceCache.set(cacheKey, { page: null, image, naturalSize: size, bitmap: null });
+          const info = { pageCount: 1, pageLabels: null };
+          cachedFile(cacheKey).sources.set(page, { ...info, page: null, image, naturalSize: size, bitmap: null });
+          setPageInfo(info);
           setNaturalSize(size);
         }
 
@@ -205,22 +279,26 @@ export function useDocument(
     return () => {
       cancelled = true;
     };
-  }, [fileBytes, fileType, fileName, mimeType]);
+  }, [fileBytes, fileType, fileName, mimeType, page]);
 
   // PDF master: one full-page render per rotation, independent of zoom, so
   // zooming never restarts it.
   useEffect(() => {
     if (fileType !== "pdf" || !fileBytes || sourceReady === 0 || holdRender) return;
-    const cache = sourceCache.get(fileBytes);
-    const page = pageRef.current;
-    if (!cache || !page) return;
+    const file = cachedFile(fileBytes);
+    const cache = file.sources.get(page);
+    const pdfPage = pageRef.current;
+    if (!cache || !pdfPage) return;
 
-    const base = page.getViewport({ scale: 1, rotation });
+    const base = pdfPage.getViewport({ scale: 1, rotation });
     const scale = Math.min(
       MAX_MASTER_ZOOM * (window.devicePixelRatio || 1),
       Math.sqrt(MAX_BASE_PIXELS / (base.width * base.height)),
     );
-    if (cache.bitmap?.rotation === rotation && cache.bitmap.scale === scale) return;
+    if (cache.bitmap?.rotation === rotation && cache.bitmap.scale === scale) {
+      keepMaster(file, page);
+      return;
+    }
 
     const controller = new AbortController();
     const { signal } = controller;
@@ -237,9 +315,9 @@ export function useDocument(
       const context = master.getContext("2d");
       if (!context) return;
 
-      entry.hash ??= hashFile(bytes);
-      const hash = await entry.hash;
-      const key = hash && `${hash}:p1:r${rotation}:s${scale.toFixed(4)}`;
+      file.hash ??= hashFile(bytes);
+      const hash = await file.hash;
+      const key = hash && `${hash}:p${page + 1}:r${rotation}:s${scale.toFixed(4)}`;
       const saved = key ? await loadCachedRender(key) : null;
       if (signal.aborted) return;
 
@@ -252,7 +330,7 @@ export function useDocument(
         for (let y = 0; y < height; y += stripHeight) {
           const strip = await renderPdfRegion(
             bytes,
-            { rotation, scale, x: 0, y, width, height: Math.min(stripHeight, height - y) },
+            { page, rotation, scale, x: 0, y, width, height: Math.min(stripHeight, height - y) },
             "low",
             signal,
           );
@@ -264,6 +342,7 @@ export function useDocument(
       if (signal.aborted) return;
 
       entry.bitmap = { canvas: master, rotation, scale };
+      keepMaster(file, page);
       setMasterVersion((version) => version + 1);
       setLoading(false);
     }
@@ -275,7 +354,7 @@ export function useDocument(
     });
 
     return () => controller.abort();
-  }, [fileBytes, fileType, rotation, sourceReady, holdRender]);
+  }, [fileBytes, fileType, page, rotation, sourceReady, holdRender]);
 
   // Display at the current zoom: synchronous, so zoom and tab switches land in
   // the same frame. A PDF shows its master scaled; until a master for this
@@ -287,10 +366,10 @@ export function useDocument(
     const dpr = window.devicePixelRatio || 1;
 
     if (fileType === "pdf") {
-      const page = pageRef.current;
-      if (!page) return;
+      const pdfPage = pageRef.current;
+      if (!pdfPage) return;
 
-      const pdfViewport = page.getViewport({ scale: zoom, rotation });
+      const pdfViewport = pdfPage.getViewport({ scale: zoom, rotation });
       canvasElement.style.width = `${pdfViewport.width}px`;
       canvasElement.style.height = `${pdfViewport.height}px`;
       setViewport(
@@ -298,13 +377,13 @@ export function useDocument(
           pdfViewport.width,
           pdfViewport.height,
           // page.view is the crop box; drawings often start away from (0,0).
-          { x: page.view[0], y: page.view[3] },
+          { x: pdfPage.view[0], y: pdfPage.view[3] },
           (x, y) => pdfViewport.convertToPdfPoint(x, y) as [number, number],
           (x, y) => pdfViewport.convertToViewportPoint(x, y) as [number, number],
         ),
       );
 
-      const master = sourceCache.get(fileBytes)?.bitmap;
+      const master = cachedFile(fileBytes).sources.get(page)?.bitmap;
       if (!master || master.rotation !== rotation) {
         // Old pixels in another orientation would look wrong; PdfDetailLayer
         // paints the visible area until the master lands.
@@ -354,13 +433,14 @@ export function useDocument(
     setViewport(nextViewport);
     setRenderVersion((version) => version + 1);
     setLoading(false);
-  }, [fileBytes, fileType, zoom, rotation, canvasElement, sourceReady, holdRender, masterVersion]);
+  }, [fileBytes, fileType, page, zoom, rotation, canvasElement, sourceReady, holdRender, masterVersion]);
 
   return {
     canvasRef,
     canvasElement,
     viewport,
     naturalSize,
+    pageInfo,
     loading,
     error,
     renderVersion,

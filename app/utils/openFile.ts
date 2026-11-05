@@ -6,6 +6,7 @@ import { showSaveStatus } from "@/app/utils/saveStatus";
 import { putSession, type SessionEntry } from "@/app/utils/sessionStore";
 import { readPdfWithMarkups } from "@/app/utils/pdfSave";
 import { withGroups } from "@/app/utils/groups";
+import { withPages } from "@/app/utils/pages";
 
 /** Files Ctrl+S writes back to: .mkup projects and PDFs (markups saved into the PDF). */
 function keepsHandle(file: File): boolean {
@@ -97,6 +98,7 @@ export async function openDocumentFile(
       dispatch({
         type: "LOAD_PROJECT",
         ...withGroups(saved.data),
+        ...withPages(saved.data),
         bytes: saved.pristine,
         fileName: file.name,
         fileType,

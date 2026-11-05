@@ -81,6 +81,18 @@ const hasValidColor = (markup: Loose) =>
   markup.color == null || (typeof markup.color === "string" && /^#[0-9a-f]{3,8}$/i.test(markup.color));
 const isListOf = (value: unknown, check: (item: Loose) => boolean) =>
   Array.isArray(value) && value.every((item) => isObject(item) && check(item));
+const isPageNumber = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
+const hasValidPage = (markup: Loose) => markup.page == null || isPageNumber(markup.page);
+const isScale = (scale: unknown) =>
+  isObject(scale) &&
+  Number.isFinite(scale.unitsPerPdfPoint) &&
+  (scale.unitsPerPdfPoint as number) > 0 &&
+  isUnit(scale.calibrationUnit);
+const isRotation = (rotation: unknown) => [0, 90, 180, 270].includes(rotation as number);
+/** An object keyed by page number, every value passing `check`. */
+const isPerPage = (value: unknown, check: (item: unknown) => boolean) =>
+  isObject(value) &&
+  Object.entries(value).every(([page, item]) => isPageNumber(Number(page)) && check(item));
 
 /**
  * Markup data read from a file is outside input: anything that would crash the app later
@@ -90,9 +102,9 @@ export function isValidMarkupData(data: unknown): boolean {
   if (!isObject(data)) return false;
   const { scale, zoom } = data;
   return (
-    isListOf(data.measurements, (m) => isPoint(m.start) && isPoint(m.end) && hasValidColor(m)) &&
-    isListOf(data.rectangles, (r) => isPoint(r.topLeft) && isPoint(r.bottomRight) && hasValidColor(r)) &&
-    isListOf(data.notes, (n) => isPoint(n.position) && typeof n.text === "string" && hasValidColor(n)) &&
+    isListOf(data.measurements, (m) => isPoint(m.start) && isPoint(m.end) && hasValidColor(m) && hasValidPage(m)) &&
+    isListOf(data.rectangles, (r) => isPoint(r.topLeft) && isPoint(r.bottomRight) && hasValidColor(r) && hasValidPage(r)) &&
+    isListOf(data.notes, (n) => isPoint(n.position) && typeof n.text === "string" && hasValidColor(n) && hasValidPage(n)) &&
     (data.shapes == null ||
       isListOf(
         data.shapes,
@@ -105,16 +117,17 @@ export function isValidMarkupData(data: unknown): boolean {
           (s.text == null || typeof s.text === "string") &&
           // Only embedded images: a URL here would load from a stranger's server on open.
           (s.image == null || (typeof s.image === "string" && s.image.startsWith("data:image/"))) &&
-          hasValidColor(s),
+          hasValidColor(s) &&
+          hasValidPage(s),
       )) &&
     (data.groups == null || isListOf(data.groups, (g) => Array.isArray(g.memberIds))) &&
-    (scale === null ||
-      (isObject(scale) &&
-        Number.isFinite(scale.unitsPerPdfPoint) &&
-        (scale.unitsPerPdfPoint as number) > 0 &&
-        isUnit(scale.calibrationUnit))) &&
+    (scale === null || isScale(scale)) &&
+    (data.scales == null || isPerPage(data.scales, isScale)) &&
+    (data.rotations == null || isPerPage(data.rotations, isRotation)) &&
+    (data.page == null || isPageNumber(data.page)) &&
+    (data.sheets == null || (Array.isArray(data.sheets) && data.sheets.every(isPageNumber))) &&
     isUnit(data.displayUnit) &&
-    [0, 90, 180, 270].includes(data.rotation as number) &&
+    isRotation(data.rotation) &&
     Number.isFinite(zoom) &&
     (zoom as number) > 0
   );

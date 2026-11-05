@@ -7,8 +7,8 @@ import { createDbOpener, done } from "@/app/utils/idb";
 
 const DB_NAME = "markup-render-cache";
 const STORE = "pages";
-/** Oldest renders are dropped beyond this (a big sheet is a few MB as PNG). */
-const MAX_ENTRIES = 20;
+/** Oldest renders are dropped beyond this (a big sheet is a few MB as PNG); one plan set can be dozens. */
+const MAX_ENTRIES = 60;
 
 interface CachedRender {
   key: string;

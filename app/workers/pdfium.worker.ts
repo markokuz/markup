@@ -10,6 +10,8 @@ export type PdfiumRequest =
       id: number;
       type: "render";
       docId: number;
+      /** Zero-based page. */
+      page: number;
       /** Clockwise page rotation as passed to pdf.js getViewport (absolute, replaces /Rotate). */
       rotation: number;
       /** Output pixels per PDF point. */
@@ -35,7 +37,14 @@ function heap(pdfium: WrappedPdfiumModule) {
 }
 
 let modulePromise: Promise<WrappedPdfiumModule> | null = null;
-const docs = new Map<number, { doc: number; page: number; dataPtr: number }>();
+interface OpenDocument {
+  doc: number;
+  dataPtr: number;
+  /** The one page kept loaded: heavy CAD sheets hold a lot of memory, and renders stay on one page at a time. */
+  loaded: { index: number; handle: number } | null;
+}
+
+const docs = new Map<number, OpenDocument>();
 
 function getModule(wasmUrl: string) {
   modulePromise ??= fetch(wasmUrl)
@@ -57,13 +66,17 @@ async function open(pdfium: WrappedPdfiumModule, docId: number, bytes: ArrayBuff
     wasmExports.free(dataPtr);
     throw new Error(`PDFium could not open the file (error ${pdfium.FPDF_GetLastError()})`);
   }
-  const page = pdfium.FPDF_LoadPage(doc, 0);
-  if (!page) {
-    pdfium.FPDF_CloseDocument(doc);
-    wasmExports.free(dataPtr);
-    throw new Error("PDFium could not load page 1");
-  }
-  docs.set(docId, { doc, page, dataPtr });
+  docs.set(docId, { doc, dataPtr, loaded: null });
+}
+
+function pageHandle(pdfium: WrappedPdfiumModule, entry: OpenDocument, index: number): number {
+  if (entry.loaded?.index === index) return entry.loaded.handle;
+  if (entry.loaded) pdfium.FPDF_ClosePage(entry.loaded.handle);
+  entry.loaded = null;
+  const handle = pdfium.FPDF_LoadPage(entry.doc, index);
+  if (!handle) throw new Error(`PDFium could not load page ${index + 1}`);
+  entry.loaded = { index, handle };
+  return handle;
 }
 
 async function render(
@@ -74,14 +87,15 @@ async function render(
   if (!entry) throw new Error("PDF is not open");
   const { wasmExports } = pdfium.pdfium;
   const { scale, x, y, width, height } = request;
+  const page = pageHandle(pdfium, entry, request.page);
 
   // Page space here is PDFium's top-left view of the page (own /Rotate applied)
   // at 1 unit per point; rotate clockwise about it like pdf.js, scale, then
   // shift so the requested region lands at the bitmap origin. pdf.js treats the
   // requested rotation as absolute (it replaces /Rotate), so turn by the difference.
-  const pageWidth = pdfium.FPDF_GetPageWidthF(entry.page);
-  const pageHeight = pdfium.FPDF_GetPageHeightF(entry.page);
-  const ownRotation = pdfium.FPDFPage_GetRotation(entry.page) * 90;
+  const pageWidth = pdfium.FPDF_GetPageWidthF(page);
+  const pageHeight = pdfium.FPDF_GetPageHeightF(page);
+  const ownRotation = pdfium.FPDFPage_GetRotation(page) * 90;
   const rotation = (((request.rotation - ownRotation) % 360) + 360) % 360;
   const [a, b, c, d, e, f] =
     rotation === 90
@@ -108,7 +122,7 @@ async function render(
     new Float32Array(heap(pdfium).buffer, clipPtr, 4).set([0, 0, width, height]);
     pdfium.FPDF_RenderPageBitmapWithMatrix(
       bitmap,
-      entry.page,
+      page,
       matrixPtr,
       clipPtr,
       FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER,
@@ -133,7 +147,7 @@ async function render(
 function close(pdfium: WrappedPdfiumModule, docId: number) {
   const entry = docs.get(docId);
   if (!entry) return;
-  pdfium.FPDF_ClosePage(entry.page);
+  if (entry.loaded) pdfium.FPDF_ClosePage(entry.loaded.handle);
   pdfium.FPDF_CloseDocument(entry.doc);
   pdfium.pdfium.wasmExports.free(entry.dataPtr);
   docs.delete(docId);

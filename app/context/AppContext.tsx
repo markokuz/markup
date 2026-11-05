@@ -18,6 +18,7 @@ import {
   type Point2D,
   type ShapeAnnotation,
   type TabsState,
+  type UndoSnapshot,
 } from "@/app/types";
 import {
   DEFAULT_SETTINGS,
@@ -27,6 +28,7 @@ import {
 } from "@/app/utils/settings";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
 import { eraseFromStrokes, joinStrokes, splitStrokes } from "@/app/utils/geometry";
+import { markupsOnPage, pageOf, pagesWithMarkups } from "@/app/utils/pages";
 import { drawPieces, drawWidth } from "@/app/utils/shapeMetrics";
 import { markupIds, nextGroupName, wouldNestInItself } from "@/app/utils/groups";
 import { deleteSession } from "@/app/utils/sessionStore";
@@ -92,6 +94,54 @@ function finishCutout(
   };
 }
 
+/** `markup` on the page on screen. Page 1 stays unmarked, as in files from before pages existed. */
+function onCurrentPage<T extends { page?: number }>(tab: DocumentTab, markup: T): T {
+  return { ...markup, page: tab.page || undefined };
+}
+
+/** Moves to another page: whatever was in progress ends here. */
+function showPage(tab: DocumentTab, page: number): DocumentTab {
+  return {
+    ...finishDrawingShape(tab),
+    page,
+    selectedIds: [],
+    pendingPoint: null,
+    pendingMarquee: null,
+    editingDimension: null,
+    editingNoteId: null,
+    calibrateDialogOpen: false,
+    pendingCalibrationLine: null,
+    autoOrientPending: tab.fileType === "pdf" && tab.rotations[page] === undefined,
+  };
+}
+
+/** Puts an undo or redo snapshot back, on the page that change was made on. */
+function restoreSnapshot(tab: DocumentTab, snapshot: UndoSnapshot): DocumentTab {
+  const samePage = snapshot.page === tab.page;
+  return {
+    ...tab,
+    measurements: snapshot.measurements,
+    rectangles: snapshot.rectangles,
+    notes: snapshot.notes,
+    shapes: snapshot.shapes,
+    groups: snapshot.groups,
+    scales: snapshot.scales,
+    selectedIds: snapshot.selectedIds,
+    page: snapshot.page,
+    // Markups never end up on a hidden sheet, even if that sheet was dropped since.
+    sheets:
+      tab.sheets && !tab.sheets.includes(snapshot.page)
+        ? [...tab.sheets, snapshot.page].sort((a, b) => a - b)
+        : tab.sheets,
+    drawingShapeId: samePage ? tab.drawingShapeId : null,
+    cutoutTargetId: samePage ? tab.cutoutTargetId : null,
+    pendingPoint: null,
+    pendingMarquee: null,
+    editingDimension: null,
+    editingNoteId: null,
+  };
+}
+
 function tabsReducer(state: TabsState, action: AppAction): TabsState {
   switch (action.type) {
     case "SET_TOOL":
@@ -116,7 +166,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return updateActiveTab(state, (tab) => {
         const erased = new Map<string, Point2D[][]>();
         for (const shape of tab.shapes) {
-          if (shape.kind !== "draw" || shape.locked) continue;
+          if (shape.kind !== "draw" || shape.locked || pageOf(shape) !== tab.page) continue;
           const radius = (action.radiusPx + drawWidth(shape) / 2) / action.pxPerDoc;
           let pieces = drawPieces(shape);
           let touched = false;
@@ -316,14 +366,19 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       );
       const tab = {
         ...base,
-        scale: action.scale,
+        page: action.page,
+        // A first guess, so a saved later page shows only its own markups; the PDF corrects it.
+        pageCount: Math.max(action.page, ...(action.sheets ?? [])) + 1,
+        sheets: action.sheets ?? base.sheets,
+        scales: action.scales,
         measurements: action.measurements,
         rectangles: action.rectangles,
         notes: action.notes,
         shapes: action.shapes,
         groups: action.groups ?? [],
         zoom: action.zoom,
-        rotation: action.rotation,
+        rotations: action.rotations,
+        autoOrientPending: action.fileType === "pdf" && action.rotations[action.page] === undefined,
         projectHandle: action.handle ?? null,
         legacyRotationFixPending: action.legacyRotatedImage ?? false,
         toolColors: action.toolColors ?? {},
@@ -333,9 +388,47 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         tabs: [...state.tabs, tab],
         activeTabId: tab.id,
         displayUnit: action.displayUnit,
-        tool: action.scale ? "measure" : "calibrate",
+        tool: action.scales[action.page] ? "measure" : "calibrate",
       };
     }
+    case "SET_PAGE":
+      return updateActiveTab(state, (tab) =>
+        tab.page === action.page || !tab.sheets?.includes(action.page) ? tab : showPage(tab, action.page),
+      );
+    case "SET_PAGE_INFO":
+      return updateTabById(state, action.tabId, (tab) => {
+        const { pageCount, pageLabels } = action;
+        const known =
+          tab.pageCount === pageCount && tab.pageLabels === pageLabels && (pageCount > 1 || tab.sheets !== null);
+        if (known) return tab;
+        const valid = pageCount === 1 ? [0] : (tab.sheets ?? []).filter((page) => page < pageCount);
+        const next = { ...tab, pageCount, pageLabels, sheets: valid.length > 0 ? valid : null };
+        return next.sheets && !next.sheets.includes(tab.page) ? showPage(next, next.sheets[0]) : next;
+      });
+    case "SET_SHEETS":
+      return updateTabById(state, action.tabId, (tab) => {
+        // A sheet with markups stays, or they would vanish from view and from the totals' page.
+        const kept = pagesWithMarkups([tab.measurements, tab.rectangles, tab.notes, tab.shapes]);
+        const sheets = [...new Set([...action.sheets, ...kept])]
+          .filter((page) => page < tab.pageCount)
+          .sort((a, b) => a - b);
+        if (sheets.length === 0) return tab;
+        const next = { ...tab, sheets, pagesDialogOpen: false };
+        return sheets.includes(tab.page) ? next : showPage(next, sheets[0]);
+      });
+    case "SET_PAGES_DIALOG":
+      return updateActiveTab(state, (tab) => ({ ...tab, pagesDialogOpen: action.open }));
+    case "APPLY_SCALE_TO_UNCALIBRATED":
+      return updateActiveTab(state, (tab) => {
+        const scale = tab.scales[tab.page];
+        const uncalibrated = (tab.sheets ?? []).filter((page) => !tab.scales[page]);
+        if (!scale || uncalibrated.length === 0) return tab;
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          scales: { ...tab.scales, ...Object.fromEntries(uncalibrated.map((page) => [page, scale])) },
+        };
+      });
     case "MOVE_TAB": {
       const from = state.tabs.findIndex((tab) => tab.id === action.tabId);
       if (from === -1) return state;
@@ -388,7 +481,10 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "SET_ZOOM":
       return updateActiveTab(state, (tab) => ({ ...tab, zoom: action.zoom }));
     case "SET_ROTATION":
-      return updateActiveTab(state, (tab) => ({ ...tab, rotation: action.rotation }));
+      return updateActiveTab(state, (tab) => ({
+        ...tab,
+        rotations: { ...tab.rotations, [tab.page]: action.rotation },
+      }));
     case "SET_PENDING_POINT":
       return updateActiveTab(state, (tab) => ({ ...tab, pendingPoint: action.point }));
     case "SET_PENDING_MARQUEE":
@@ -400,7 +496,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return updateActiveTab(state, (tab) => ({
         ...tab,
         history: appendHistory(tab),
-        measurements: [...tab.measurements, action.measurement],
+        measurements: [...tab.measurements, onCurrentPage(tab, action.measurement)],
         pendingPoint: null,
       }));
     case "UPDATE_MEASUREMENT":
@@ -414,7 +510,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return updateActiveTab(state, (tab) => ({
         ...tab,
         history: appendHistory(tab),
-        rectangles: [...tab.rectangles, action.rectangle],
+        rectangles: [...tab.rectangles, onCurrentPage(tab, action.rectangle)],
         pendingPoint: null,
       }));
     case "UPDATE_RECTANGLE":
@@ -429,7 +525,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...updateActiveTab(state, (tab) => ({
           ...tab,
           history: appendHistory(tab),
-          notes: [...tab.notes, action.note],
+          notes: [...tab.notes, onCurrentPage(tab, action.note)],
           selectedIds: [action.note.id],
           editingNoteId: action.note.id,
         })),
@@ -446,7 +542,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       const next = updateActiveTab(state, (tab) => ({
         ...tab,
         history: appendHistory(tab),
-        shapes: [...tab.shapes, shape],
+        shapes: [...tab.shapes, onCurrentPage(tab, shape)],
         pendingPoint: null,
         drawingShapeId: action.drawing ? shape.id : null,
         ...(shape.kind === "callout" || shape.kind === "text"
@@ -500,12 +596,20 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         drawingShapeId: tab.drawingShapeId === action.id ? null : tab.drawingShapeId,
       }));
     case "SET_SELECTION":
-      return updateActiveTab(state, (tab) => ({
-        ...tab,
-        selectedIds: action.ids,
-        editingDimension: null,
-        editingNoteId: null,
-      }));
+      return updateActiveTab(state, (tab) => {
+        // Nudge and delete act on the selection, so it must never hold markups out of sight
+        // (a group in the panel can span sheets).
+        const visible = (id: string) =>
+          [tab.measurements, tab.rectangles, tab.notes, tab.shapes].some((list) =>
+            list.some((markup) => markup.id === id && pageOf(markup) === tab.page),
+          );
+        return {
+          ...tab,
+          selectedIds: tab.pageCount > 1 ? action.ids.filter(visible) : action.ids,
+          editingDimension: null,
+          editingNoteId: null,
+        };
+      });
     case "NUDGE_SELECTED":
       return updateActiveTab(state, (tab) => {
         if (tab.selectedIds.length === 0) return tab;
@@ -612,10 +716,11 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...updateActiveTab(state, (tab) => ({
           ...tab,
           history: appendHistory(tab),
-          scale: action.scale,
+          scales: { ...tab.scales, [tab.page]: action.scale },
+          // Each sheet keeps its own calibration line.
           measurements: [
-            ...tab.measurements.filter((m) => !m.isCalibration),
-            action.calibrationMeasurement,
+            ...tab.measurements.filter((m) => !m.isCalibration || pageOf(m) !== tab.page),
+            onCurrentPage(tab, action.calibrationMeasurement),
           ],
           calibrateDialogOpen: false,
           pendingCalibrationLine: null,
@@ -646,20 +751,10 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         if (tab.history.length === 0) return tab;
         const snapshot = tab.history[tab.history.length - 1];
         return {
-          ...tab,
+          ...restoreSnapshot(tab, snapshot),
           history: tab.history.slice(0, -1),
-          future: [...tab.future, createUndoSnapshot(tab)],
-          measurements: snapshot.measurements,
-          rectangles: snapshot.rectangles,
-          notes: snapshot.notes,
-          shapes: snapshot.shapes,
-          groups: snapshot.groups,
-          scale: snapshot.scale,
-          selectedIds: snapshot.selectedIds,
-          pendingPoint: null,
-          pendingMarquee: null,
-          editingDimension: null,
-          editingNoteId: null,
+          // Filed under the edit's page, not wherever the user is now, so redo returns there too.
+          future: [...tab.future, { ...createUndoSnapshot(tab), page: snapshot.page }],
         };
       });
     case "REDO":
@@ -667,20 +762,9 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         if (tab.future.length === 0) return tab;
         const snapshot = tab.future[tab.future.length - 1];
         return {
-          ...tab,
-          history: appendHistory(tab),
+          ...restoreSnapshot(tab, snapshot),
+          history: appendHistory({ ...tab, page: snapshot.page }),
           future: tab.future.slice(0, -1),
-          measurements: snapshot.measurements,
-          rectangles: snapshot.rectangles,
-          notes: snapshot.notes,
-          shapes: snapshot.shapes,
-          groups: snapshot.groups,
-          scale: snapshot.scale,
-          selectedIds: snapshot.selectedIds,
-          pendingPoint: null,
-          pendingMarquee: null,
-          editingDimension: null,
-          editingNoteId: null,
           drawingShapeId: null,
         };
       });
@@ -700,7 +784,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
     case "APPLY_AUTO_ORIENT":
       return updateTabById(state, action.tabId, (tab) => ({
         ...tab,
-        rotation: action.rotation,
+        rotations: { ...tab.rotations, [tab.page]: action.rotation },
         autoOrientPending: false,
       }));
     case "SET_PROJECT_HANDLE":
@@ -715,8 +799,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         // Pre-v2 rotated-image coords were offset by (height - width) along one
         // doc axis: x at 270°, y at 90°.
         const shift = action.height - action.width;
-        const offset =
-          tab.rotation === 270 ? { x: -shift, y: 0 } : tab.rotation === 90 ? { x: 0, y: shift } : null;
+        const rotation = tab.rotations[tab.page];
+        const offset = rotation === 270 ? { x: -shift, y: 0 } : rotation === 90 ? { x: 0, y: shift } : null;
         if (!offset) return { ...tab, legacyRotationFixPending: false };
         const move = (p: Point2D): Point2D => ({ x: p.x + offset.x, y: p.y + offset.y });
         return {
@@ -748,10 +832,11 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         ...updateActiveTab(state, (tab) => ({
           ...tab,
           history: appendHistory(tab),
-          measurements: [...tab.measurements, ...action.measurements],
-          rectangles: [...tab.rectangles, ...action.rectangles],
-          notes: [...tab.notes, ...action.notes],
-          shapes: [...tab.shapes, ...action.shapes],
+          // Copied markups remember the sheet they came from; they land on this one.
+          measurements: [...tab.measurements, ...action.measurements.map((m) => onCurrentPage(tab, m))],
+          rectangles: [...tab.rectangles, ...action.rectangles.map((r) => onCurrentPage(tab, r))],
+          notes: [...tab.notes, ...action.notes.map((n) => onCurrentPage(tab, n))],
+          shapes: [...tab.shapes, ...action.shapes.map((s) => onCurrentPage(tab, s))],
           selectedIds: pastedIds,
           pendingPoint: null,
           pendingMarquee: null,
@@ -766,7 +851,10 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
   }
 }
 
-type SavedFields = Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scale">;
+type SavedFields = Pick<
+  DocumentTab,
+  "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets"
+>;
 
 function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
   return (
@@ -775,7 +863,8 @@ function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
     a.notes !== b.notes ||
     a.shapes !== b.shapes ||
     a.groups !== b.groups ||
-    a.scale !== b.scale
+    a.scales !== b.scales ||
+    a.sheets !== b.sheets
   );
 }
 
@@ -841,8 +930,15 @@ function deleteAnnotations(tab: DocumentTab, ids: string[]): DocumentTab {
 
 function appReducer(state: TabsState, action: AppAction): TabsState {
   const next = clearStaleRedo(state, tabsReducer(state, action), action);
-  // Migrating an old project's coordinates isn't a user edit.
-  if (action.type === "FIX_LEGACY_ROTATION") return next;
+  // Migrating an old project's coordinates, reading the PDF's page list and answering the
+  // import question aren't user edits.
+  if (
+    action.type === "FIX_LEGACY_ROTATION" ||
+    action.type === "SET_PAGE_INFO" ||
+    (action.type === "SET_SHEETS" && action.initial)
+  ) {
+    return next;
+  }
   return trackDirtyTabs(state, next);
 }
 
@@ -861,8 +957,17 @@ function initTabsState(state: TabsState): TabsState {
 function mergeActiveTabView(state: TabsState): AppState {
   const activeTab = getActiveTab(state);
   const { id: _id, ...documentFields } = activeTab ?? { id: "", ...EMPTY_DOCUMENT_VIEW };
+  const { page, pageCount, scales, rotations } = documentFields;
   return {
     ...documentFields,
+    // Everything reading app state works on the page on screen; a page's data is the whole document
+    // only to the reducer, the Markups panel and saving, which read the tab itself.
+    measurements: markupsOnPage(documentFields.measurements, page, pageCount),
+    rectangles: markupsOnPage(documentFields.rectangles, page, pageCount),
+    notes: markupsOnPage(documentFields.notes, page, pageCount),
+    shapes: markupsOnPage(documentFields.shapes, page, pageCount),
+    scale: scales[page] ?? null,
+    rotation: rotations[page] ?? 0,
     tool: state.tool,
     displayUnit: state.displayUnit,
     tabs: state.tabs,

@@ -11,6 +11,8 @@ const MAX_SIDE_PX = 3000;
 interface SnapshotSource {
   fileType: DocumentType;
   fileBytes: Uint8Array;
+  /** Zero-based page of a PDF. */
+  page: number;
   fileName: string;
   mimeType: string;
   /** Doc-space top-left of the unrotated page (doc space is y-up for PDFs). */
@@ -45,6 +47,7 @@ export async function captureSnapshot(
     const bitmap = await renderPdfRegion(
       source.fileBytes,
       {
+        page: source.page,
         rotation: 0,
         scale,
         x: Math.round((minX - source.docOrigin.x) * scale),

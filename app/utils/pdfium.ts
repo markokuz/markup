@@ -72,6 +72,8 @@ function openDocument(bytes: Uint8Array) {
 }
 
 export interface PdfRegion {
+  /** Zero-based page. */
+  page: number;
   /** Clockwise rotation, as passed to pdf.js getViewport (absolute). */
   rotation: number;
   /** Output pixels per PDF point. */
@@ -115,7 +117,7 @@ function abortError() {
 }
 
 /**
- * Renders part of page 1 in the PDFium worker. "high" jobs (what is on screen)
+ * Renders part of a page in the PDFium worker. "high" jobs (what is on screen)
  * jump ahead of "low" ones (background full-page strips).
  */
 export function renderPdfRegion(

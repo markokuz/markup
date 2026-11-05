@@ -5,13 +5,13 @@ const MAX_HISTORY = 50;
 export function createUndoSnapshot(
   tab: Pick<
     DocumentTab,
-    "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scale" | "selectedIds"
+    "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "selectedIds" | "page"
   >,
 ): UndoSnapshot {
   // Reducers never mutate state in place, so sharing references is safe, and
   // cloning would copy every snapshot image (MBs each) into all 50 steps.
-  const { measurements, rectangles, notes, shapes, groups, scale, selectedIds } = tab;
-  return { measurements, rectangles, notes, shapes, groups, scale, selectedIds };
+  const { measurements, rectangles, notes, shapes, groups, scales, selectedIds, page } = tab;
+  return { measurements, rectangles, notes, shapes, groups, scales, selectedIds, page };
 }
 
 export function appendHistory(tab: DocumentTab): UndoSnapshot[] {

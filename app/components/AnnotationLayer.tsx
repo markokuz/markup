@@ -295,6 +295,7 @@ export function AnnotationLayer({
           {
             fileType: state.fileType,
             fileBytes: state.fileBytes,
+            page: state.page,
             fileName: state.fileName ?? "",
             mimeType: state.fileMimeType ?? "",
             docOrigin: viewport.docOrigin,
@@ -322,7 +323,7 @@ export function AnnotationLayer({
         showSaveStatus("error", `Couldn't copy snapshot: ${message}`);
       }
     },
-    [state.fileBytes, state.fileMimeType, state.fileName, state.fileType, state.scale, state.zoom, viewport],
+    [state.fileBytes, state.fileMimeType, state.fileName, state.fileType, state.page, state.scale, state.zoom, viewport],
   );
 
   /** Add a finished Line-tool line (second click or a typed length). */

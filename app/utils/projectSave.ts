@@ -31,14 +31,16 @@ type SavableTab = Pick<
   | "fileName"
   | "fileType"
   | "fileMimeType"
-  | "scale"
+  | "scales"
+  | "rotations"
+  | "page"
+  | "sheets"
   | "measurements"
   | "rectangles"
   | "notes"
   | "shapes"
   | "groups"
   | "zoom"
-  | "rotation"
   | "projectHandle"
   | "toolColors"
   | "documentViewport"
@@ -64,7 +66,13 @@ export async function saveTab(
   if (!fileBytes || !fileName || !fileType) return null;
 
   const markups = {
-    scale: tab.scale,
+    // Page 1's, which is all a file from before multi-page PDFs had.
+    scale: tab.scales[0] ?? null,
+    rotation: tab.rotations[0] ?? 0,
+    scales: tab.scales,
+    rotations: tab.rotations,
+    page: tab.page,
+    sheets: tab.sheets,
     measurements: tab.measurements,
     rectangles: tab.rectangles,
     notes: tab.notes,
@@ -72,7 +80,6 @@ export async function saveTab(
     groups: tab.groups,
     displayUnit,
     zoom: tab.zoom,
-    rotation: tab.rotation,
     toolColors: tab.toolColors,
   };
   const projectBlob = (bytes: Uint8Array) =>
@@ -146,7 +153,7 @@ export async function saveTab(
 
   const output =
     fileType === "pdf"
-      ? await buildPdfWithMarkups(fileBytes, markups, getScreenUpDocDirection(tab.documentViewport, "pdf"))
+      ? await buildPdfWithMarkups(fileBytes, markups)
       : await buildMarkedUpImageBlob(
           fileBytes,
           fileName,
@@ -155,7 +162,7 @@ export async function saveTab(
           tab.rectangles,
           tab.notes,
           tab.shapes,
-          tab.scale,
+          tab.scales[0] ?? null,
           displayUnit,
           getScreenUpDocDirection(tab.documentViewport, "image"),
         );

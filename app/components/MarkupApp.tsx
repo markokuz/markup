@@ -7,6 +7,7 @@ import { SaveToast } from "@/app/components/SaveToast";
 import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
+import { ImportPagesDialog } from "@/app/components/ImportPagesDialog";
 import { PdfViewer } from "@/app/components/PdfCanvas";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
@@ -37,6 +38,8 @@ function MarkupShell() {
   const zoom = state.zoom;
   const hasSelection = state.selectedIds.length > 0;
   const closeDialogOpen = state.pendingCloseTabId !== null;
+  const pagesDialogOpen =
+    state.fileType === "pdf" && state.pageCount > 1 && (state.sheets === null || state.pagesDialogOpen);
 
   // Ctrl+S runs in the capture phase so it wins even inside fields (note text,
   // dimension edits, dialogs) that stop key events from reaching the app.
@@ -107,6 +110,18 @@ function MarkupShell() {
 
       if (closeDialogOpen) {
         if (event.key === "Escape") dispatch({ type: "CANCEL_CLOSE_TAB" });
+        return;
+      }
+      // That dialog handles its own keys; tool hotkeys mustn't act behind it.
+      if (pagesDialogOpen) return;
+
+      if ((event.key === "PageUp" || event.key === "PageDown") && !isEditing && !target.isContentEditable) {
+        const { sheets, page } = stateRef.current;
+        if (sheets && sheets.length > 1) {
+          event.preventDefault();
+          const next = sheets[sheets.indexOf(page) + (event.key === "PageUp" ? -1 : 1)];
+          if (next !== undefined) dispatch({ type: "SET_PAGE", page: next });
+        }
         return;
       }
 
@@ -250,6 +265,7 @@ function MarkupShell() {
     zoom,
     hasSelection,
     closeDialogOpen,
+    pagesDialogOpen,
   ]);
 
   return (
@@ -283,11 +299,13 @@ function MarkupShell() {
       <DocumentTabs />
       <div className="flex min-h-0 flex-1">
         <SideToolbar />
-        <PdfViewer key={state.activeTabId ?? "empty"} />
+        {/* A fresh viewer per sheet: nothing about one page's view carries over to the next. */}
+        <PdfViewer key={state.activeTabId ? `${state.activeTabId}:${state.page}` : "empty"} />
         <MarkupsPanel />
       </div>
       <StatusBar />
       <CalibrateDialog />
+      <ImportPagesDialog />
       <SaveToast />
       <UnsavedChangesDialog />
     </div>

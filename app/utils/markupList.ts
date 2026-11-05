@@ -11,6 +11,7 @@ import { DEFAULT_ANNOTATION_COLOR } from "@/app/utils/colors";
 import { docDistance } from "@/app/utils/coordinates";
 import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { formatArea } from "@/app/utils/geometry";
+import { pageOf } from "@/app/utils/pages";
 import {
   countStartAt,
   cutoutCount,
@@ -40,6 +41,8 @@ export interface MarkupRow {
   groups?: string[];
   /** Locked in place (no move, resize or rotate). */
   locked?: boolean;
+  /** Zero-based page it is on. */
+  page?: number;
 }
 
 export interface MarkupTotal {
@@ -54,13 +57,18 @@ interface MarkupSource {
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
   groups?: MarkupGroup[];
-  scale: Scale | null;
+  /** Per page: each markup is measured at its own sheet's scale. */
+  scales: Record<number, Scale>;
   displayUnit: Unit;
 }
 
 export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
-  const { scale, displayUnit: unit } = source;
-  const k = scale ? convertUnits(scale.unitsPerPdfPoint, scale.calibrationUnit, unit) : null;
+  const { scales, displayUnit: unit } = source;
+  const scaleOf = (markup: { page?: number }) => scales[pageOf(markup)] ?? null;
+  const unitsPerDoc = (markup: { page?: number }) => {
+    const scale = scaleOf(markup);
+    return scale ? convertUnits(scale.unitsPerPdfPoint, scale.calibrationUnit, unit) : null;
+  };
   const dist = (v: number) => formatDistance(v, unit);
   const colorOf = (a: { color?: string }) => a.color || DEFAULT_ANNOTATION_COLOR;
   const rows: MarkupRow[] = [];
@@ -71,6 +79,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
       rows.push({ id: m.id, type: "Line", name: m.label ?? "", color: colorOf(m), text: "", display: "—" });
       continue;
     }
+    const k = unitsPerDoc(m);
     const length = k ? docDistance(m.start, m.end) * k : undefined;
     rows.push({
       id: m.id,
@@ -88,6 +97,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
       rows.push({ id: r.id, type: "Box", name: r.label ?? "", color: colorOf(r), text: "", display: "—" });
       continue;
     }
+    const k = unitsPerDoc(r);
     const w = k ? getRectDocWidth(r) * k : undefined;
     const h = k ? getRectDocHeight(r) * k : undefined;
     const ok = w !== undefined && h !== undefined;
@@ -112,7 +122,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
       text: s.text ?? "",
     };
     if (s.kind === "area") {
-      const metrics = getAreaMetrics(s, scale, unit);
+      const metrics = getAreaMetrics(s, scaleOf(s), unit);
       const cutouts = cutoutCount(s);
       rows.push({
         ...base,
@@ -124,10 +134,11 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
         ...metrics,
       });
     } else if (s.kind === "polyline") {
-      const length = getPolylineLength(s, scale, unit) ?? undefined;
+      const length = getPolylineLength(s, scaleOf(s), unit) ?? undefined;
       rows.push({
         ...base,
-        display: length !== undefined ? dist(length) : "Not calibrated",
+        // A single point has no length yet, whatever the sheet's calibration.
+        display: length !== undefined ? dist(length) : scaleOf(s) ? "—" : "Not calibrated",
         length,
       });
     } else if (s.kind === "count") {
@@ -168,7 +179,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
   for (const group of source.groups ?? []) {
     for (const id of group.memberIds) groupNames.set(id, [...(groupNames.get(id) ?? []), group.name]);
   }
-  const markups = new Map<string, { locked?: boolean }>(
+  const markups = new Map<string, { locked?: boolean; page?: number }>(
     [...source.measurements, ...source.rectangles, ...source.notes, ...source.shapes].map((m) => [m.id, m]),
   );
   return rows.map((row) => {
@@ -178,6 +189,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
       ...row,
       ...(names ? { groups: names } : {}),
       ...(markup?.locked ? { locked: true } : {}),
+      page: pageOf(markup ?? {}),
     };
   });
 }
@@ -227,9 +239,23 @@ export function rowsToCsv(rows: MarkupRow[], unit: Unit): string {
     "Count",
     "Start #",
     "Color",
+    // Last, so the columns before it stay where existing spreadsheets expect them.
+    "Sheet",
   ];
   const lines = rows.map((r) =>
-    [(r.groups ?? []).join("; "), r.type, r.name, r.text, r.length, r.area, r.perimeter, r.count, r.startAt, r.color]
+    [
+      (r.groups ?? []).join("; "),
+      r.type,
+      r.name,
+      r.text,
+      r.length,
+      r.area,
+      r.perimeter,
+      r.count,
+      r.startAt,
+      r.color,
+      r.page === undefined ? undefined : r.page + 1,
+    ]
       .map(csvCell)
       .join(","),
   );

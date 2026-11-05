@@ -32,6 +32,8 @@ export interface Point2D {
 export interface MarkupFlags {
   /** Can't be moved, resized or rotated until unlocked (it can still be edited and deleted). */
   locked?: boolean;
+  /** Zero-based page of the PDF it is on. Absent: page 1. */
+  page?: number;
 }
 
 /**
@@ -152,8 +154,10 @@ export interface UndoSnapshot {
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
   groups: MarkupGroup[];
-  scale: Scale | null;
+  scales: Record<number, Scale>;
   selectedIds: string[];
+  /** The page this change was made on: undo and redo go back to it. */
+  page: number;
 }
 
 /** Per-document state stored in a tab. */
@@ -163,7 +167,18 @@ export interface DocumentTab {
   fileName: string | null;
   fileType: DocumentType | null;
   fileMimeType: string | null;
-  scale: Scale | null;
+  /** Zero-based page on screen. */
+  page: number;
+  /** Pages in the file (1 for images, and until a PDF has loaded). */
+  pageCount: number;
+  /** The file's own page labels ("A-101"), when it has them. Read from the file, never saved. */
+  pageLabels: string[] | null;
+  /** Pages this tab shows, in document order. Null: a multi-page PDF hasn't been asked yet. */
+  sheets: number[] | null;
+  pagesDialogOpen: boolean;
+  /** Calibration per page; a page without an entry isn't calibrated. */
+  scales: Record<number, Scale>;
+  /** Markups of every page. The merged view (useAppState) holds only the current page's. */
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
@@ -179,7 +194,8 @@ export interface DocumentTab {
   editingDimension: EditingDimension | null;
   editingNoteId: string | null;
   zoom: number;
-  rotation: DocumentRotation;
+  /** View rotation per page; a page without an entry hasn't been oriented yet. */
+  rotations: Record<number, DocumentRotation>;
   calibrateDialogOpen: boolean;
   pendingCalibrationLine: PendingCalibrationLine | null;
   history: UndoSnapshot[];
@@ -229,6 +245,10 @@ export interface TabsState {
 
 /** Merged view of the active tab plus global settings (returned by useAppState). */
 export type AppState = Omit<DocumentTab, "id"> & {
+  /** The current page's calibration. */
+  scale: Scale | null;
+  /** The current page's view rotation. */
+  rotation: DocumentRotation;
   tool: ToolMode;
   displayUnit: Unit;
   tabs: DocumentTab[];
@@ -265,7 +285,10 @@ export type AppAction =
       fileName: string;
       fileType: DocumentType;
       mimeType: string;
-      scale: Scale | null;
+      scales: Record<number, Scale>;
+      rotations: Record<number, DocumentRotation>;
+      page: number;
+      sheets: number[] | null;
       measurements: Measurement[];
       rectangles: RectMeasurement[];
       notes: NoteAnnotation[];
@@ -274,7 +297,6 @@ export type AppAction =
       groups?: MarkupGroup[];
       displayUnit: Unit;
       zoom: number;
-      rotation: DocumentRotation;
       handle?: FileSystemFileHandle | null;
       legacyRotatedImage?: boolean;
       /** Reuse this tab id (restoring a browser backup keeps its session entry). */
@@ -291,8 +313,17 @@ export type AppAction =
       type: "MARK_TAB_SAVED";
       tabId: string;
       /** What was written; edits made while saving keep the tab dirty. */
-      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scale">;
+      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets">;
     }
+  /** Show another of this tab's sheets. */
+  | { type: "SET_PAGE"; page: number }
+  /** What the loaded PDF says about itself. */
+  | { type: "SET_PAGE_INFO"; tabId: string; pageCount: number; pageLabels: string[] | null }
+  /** Choose the pages this tab shows; `initial` is the answer to the import question, not an edit. */
+  | { type: "SET_SHEETS"; tabId: string; sheets: number[]; initial?: boolean }
+  | { type: "SET_PAGES_DIALOG"; open: boolean }
+  /** Use the current sheet's scale on every shown sheet that has none. */
+  | { type: "APPLY_SCALE_TO_UNCALIBRATED" }
   | { type: "SET_CONFIRM_CLOSE_UNSAVED"; enabled: boolean }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_ROTATION"; rotation: DocumentRotation }

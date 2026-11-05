@@ -21,6 +21,7 @@ import {
 import type { MarkupGroup } from "@/app/types";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { showSaveStatus } from "@/app/utils/saveStatus";
+import { getActiveTabFromAppState } from "@/app/utils/tabState";
 
 /** Group rename targets share the rename box with rows; their ids carry this prefix. */
 const GROUP_KEY = "group:";
@@ -230,6 +231,7 @@ export function MarkupsPanel() {
   );
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [totalsOpen, setTotalsOpen] = useState(true);
+  const [thisSheetOnly, setThisSheetOnly] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -336,11 +338,16 @@ export function MarkupsPanel() {
     );
   }
 
-  const rows = buildMarkupRows(state);
+  // The whole document, not the current sheet's slice of it: groups and totals span sheets.
+  const tab = getActiveTabFromAppState(state);
+  if (!tab) return null;
+  const multiSheet = (tab.sheets?.length ?? 1) > 1;
+  const allRows = buildMarkupRows({ ...tab, displayUnit: state.displayUnit });
+  const rows = thisSheetOnly && multiSheet ? allRows.filter((row) => row.page === state.page) : allRows;
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   const totals = summarizeRows(rows, state.displayUnit);
   const selected = new Set(state.selectedIds);
-  const existing = markupIds(state);
+  const existing = markupIds(tab);
   const groups = state.groups.map((group) => ({
     group,
     rows: liveMembers(group, existing).flatMap((id) => rowsById.get(id) ?? []),
@@ -375,6 +382,14 @@ export function MarkupsPanel() {
   const selectRow = (id: string, list: string, event: React.MouseEvent) => {
     dispatch({ type: "SET_TOOL", tool: "select" });
     setActiveGroupId(isUngroupedList(list) ? null : list);
+    // On another sheet: go there and pick it; a selection can't span sheets.
+    const rowPage = rowsById.get(id)?.page;
+    if (rowPage !== undefined && rowPage !== state.page) {
+      dispatch({ type: "SET_PAGE", page: rowPage });
+      dispatch({ type: "SET_SELECTION", ids: [id] });
+      setAnchor({ list, id });
+      return;
+    }
     const additive = event.ctrlKey || event.metaKey;
     if (event.shiftKey && anchor && anchor.list === list) {
       const ids = listIds(list);
@@ -571,6 +586,9 @@ export function MarkupsPanel() {
                   ) : (
                     row.type
                   )}
+                  {multiSheet && row.page !== undefined && (
+                    <span className="font-normal text-text-muted">· p.{row.page + 1}</span>
+                  )}
                   {row.locked && (
                     <span title="Locked" className="text-text-muted">
                       <LockIcon />
@@ -759,7 +777,7 @@ export function MarkupsPanel() {
   const exportCsv = () => {
     const base = (state.fileName ?? "markups").replace(/\.[^.]+$/, "");
     // BOM so Excel opens the UTF-8 (×, ², ·) correctly.
-    const blob = new Blob(["﻿", rowsToCsv(rows, state.displayUnit)], {
+    const blob = new Blob(["﻿", rowsToCsv(allRows, state.displayUnit)], {
       type: "text/csv;charset=utf-8",
     });
     downloadBlob(blob, `${base}-markups.csv`);
@@ -840,9 +858,9 @@ export function MarkupsPanel() {
           <button
             type="button"
             onClick={exportCsv}
-            disabled={rows.length === 0}
+            disabled={allRows.length === 0}
             className="btn-secondary px-1.5 py-1 text-xs disabled:opacity-40"
-            title="Download the list as a CSV file for Excel"
+            title="Download the list of every sheet as a CSV file for Excel"
           >
             Export CSV
           </button>
@@ -856,6 +874,29 @@ export function MarkupsPanel() {
           </button>
         </div>
       </div>
+
+      {multiSheet && (
+        <div className="flex gap-0.5 border-b border-border p-1" role="group" aria-label="Which sheets to list">
+          {[
+            { only: false, label: "All sheets" },
+            { only: true, label: "This sheet" },
+          ].map(({ only, label }) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={thisSheetOnly === only}
+              onClick={() => setThisSheetOnly(only)}
+              className={`flex-1 rounded-md py-1 text-xs font-medium transition ${
+                thisSheetOnly === only
+                  ? "bg-surface-muted text-accent"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {groups.length > 0 && (

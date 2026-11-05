@@ -5,7 +5,7 @@ import { createJiti } from "jiti";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
-const { readProjectFile } = await jiti.import("./projectFile.ts");
+const { buildProjectBlob, readProjectFile } = await jiti.import("./projectFile.ts");
 
 const valid = {
   magic: "markup-project",
@@ -43,6 +43,42 @@ const oldLoaded = await read({
 assert.deepEqual(oldLoaded.shapes, []);
 assert.equal(oldLoaded.groups[0].name, "Kitchen");
 
+// A file from before multi-page PDFs: everything on page 1, and the page question still to ask.
+assert.deepEqual(loaded.scales, { 0: valid.scale });
+assert.deepEqual(loaded.rotations, { 0: 90 });
+assert.equal(loaded.page, 0);
+assert.equal(loaded.sheets, null);
+assert.equal(loaded.measurements[0].page, undefined);
+
+// A current file keeps its pages, scales and sheet choice through a save and a load.
+const blob = buildProjectBlob({
+  fileName: "plan.pdf",
+  fileType: "pdf",
+  mimeType: "application/pdf",
+  fileBytes: new Uint8Array([0, 1, 2]),
+  scale: null,
+  rotation: 0,
+  scales: { 2: valid.scale },
+  rotations: { 0: 0, 2: 270 },
+  page: 2,
+  sheets: [0, 2],
+  measurements: [{ ...valid.measurements[0], page: 2 }],
+  rectangles: [],
+  notes: [],
+  shapes: [{ id: "run", kind: "polyline", page: 2, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] }],
+  groups: [],
+  displayUnit: "ft",
+  zoom: 1,
+  toolColors: {},
+});
+const reloaded = await readProjectFile(new File([blob], "plan.mkup"));
+assert.deepEqual(reloaded.scales, { 2: valid.scale });
+assert.deepEqual(reloaded.rotations, { 0: 0, 2: 270 });
+assert.equal(reloaded.page, 2);
+assert.deepEqual(reloaded.sheets, [0, 2]);
+assert.equal(reloaded.measurements[0].page, 2);
+assert.equal(reloaded.shapes[0].kind, "polyline");
+
 // An out-of-range zoom is pulled back into range rather than refused.
 assert.equal((await read({ ...valid, zoom: 500 })).zoom, 16);
 
@@ -64,6 +100,15 @@ await rejected({ zoom: "big" }, "zoom");
 await rejected({ zoom: 0 }, "zero zoom");
 await rejected({ fileType: "exe" }, "file type");
 await rejected({ fileBytesBase64: null }, "no file bytes");
+await rejected({ measurements: [{ ...valid.measurements[0], page: -1 }] }, "negative page on a line");
+await rejected({ shapes: [{ kind: "area", points: [], page: 1.5 }] }, "fractional page on a shape");
+await rejected({ shapes: [{ kind: "area", points: [], breaks: "x" }] }, "breaks that aren't a list");
+await rejected({ scales: { 1: { unitsPerPdfPoint: 0, calibrationUnit: "ft" } } }, "zero scale on a sheet");
+await rejected({ scales: { first: valid.scale } }, "scale keyed by something other than a page");
+await rejected({ rotations: { 1: 45 } }, "rotation on a sheet");
+await rejected({ page: -1 }, "negative current page");
+await rejected({ sheets: [0, "two"] }, "sheet that isn't a page number");
+await rejected({ sheets: 3 }, "sheets that aren't a list");
 
 await assert.rejects(read({ magic: "something-else" }), /Not a Markup project/);
 await assert.rejects(read({ ...valid, version: 99 }), /newer than this app/);

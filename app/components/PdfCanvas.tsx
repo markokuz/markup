@@ -10,7 +10,7 @@ import { AnnotationLayer } from "@/app/components/AnnotationLayer";
 import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
 import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
-import { getTabScroll, saveTabScroll } from "@/app/utils/tabScroll";
+import { getTabScroll, saveTabScroll, tabScrollKey } from "@/app/utils/tabScroll";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/zoomAnchor";
 import { clampZoom } from "@/app/utils/zoomLevels";
@@ -30,6 +30,8 @@ export function PdfViewer() {
     fileMimeType,
     zoom,
     rotation,
+    page,
+    sheets,
     tool,
     loupeEnabled,
     minimapHidden,
@@ -44,6 +46,7 @@ export function PdfViewer() {
     canvasElement,
     viewport,
     naturalSize,
+    pageInfo,
     loading,
     error,
     renderVersion,
@@ -55,8 +58,15 @@ export function PdfViewer() {
     fileMimeType,
     zoom,
     rotation,
-    autoOrientPending,
+    // While the import question is open there's no telling which page will be wanted.
+    autoOrientPending || sheets === null,
+    page,
   );
+  const scrollKey = activeTabId ? tabScrollKey(activeTabId, page) : null;
+
+  useEffect(() => {
+    if (activeTabId && pageInfo) dispatch({ type: "SET_PAGE_INFO", tabId: activeTabId, ...pageInfo });
+  }, [activeTabId, dispatch, pageInfo]);
   const [cursor, setCursorState] = useState<Point2D | null>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
@@ -72,7 +82,7 @@ export function PdfViewer() {
   // Once the page size is known, keep the PDF's own /Rotate and, if that is
   // still portrait, turn it a further 270° so drawings open landscape.
   useEffect(() => {
-    if (!autoOrientPending || !naturalSize || !activeTabId) return;
+    if (!autoOrientPending || !naturalSize || !activeTabId || sheets === null) return;
     const own = naturalSize.pageRotation;
     const sideways = own === 90 || own === 270;
     const portrait = sideways
@@ -83,7 +93,7 @@ export function PdfViewer() {
       tabId: activeTabId,
       rotation: (portrait && autoOrientPortrait ? (own + 270) % 360 : own) as DocumentRotation,
     });
-  }, [activeTabId, autoOrientPending, autoOrientPortrait, dispatch, naturalSize]);
+  }, [activeTabId, autoOrientPending, autoOrientPortrait, dispatch, naturalSize, sheets]);
 
   // Old projects saved with a rotated image used a mapping offset by the page
   // aspect; shift their coordinates once the image size is known.
@@ -240,7 +250,7 @@ export function PdfViewer() {
     const scrollEl = scrollRef.current;
     if (!scrollEl || !viewport || didCenterRef.current) return;
     didCenterRef.current = true;
-    const saved = activeTabId ? getTabScroll(activeTabId) : null;
+    const saved = scrollKey ? getTabScroll(scrollKey) : null;
     if (saved) {
       scrollEl.scrollLeft = saved.left;
       scrollEl.scrollTop = saved.top;
@@ -248,31 +258,31 @@ export function PdfViewer() {
       scrollEl.scrollLeft = Math.max(0, (scrollEl.scrollWidth - scrollEl.clientWidth) / 2);
       scrollEl.scrollTop = 0;
     }
-  }, [activeTabId, viewport]);
+  }, [scrollKey, viewport]);
 
   // Remember this tab's scroll position (only once the initial position is set,
   // so the empty mount-time 0,0 can't overwrite it).
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !activeTabId) return;
+    if (!el || !scrollKey) return;
     const handleScroll = () => {
       if (!didCenterRef.current) return;
-      saveTabScroll(activeTabId, el.scrollLeft, el.scrollTop);
+      saveTabScroll(scrollKey, el.scrollLeft, el.scrollTop);
     };
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
-  }, [activeTabId, fileBytes]);
+  }, [scrollKey, fileBytes]);
 
   // Scroll events are frame-aligned, so a switch right after scrolling can miss
   // the last one. Layout cleanup runs before the node is detached, so the
   // position is still readable here.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !activeTabId) return;
+    if (!el || !scrollKey) return;
     return () => {
-      if (didCenterRef.current) saveTabScroll(activeTabId, el.scrollLeft, el.scrollTop);
+      if (didCenterRef.current) saveTabScroll(scrollKey, el.scrollLeft, el.scrollTop);
     };
-  }, [activeTabId, fileBytes]);
+  }, [scrollKey, fileBytes]);
 
   // Let app-level shortcuts (paste) find the visible centre of the page.
   useEffect(() => {
@@ -488,6 +498,7 @@ export function PdfViewer() {
             {fileType === "pdf" && fileBytes && viewport && (
               <PdfDetailLayer
                 bytes={fileBytes}
+                page={page}
                 zoom={zoom}
                 rotation={rotation}
                 viewportWidth={viewport.width}

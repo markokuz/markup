@@ -24,6 +24,7 @@ import {
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
+import { sheetLabel } from "@/app/utils/pages";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import {
   areaOutline,
@@ -345,6 +346,85 @@ export function Toolbar() {
   );
 }
 
+const PAGES_OPTION = "choose-pages";
+
+/** Moves between a multi-page PDF's sheets; hidden for anything with one page. */
+function SheetNavigator() {
+  const { sheets, page, pageCount, pageLabels, scale, scales } = useAppState();
+  const dispatch = useAppDispatch();
+  if (pageCount <= 1 || !sheets) return null;
+
+  const index = sheets.indexOf(page);
+  const go = (offset: number) => {
+    const next = sheets[index + offset];
+    if (next !== undefined) dispatch({ type: "SET_PAGE", page: next });
+  };
+  const uncalibrated = sheets.filter((sheet) => !scales[sheet]).length;
+  const arrow = "rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary disabled:opacity-40";
+
+  return (
+    <div className="flex items-center gap-1" aria-label="Sheets">
+      <button
+        type="button"
+        title="Previous sheet (Page Up)"
+        aria-label="Previous sheet"
+        disabled={index <= 0}
+        onClick={() => go(-1)}
+        className={arrow}
+      >
+        ‹
+      </button>
+      <select
+        aria-label="Sheet"
+        value={page}
+        onChange={(event) => {
+          if (event.target.value === PAGES_OPTION) dispatch({ type: "SET_PAGES_DIALOG", open: true });
+          else dispatch({ type: "SET_PAGE", page: Number(event.target.value) });
+          // Leave no select focused, which would swallow tool hotkeys and Page Up/Down.
+          event.target.blur();
+        }}
+        className="input-field max-w-44 px-1 py-0.5 text-xs"
+      >
+        {sheets.map((sheet) => (
+          <option key={sheet} value={sheet}>
+            {sheetLabel(sheet, pageLabels)}
+          </option>
+        ))}
+        <option value={PAGES_OPTION}>Choose pages…</option>
+      </select>
+      <span className="whitespace-nowrap text-xs text-text-muted">
+        {index + 1} / {sheets.length}
+      </span>
+      <button
+        type="button"
+        title="Next sheet (Page Down)"
+        aria-label="Next sheet"
+        disabled={index >= sheets.length - 1}
+        onClick={() => go(1)}
+        className={arrow}
+      >
+        ›
+      </button>
+      {scale && uncalibrated > 0 && (
+        <button
+          type="button"
+          title="Give this sheet's scale to every sheet that has none yet. Check any detail sheets drawn at a different scale."
+          onClick={() => {
+            dispatch({ type: "APPLY_SCALE_TO_UNCALIBRATED" });
+            showSaveStatus(
+              "success",
+              `Scale set on ${uncalibrated} more sheet${uncalibrated === 1 ? "" : "s"}. Check any drawn at a different scale.`,
+            );
+          }}
+          className="ml-1 whitespace-nowrap rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+        >
+          Use scale on {uncalibrated} other sheet{uncalibrated === 1 ? "" : "s"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function StatusBar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -477,6 +557,8 @@ export function StatusBar() {
           </span>
         )}
       </div>
+
+      <SheetNavigator />
 
       <div className="ml-auto flex flex-wrap items-center gap-3">
         {state.selectedIds.length > 1 && (

@@ -10,6 +10,7 @@ import type {
   Unit,
 } from "@/app/types";
 import { isValidMarkupData, withGroups } from "@/app/utils/groups";
+import { withPages } from "@/app/utils/pages";
 import type { ColorTool } from "@/app/utils/settings";
 import { clampZoom } from "@/app/utils/zoomLevels";
 
@@ -18,8 +19,9 @@ const PROJECT_FILE_MAGIC = "markup-project";
 /**
  * v2: rotated (90°/270°) image coordinates use the corrected view mapping.
  * v1 files with a rotated image need `legacyRotatedImage` migration on load.
+ * v3: multi-page PDFs; markups carry a `page`, and scale and rotation are per page.
  */
-const PROJECT_FILE_VERSION = 2;
+const PROJECT_FILE_VERSION = 3;
 
 export const PROJECT_ACCEPT = ".mkup,application/json";
 
@@ -31,7 +33,15 @@ export interface ProjectFilePayload {
   mimeType: string;
   /** Base64-encoded original document bytes. */
   fileBytesBase64: string;
+  /** Page 1's scale. `scales` has every page's, in files saved since multi-page PDFs. */
   scale: Scale | null;
+  scales?: Record<number, Scale>;
+  /** Page 1's rotation; `rotations` has every page's. */
+  rotations?: Record<number, DocumentRotation>;
+  /** The page on screen when saved. */
+  page?: number;
+  /** The pages the tab shows; the file itself keeps them all. */
+  sheets?: number[] | null;
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
@@ -51,7 +61,10 @@ export interface LoadedProject {
   fileName: string;
   fileType: DocumentType;
   mimeType: string;
-  scale: Scale | null;
+  scales: Record<number, Scale>;
+  rotations: Record<number, DocumentRotation>;
+  page: number;
+  sheets: number[] | null;
   measurements: Measurement[];
   rectangles: RectMeasurement[];
   notes: NoteAnnotation[];
@@ -59,7 +72,6 @@ export interface LoadedProject {
   groups: MarkupGroup[];
   displayUnit: Unit;
   zoom: number;
-  rotation: DocumentRotation;
   /** Saved before v2 with an image rotated 90°/270°: coordinates need shifting. */
   legacyRotatedImage: boolean;
   toolColors: Partial<Record<ColorTool, string>>;
@@ -144,11 +156,10 @@ export async function readProjectFile(file: File): Promise<LoadedProject> {
     fileName: payload.fileName,
     fileType: payload.fileType,
     mimeType: payload.mimeType,
-    scale: payload.scale,
+    ...withPages(payload),
     ...markups,
     displayUnit: payload.displayUnit,
     zoom: clampZoom(payload.zoom),
-    rotation: payload.rotation,
     toolColors: payload.toolColors ?? {},
     legacyRotatedImage:
       payload.version < 2 &&

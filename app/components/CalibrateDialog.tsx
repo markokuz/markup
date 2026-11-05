@@ -7,10 +7,11 @@ import { defaultScreenLabelOffsetDoc, docDistance, midpoint } from "@/app/utils/
 import { UNIT_LABELS } from "@/app/utils/units";
 
 export function CalibrateDialog() {
-  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport, settings } =
+  const { calibrateDialogOpen, pendingCalibrationLine, documentViewport, settings, sheets, scales, page } =
     useAppState();
   const dispatch = useAppDispatch();
   const [value, setValue] = useState("");
+  const [allSheets, setAllSheets] = useState(false);
   // Follows the default-unit setting until the user picks a unit here.
   const [pickedUnit, setUnit] = useState<Unit | null>(null);
   const unit = pickedUnit ?? settings.defaultUnit;
@@ -29,6 +30,9 @@ export function CalibrateDialog() {
   }, [open]);
 
   if (!calibrateDialogOpen || !pendingCalibrationLine) return null;
+
+  const sheetCount = sheets?.length ?? 1;
+  const replacing = (sheets ?? []).filter((sheet) => sheet !== page && scales[sheet]).length;
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -68,15 +72,18 @@ export function CalibrateDialog() {
         labelOffset,
         isCalibration: true,
       },
+      allSheets,
     });
     setValue("");
     setError("");
+    setAllSheets(false);
   };
 
   const handleClose = () => {
     dispatch({ type: "CLOSE_CALIBRATE_DIALOG" });
     setValue("");
     setError("");
+    setAllSheets(false);
   };
 
   return (
@@ -136,6 +143,24 @@ export function CalibrateDialog() {
               </select>
             </div>
           </div>
+
+          {sheetCount > 1 && (
+            <div>
+              <label className="flex items-center gap-2 text-sm text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={allSheets}
+                  onChange={(e) => setAllSheets(e.target.checked)}
+                />
+                Use this scale on all {sheetCount} sheets
+              </label>
+              {allSheets && replacing > 0 && (
+                <p className="mt-1 text-xs text-text-secondary">
+                  Replaces the scale already set on {replacing} other sheet{replacing === 1 ? "" : "s"}.
+                </p>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

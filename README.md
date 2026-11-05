@@ -57,7 +57,7 @@ Before measuring, tell Markup how document pixels map to real-world distance.
 
 A green banner confirms the scale is set. The calibration line stays on the drawing as a dashed amber reference.
 
-Each sheet of a PDF has its own scale and starts uncalibrated, since a plan and a detail are rarely drawn at the same scale. On a sheet with no scale, **Use scale from sheet N** in the status bar copies the scale from the closest calibrated sheet. If most of a set shares one, **Use scale on N other sheets** copies the current sheet's scale to every sheet that has none.
+Each sheet of a PDF has its own scale and starts uncalibrated, since a plan and a detail are rarely drawn at the same scale. On a sheet with no scale, **Use scale from sheet N** in the status bar copies the scale from the closest calibrated sheet. If most of a set shares one, **Use scale on N other sheets** copies the current sheet's scale to every sheet that has none, and **Use this scale on all sheets** in the calibration dialog sets it on every sheet, replacing any scale they had.
 
 ### 3. Measure
 

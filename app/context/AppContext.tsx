@@ -722,19 +722,22 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       }));
     case "SET_SCALE":
       return {
-        ...updateActiveTab(state, (tab) => ({
-          ...tab,
-          history: appendHistory(tab),
-          scales: { ...tab.scales, [tab.page]: action.scale },
-          // Each sheet keeps its own calibration line.
-          measurements: [
-            ...tab.measurements.filter((m) => !m.isCalibration || pageOf(m) !== tab.page),
-            onCurrentPage(tab, action.calibrationMeasurement),
-          ],
-          calibrateDialogOpen: false,
-          pendingCalibrationLine: null,
-          pendingPoint: null,
-        })),
+        ...updateActiveTab(state, (tab) => {
+          const pages = action.allSheets ? (tab.sheets ?? [tab.page]) : [tab.page];
+          return {
+            ...tab,
+            history: appendHistory(tab),
+            scales: { ...tab.scales, ...Object.fromEntries(pages.map((page) => [page, action.scale])) },
+            // A sheet's calibration line stays until its scale is replaced: it would no longer be true.
+            measurements: [
+              ...tab.measurements.filter((m) => !m.isCalibration || !pages.includes(pageOf(m))),
+              onCurrentPage(tab, action.calibrationMeasurement),
+            ],
+            calibrateDialogOpen: false,
+            pendingCalibrationLine: null,
+            pendingPoint: null,
+          };
+        }),
         tool: "measure",
       };
     case "OPEN_CALIBRATE_DIALOG":

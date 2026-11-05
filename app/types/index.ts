@@ -385,7 +385,8 @@ export type AppAction =
   | { type: "SET_EDITING_DIMENSION"; editing: EditingDimension | null }
   | { type: "CLEAR_EDITING_DIMENSION" }
   | { type: "SET_EDITING_NOTE"; id: string | null }
-  | { type: "SET_SCALE"; scale: Scale; calibrationMeasurement: Measurement }
+  /** `allSheets`: every shown sheet gets this scale, replacing any it had. */
+  | { type: "SET_SCALE"; scale: Scale; calibrationMeasurement: Measurement; allSheets?: boolean }
   | { type: "OPEN_CALIBRATE_DIALOG"; line: PendingCalibrationLine }
   | { type: "CLOSE_CALIBRATE_DIALOG" }
   | { type: "RECORD_UNDO" }

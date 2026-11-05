@@ -1,5 +1,14 @@
 import type { Point2D, Scale, ShapeAnnotation, Unit } from "@/app/types";
-import { areaRings, formatArea, polygonArea, polylineLength, splitStrokes } from "@/app/utils/geometry";
+import { distanceToSegment } from "@/app/utils/coordinates";
+import {
+  areaRings,
+  formatArea,
+  joinStrokes,
+  pointInPolygon,
+  polygonArea,
+  polylineLength,
+  splitStrokes,
+} from "@/app/utils/geometry";
 import { NOTE_CARD } from "@/app/utils/noteLayout";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
@@ -32,6 +41,24 @@ export function areaOutline(shape: ShapeAnnotation): Point2D[] {
 /** How many cutouts an area has. */
 export function cutoutCount(shape: ShapeAnnotation): number {
   return shape.kind === "area" ? Math.max(0, areaRings(shape).length - 1) : 0;
+}
+
+/**
+ * The update that fills in the area's cutout nearest `point` (being inside one counts as
+ * nearest), or null if it has none. `breaks` is always present so a merge can't keep the old value.
+ */
+export function withoutNearestCutout(
+  shape: ShapeAnnotation,
+  point: Point2D,
+): Pick<ShapeAnnotation, "points" | "breaks"> | null {
+  if (cutoutCount(shape) === 0) return null;
+  const [outline, ...cutouts] = areaRings(shape);
+  const distanceTo = (ring: Point2D[]) =>
+    pointInPolygon(point, ring)
+      ? 0
+      : Math.min(...ring.map((p, i) => distanceToSegment(point, p, ring[(i + 1) % ring.length])));
+  const nearest = cutouts.reduce((best, ring) => (distanceTo(ring) < distanceTo(best) ? ring : best));
+  return { breaks: undefined, ...joinStrokes([outline, ...cutouts.filter((ring) => ring !== nearest)]) };
 }
 
 /** A run's total length along all its segments, in display units. */

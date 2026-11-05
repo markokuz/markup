@@ -6,6 +6,7 @@ import { createJiti } from "jiti";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
 const { buildMarkupRows, rowsToCsv, summarizeRows } = await jiti.import("./markupList.ts");
+const { withoutNearestCutout } = await jiti.import("./shapeMetrics.ts");
 
 const row = (fields) => ({ id: "x", type: "Note", name: "", color: "#000000", text: "", display: "", ...fields });
 const cells = (fields) => rowsToCsv([row(fields)], "ft").split("\r\n")[1];
@@ -60,6 +61,21 @@ const [holed] = buildMarkupRows({
 assert.equal(holed.area, 96);
 assert.equal(holed.perimeter, 40);
 assert.match(holed.display, /1 cutout$/);
+
+// Removing a cutout takes the nearest one, by its edge rather than its corners or centre.
+const farOpening = [{ x: 6, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }, { x: 6, y: 8 }];
+const twoCutouts = { id: "room", kind: "area", points: [...room, ...opening, ...farOpening], breaks: [4, 8] };
+const leftAfter = (x, y) => withoutNearestCutout(twoCutouts, { x, y });
+assert.deepEqual(leftAfter(3, 3), { points: [...room, ...farOpening], breaks: [4] }); // inside the first
+assert.deepEqual(leftAfter(7, 7), { points: [...room, ...opening], breaks: [4] }); // inside the second
+assert.deepEqual(leftAfter(4.5, 3), { points: [...room, ...farOpening], breaks: [4] }); // beside the first
+assert.deepEqual(leftAfter(5.5, 6), { points: [...room, ...opening], breaks: [4] }); // beside the second's long edge
+// The last cutout clears `breaks` explicitly, or merging the update would leave the old one on the shape.
+const oneLeft = withoutNearestCutout({ kind: "area", points: [...room, ...opening], breaks: [4] }, { x: 9, y: 9 });
+assert.deepEqual(oneLeft, { breaks: undefined, points: room });
+assert.ok("breaks" in oneLeft);
+assert.equal(withoutNearestCutout({ kind: "area", points: room }, { x: 1, y: 1 }), null);
+assert.equal(withoutNearestCutout({ kind: "draw", points: [...room, ...opening], breaks: [4] }, { x: 3, y: 3 }), null);
 
 // Each markup is measured at its own sheet's scale, and an uncalibrated sheet says so.
 const line = (id, page) => ({ id, page, start: { x: 0, y: 0 }, end: { x: 10, y: 0 } });

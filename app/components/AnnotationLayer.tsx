@@ -45,6 +45,7 @@ import {
   boxCorners,
   cloudPath,
   eraseFromStrokes,
+  pointInPolygon,
   pointInRings,
   rotateAround,
   simplifyPath,
@@ -52,11 +53,14 @@ import {
   strokePath,
 } from "@/app/utils/geometry";
 import {
+  areaOutline,
   CLOSE_AREA_PX,
+  cutoutCount,
   DRAW_DEFAULT_WIDTH,
   drawPieces,
   drawWidth,
   ERASER_DEFAULT_SIZE,
+  withoutNearestCutout,
 } from "@/app/utils/shapeMetrics";
 import { PreviewDimensionLine } from "@/app/components/InlineDimensionLine";
 import { convertUnits, formatDistance } from "@/app/utils/units";
@@ -159,6 +163,8 @@ interface ContextMenu {
   /** Window point clicked; the menu closes if the view scrolls or zooms. */
   clientX: number;
   clientY: number;
+  /** The same point on the document. */
+  docPoint: Point2D;
 }
 
 interface ContextMenuItem {
@@ -434,8 +440,8 @@ export function AnnotationLayer({
         setContextMenu(null);
         return;
       }
-      // Right-click opens the line menu instead of placing a line point.
-      if (state.tool === "measure" && event.button !== 0) return;
+      // Right-click opens the tool's menu instead of placing a point.
+      if ((state.tool === "measure" || state.tool === "area") && event.button !== 0) return;
 
       const overlay = overlayRef.current;
       if (!overlay) return;
@@ -1109,12 +1115,25 @@ export function AnnotationLayer({
     dragRef.current = { type: "endpoint", id, endpoint };
   };
 
-  /** What the right-click menu offers for markup `id`, given the selection it opens with. */
-  const contextMenuItems = (id: string, selection: string[]): ContextMenuItem[] => {
+  /** What the right-click menu offers for markup `id`, given the selection it opens with and where it was clicked. */
+  const contextMenuItems = (id: string, selection: string[], docPoint: Point2D): ContextMenuItem[] => {
     const close = (run: () => void) => () => {
       setContextMenu(null);
       run();
     };
+    const area = state.shapes.find((s) => s.id === id && s.kind === "area" && !s.locked);
+    const filledIn = area && withoutNearestCutout(area, docPoint);
+    const removeCutout: ContextMenuItem[] = filledIn
+      ? [
+          {
+            label: "Remove cutout",
+            run: close(() => {
+              dispatch({ type: "RECORD_UNDO" });
+              dispatch({ type: "UPDATE_SHAPE", id, updates: filledIn });
+            }),
+          },
+        ]
+      : [];
     const byId = new Map(
       [...state.measurements.filter((m) => !m.isCalibration), ...state.rectangles, ...state.notes, ...state.shapes].map(
         (a) => [a.id, a],
@@ -1131,6 +1150,7 @@ export function AnnotationLayer({
     if (state.tool === "select" && selection.length >= 2 && selection.includes(id)) {
       const markups = selection.filter((selected) => byId.has(selected));
       return [
+        ...removeCutout,
         {
           // A new Markups-panel group; it doesn't change what's selected or drawn.
           label: "Create group",
@@ -1146,6 +1166,7 @@ export function AnnotationLayer({
     if (!byId.has(id)) return [];
     const line = state.measurements.find((m) => m.id === id);
     return [
+      ...removeCutout,
       ...(line?.plain
         ? [
             {
@@ -1160,12 +1181,15 @@ export function AnnotationLayer({
 
   const handleContextMenu = (event: React.MouseEvent<SVGSVGElement>) => {
     setContextMenu(null);
-    if (state.tool !== "select" && state.tool !== "measure") return;
+    if (state.tool !== "select" && state.tool !== "measure" && state.tool !== "area") return;
+    if (state.tool === "area" && state.drawingShapeId) return;
     const overlay = overlayRef.current;
     if (!overlay) return;
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
+    const docPoint = toDocPoint(viewport, local.x, local.y);
     const lines = state.measurements.filter((m) => !m.isCalibration);
-    // The Line tool's menu is for lines; Select offers it for anything.
+    const areas = state.shapes.filter((s) => s.kind === "area");
+    // The Line and Area tools' menus are for their own markups; Select offers it for anything.
     const hitId =
       state.tool === "select"
         ? hitTestAnnotations(
@@ -1178,17 +1202,32 @@ export function AnnotationLayer({
             state.scale,
             state.displayUnit,
           )
-        : hitTestAnnotations(local, lines, [], [], [], viewport, state.scale, state.displayUnit);
-    if (!hitId) return;
+        : hitTestAnnotations(
+            local,
+            state.tool === "measure" ? lines : [],
+            [],
+            [],
+            state.tool === "area" ? areas : [],
+            viewport,
+            state.scale,
+            state.displayUnit,
+          );
+    // Hit testing sees through a cutout, but right-clicking inside one is how you reach it.
+    const holedArea =
+      !hitId && state.tool !== "measure"
+        ? areas.findLast((s) => cutoutCount(s) > 0 && pointInPolygon(docPoint, areaOutline(s)))?.id
+        : undefined;
+    const targetId = hitId ?? holedArea;
+    if (!targetId) return;
     let selection = state.selectedIds;
     // Right-clicking outside the selection selects what was clicked first.
-    if (state.tool === "select" && !selection.includes(hitId)) {
-      selection = [hitId];
-      dispatch({ type: "SET_SELECTION", ids: [hitId] });
+    if (state.tool === "select" && !selection.includes(targetId)) {
+      selection = [targetId];
+      dispatch({ type: "SET_SELECTION", ids: [targetId] });
     }
-    if (contextMenuItems(hitId, selection).length === 0) return;
+    if (contextMenuItems(targetId, selection, docPoint).length === 0) return;
     event.preventDefault();
-    setContextMenu({ id: hitId, clientX: event.clientX, clientY: event.clientY });
+    setContextMenu({ id: targetId, clientX: event.clientX, clientY: event.clientY, docPoint });
   };
 
   /** Show or hide the tick marking the line's centre. */
@@ -1202,7 +1241,7 @@ export function AnnotationLayer({
   };
 
   const renderContextMenu = (menu: ContextMenu) => {
-    const items = contextMenuItems(menu.id, state.selectedIds);
+    const items = contextMenuItems(menu.id, state.selectedIds, menu.docPoint);
     if (items.length === 0) return null;
     return (
       <FloatingMenu x={menu.clientX + 4} y={menu.clientY + 4} menuRef={contextMenuRef}>
@@ -1866,7 +1905,9 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
-        {contextMenu && (state.tool === "select" || state.tool === "measure") && renderContextMenu(contextMenu)}
+        {contextMenu &&
+          (state.tool === "select" || state.tool === "measure" || state.tool === "area") &&
+          renderContextMenu(contextMenu)}
         {callouts
           .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length === 2 && !c.locked)
           .map((c) => {

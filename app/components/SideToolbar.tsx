@@ -7,6 +7,7 @@ import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
+  { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "measure", label: "Line", hint: "Draw dimension lines" },
   {
     id: "area",
@@ -33,7 +34,6 @@ const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
     label: "Snap",
     hint: "Click two corners to copy that part of the drawing, background removed. Paste with Ctrl+V",
   },
-  { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
 

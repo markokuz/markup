@@ -7,7 +7,7 @@ import { formatPageRanges, parsePageRanges, type PageRangeResult } from "@/app/u
 import { pagesWithMarkups } from "@/app/utils/pages";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 
-/** Asks which pages of a multi-page PDF to show: on import, and again from the sheet menu. */
+/** Asks which pages of a multi-page PDF to show: on import, and again from the Pages… button. */
 export function ImportPagesDialog() {
   const state = useAppState();
   const tab = getActiveTabFromAppState(state);

@@ -43,9 +43,9 @@ Run the tests with `npm test` (needs Node 22.18 or newer).
 
 Click **Upload File** in the toolbar, or drag and drop a file onto the canvas.
 
-A PDF with more than one page asks which pages to import: **All pages**, or a list like `1-10` or `1,2,3 5-8`. Page numbers are positions in the file, like a printer dialog. Every page stays in the file, so saving never removes the ones you left out; change your choice any time with **Choose pages…** in the sheet menu. Sheets with markups always stay included.
+A PDF with more than one page asks which pages to import: **All pages**, or a list like `1-10` or `1,2,3 5-8`. Page numbers are positions in the file, like a printer dialog. Every page stays in the file, so saving never removes the ones you left out; change your choice any time with **Pages…** in the status bar. Sheets with markups always stay included.
 
-Move between sheets with the sheet menu and arrows in the status bar, or **Page Up** / **Page Down**.
+Move between sheets with the arrows in the status bar, by typing a page number in the box between them, or with **Page Up** / **Page Down**.
 
 ### 2. Calibrate the scale
 
@@ -57,7 +57,7 @@ Before measuring, tell Markup how document pixels map to real-world distance.
 
 A green banner confirms the scale is set. The calibration line stays on the drawing as a dashed amber reference.
 
-Each sheet of a PDF has its own scale and starts uncalibrated, since a plan and a detail are rarely drawn at the same scale. If most of a set shares one, **Use scale on N other sheets** in the status bar copies the current sheet's scale to every sheet that has none.
+Each sheet of a PDF has its own scale and starts uncalibrated, since a plan and a detail are rarely drawn at the same scale. On a sheet with no scale, **Use scale from sheet N** in the status bar copies the scale from the closest calibrated sheet. If most of a set shares one, **Use scale on N other sheets** copies the current sheet's scale to every sheet that has none.
 
 ### 3. Measure
 

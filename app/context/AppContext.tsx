@@ -429,6 +429,15 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           scales: { ...tab.scales, ...Object.fromEntries(uncalibrated.map((page) => [page, scale])) },
         };
       });
+    case "COPY_SCALE_FROM_SHEET": {
+      const next = updateActiveTab(state, (tab) => {
+        const scale = tab.scales[action.page];
+        if (!scale) return tab;
+        return { ...tab, history: appendHistory(tab), scales: { ...tab.scales, [tab.page]: scale } };
+      });
+      // The sheet is calibrated now, so measuring comes next, as after calibrating by hand.
+      return state.tool === "calibrate" ? { ...next, tool: "measure" } : next;
+    }
     case "MOVE_TAB": {
       const from = state.tabs.findIndex((tab) => tab.id === action.tabId);
       if (from === -1) return state;

@@ -324,6 +324,8 @@ export type AppAction =
   | { type: "SET_PAGES_DIALOG"; open: boolean }
   /** Use the current sheet's scale on every shown sheet that has none. */
   | { type: "APPLY_SCALE_TO_UNCALIBRATED" }
+  /** Give the current sheet the scale of another sheet. */
+  | { type: "COPY_SCALE_FROM_SHEET"; page: number }
   | { type: "SET_CONFIRM_CLOSE_UNSAVED"; enabled: boolean }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "SET_ROTATION"; rotation: DocumentRotation }

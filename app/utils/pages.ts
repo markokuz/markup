@@ -33,10 +33,29 @@ export function pagesWithMarkups(lists: { page?: number }[][]): Set<number> {
   return new Set(lists.flat().map(pageOf));
 }
 
-/** How a sheet is named in menus: its real page number, plus the file's own label if it says more. */
-export function sheetLabel(page: number, pageLabels: string[] | null): string {
+/** The file's own label for a page ("A-101"), when it says more than the page number. */
+export function fileLabel(page: number, pageLabels: string[] | null): string | null {
   const label = pageLabels?.[page];
-  return label && label !== String(page + 1) ? `Page ${page + 1} · ${label}` : `Page ${page + 1}`;
+  return label && label !== String(page + 1) ? label : null;
+}
+
+/** The calibrated sheet closest to `page` in the shown list; on a tie, the earlier one. */
+export function nearestCalibratedSheet(
+  sheets: number[],
+  scales: Record<number, Scale>,
+  page: number,
+): number | null {
+  const here = sheets.indexOf(page);
+  let nearest: number | null = null;
+  let nearestGap = Infinity;
+  sheets.forEach((sheet, index) => {
+    const gap = Math.abs(index - here);
+    if (sheet !== page && scales[sheet] && gap < nearestGap) {
+      nearest = sheet;
+      nearestGap = gap;
+    }
+  });
+  return nearest;
 }
 
 /** Doc-space direction that reads as "up" on screen, for a PDF page shown at this rotation. */

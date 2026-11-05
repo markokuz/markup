@@ -24,7 +24,8 @@ import {
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
-import { sheetLabel } from "@/app/utils/pages";
+import { parsePageRanges } from "@/app/utils/pageRanges";
+import { fileLabel, nearestCalibratedSheet } from "@/app/utils/pages";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import {
   areaOutline,
@@ -346,8 +347,6 @@ export function Toolbar() {
   );
 }
 
-const PAGES_OPTION = "choose-pages";
-
 /** Moves between a multi-page PDF's sheets; hidden for anything with one page. */
 function SheetNavigator() {
   const { sheets, page, pageCount, pageLabels, scale, scales } = useAppState();
@@ -359,7 +358,29 @@ function SheetNavigator() {
     const next = sheets[index + offset];
     if (next !== undefined) dispatch({ type: "SET_PAGE", page: next });
   };
+  /** Goes to the page number typed in the box; anything it can't go to is explained and undone. */
+  const goToTyped = (input: HTMLInputElement) => {
+    const text = input.value.trim();
+    const current = String(page + 1);
+    if (!text || text === current) {
+      input.value = current;
+      return;
+    }
+    const { pages, error } = parsePageRanges(text, pageCount);
+    const target = pages?.length === 1 ? pages[0] : null;
+    if (target === null) {
+      showSaveStatus("warning", error ?? "Enter one page number.");
+    } else if (!sheets.includes(target)) {
+      showSaveStatus("warning", `Page ${target + 1} isn't imported. Add it with Pages…`);
+    } else {
+      dispatch({ type: "SET_PAGE", page: target });
+      return;
+    }
+    input.value = current;
+  };
   const uncalibrated = sheets.filter((sheet) => !scales[sheet]).length;
+  const scaleSource = scale ? null : nearestCalibratedSheet(sheets, scales, page);
+  const label = fileLabel(page, pageLabels);
   const arrow = "rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary disabled:opacity-40";
 
   return (
@@ -374,26 +395,31 @@ function SheetNavigator() {
       >
         ‹
       </button>
-      <select
-        aria-label="Sheet"
-        value={page}
-        onChange={(event) => {
-          if (event.target.value === PAGES_OPTION) dispatch({ type: "SET_PAGES_DIALOG", open: true });
-          else dispatch({ type: "SET_PAGE", page: Number(event.target.value) });
-          // Leave no select focused, which would swallow tool hotkeys and Page Up/Down.
-          event.target.blur();
+      <input
+        // Remounts on each page change, so it always starts from the page on screen.
+        key={page}
+        type="text"
+        inputMode="numeric"
+        defaultValue={page + 1}
+        aria-label="Page number"
+        title="Type a page number and press Enter"
+        onFocus={(event) => event.target.select()}
+        onBlur={(event) => goToTyped(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            goToTyped(event.currentTarget);
+            // Leave nothing focused, which would swallow tool hotkeys and Page Up/Down.
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            event.currentTarget.value = String(page + 1);
+            event.currentTarget.blur();
+          }
         }}
-        className="input-field max-w-44 px-1 py-0.5 text-xs"
-      >
-        {sheets.map((sheet) => (
-          <option key={sheet} value={sheet}>
-            {sheetLabel(sheet, pageLabels)}
-          </option>
-        ))}
-        <option value={PAGES_OPTION}>Choose pages…</option>
-      </select>
+        className="input-field w-12 px-1 py-0.5 text-center text-xs"
+      />
       <span className="whitespace-nowrap text-xs text-text-muted">
-        {index + 1} / {sheets.length}
+        {/* The box holds the file's page number; a partial import also says where that falls in it. */}
+        {sheets.length === pageCount ? `/ ${pageCount}` : `(${index + 1} of ${sheets.length} sheets)`}
       </span>
       <button
         type="button"
@@ -405,6 +431,25 @@ function SheetNavigator() {
       >
         ›
       </button>
+      {label && <span className="max-w-32 truncate text-xs text-text-secondary" title={label}>{label}</span>}
+      <button
+        type="button"
+        title="Choose which pages of the file to show"
+        onClick={() => dispatch({ type: "SET_PAGES_DIALOG", open: true })}
+        className="ml-1 whitespace-nowrap rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+      >
+        Pages…
+      </button>
+      {scaleSource !== null && (
+        <button
+          type="button"
+          title={`Give this sheet the scale set on sheet ${scaleSource + 1}. Check it's drawn at the same scale.`}
+          onClick={() => dispatch({ type: "COPY_SCALE_FROM_SHEET", page: scaleSource })}
+          className="ml-1 whitespace-nowrap rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+        >
+          Use scale from sheet {scaleSource + 1}
+        </button>
+      )}
       {scale && uncalibrated > 0 && (
         <button
           type="button"

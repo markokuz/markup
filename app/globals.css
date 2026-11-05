@@ -39,6 +39,7 @@
   --color-border: var(--border);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
   --color-canvas-bg: var(--canvas-bg);
   --font-sans: var(--font-geist-sans);

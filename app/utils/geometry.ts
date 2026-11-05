@@ -267,6 +267,14 @@ export function pointInRings(point: Point2D, rings: Point2D[][]): boolean {
   return !!outline && pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole));
 }
 
+/** The topmost unlocked area `point` is inside, for starting a cutout there. */
+export function areaToCutAt<T extends { kind: string; locked?: boolean; points: Point2D[]; breaks?: number[] }>(
+  shapes: T[],
+  point: Point2D,
+): T | undefined {
+  return shapes.findLast((s) => s.kind === "area" && !s.locked && pointInRings(point, areaRings(s)));
+}
+
 /** SVG path of straight segments through `points`, left open. */
 export function polylinePath(points: Point2D[]): string {
   return points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");

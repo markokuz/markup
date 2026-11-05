@@ -85,7 +85,6 @@ function finishCutout(
     drawingShapeId: null,
     cutoutTargetId: null,
     history: tab.history.slice(0, keep),
-    selectedIds: [target.id],
     shapes: tab.shapes.flatMap((s) => {
       if (s.id === drawn.id) return [];
       if (s.id !== target.id || incomplete) return [s];
@@ -197,6 +196,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, lineMode: action.mode };
     case "SET_RECT_MODE":
       return { ...state, rectMode: action.mode };
+    case "SET_AREA_MODE":
+      return { ...updateActiveTab(state, finishDrawingShape), areaMode: action.mode };
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_TOOL_COLOR":
@@ -554,6 +555,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         shapes: [...tab.shapes, onCurrentPage(tab, shape)],
         pendingPoint: null,
         drawingShapeId: action.drawing ? shape.id : null,
+        cutoutTargetId: action.cutoutTargetId ?? null,
         ...(shape.kind === "callout" || shape.kind === "text"
           ? { selectedIds: [shape.id], editingNoteId: shape.id }
           : {}),
@@ -569,25 +571,8 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           s.id === action.id ? { ...s, points: [...s.points, action.point] } : s,
         ),
       }));
-    case "FINISH_SHAPE": {
-      const next = updateActiveTab(state, finishDrawingShape);
-      // After a cutout the Area tool has done its job; another click shouldn't start a new area.
-      return getActiveTab(state)?.cutoutTargetId ? { ...next, tool: "select" } : next;
-    }
-    case "START_CUTOUT":
-      return {
-        ...updateActiveTab(state, (tab) => ({
-          ...finishDrawingShape(tab),
-          cutoutTargetId: action.id,
-          selectedIds: [],
-          pendingPoint: null,
-          pendingMarquee: null,
-          editingDimension: null,
-          editingNoteId: null,
-        })),
-        tool: "area",
-        drawEraser: false,
-      };
+    case "FINISH_SHAPE":
+      return updateActiveTab(state, finishDrawingShape);
     case "UPDATE_SHAPE":
       return updateActiveTab(state, (tab) => ({
         ...tab,
@@ -995,6 +980,7 @@ function mergeActiveTabView(state: TabsState): AppState {
     countStart: state.countStart,
     lineMode: state.lineMode,
     rectMode: state.rectMode,
+    areaMode: state.areaMode,
     settings: state.settings,
   };
 }

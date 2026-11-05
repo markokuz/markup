@@ -622,37 +622,22 @@ export function StatusBar() {
           </span>
         )}
 
-        {selectedArea && (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              title="Subtract an opening from this area: click around it, then double-click, press Enter or click the first point"
-              onClick={() => {
-                dispatch({ type: "START_CUTOUT", id: selectedArea.id });
-                showSaveStatus("info", "Click around the opening. Double-click or Enter to finish.");
-              }}
-              className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-            >
-              Cut out
-            </button>
-            {cutoutCount(selectedArea) > 0 && (
-              <button
-                type="button"
-                title="Fill this area's cutouts back in"
-                onClick={() => {
-                  dispatch({ type: "RECORD_UNDO" });
-                  dispatch({
-                    type: "UPDATE_SHAPE",
-                    id: selectedArea.id,
-                    updates: { points: areaOutline(selectedArea), breaks: undefined },
-                  });
-                }}
-                className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-              >
-                Remove cutouts
-              </button>
-            )}
-          </div>
+        {selectedArea && cutoutCount(selectedArea) > 0 && (
+          <button
+            type="button"
+            title="Fill this area's cutouts back in"
+            onClick={() => {
+              dispatch({ type: "RECORD_UNDO" });
+              dispatch({
+                type: "UPDATE_SHAPE",
+                id: selectedArea.id,
+                updates: { points: areaOutline(selectedArea), breaks: undefined },
+              });
+            }}
+            className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+          >
+            Remove cutouts
+          </button>
         )}
 
         {selectedTexts.length > 0 && (

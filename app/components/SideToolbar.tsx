@@ -1,9 +1,10 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import type { CloudMode, DrawMode, ToolMode } from "@/app/types";
+import type { AreaMode, CloudMode, DrawMode, ToolMode } from "@/app/types";
 import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 
 const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "measure", label: "Line", hint: "Draw dimension lines" },
@@ -41,6 +42,19 @@ interface ModeOption<T extends string> {
   label: string;
   hint: string;
 }
+
+const AREA_MODES: ModeOption<AreaMode>[] = [
+  {
+    id: "add",
+    label: "Add",
+    hint: "Click corners to measure a new area. Double-click, Enter, or click the first point to finish",
+  },
+  {
+    id: "cut",
+    label: "Cut out",
+    hint: "Click inside an area, then around the opening to subtract it. Double-click, Enter, or click the first point to finish",
+  },
+];
 
 const CLOUD_MODES: ModeOption<CloudMode>[] = [
   { id: "rect", label: "Box", hint: "Click two corners for a rectangular cloud" },
@@ -200,6 +214,18 @@ export function SideToolbar() {
                 options={LINE_MODES}
                 value={state.lineMode}
                 onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
+              />
+            )}
+            {tool.id === "area" && state.tool === "area" && (
+              <ModeToggle
+                options={AREA_MODES}
+                value={state.areaMode}
+                onChange={(mode) => {
+                  dispatch({ type: "SET_AREA_MODE", mode });
+                  if (mode === "cut") {
+                    showSaveStatus("info", "Click inside an area, then around the opening. Double-click or Enter to finish.");
+                  }
+                }}
               />
             )}
             {tool.id === "rectangle" && state.tool === "rectangle" && (

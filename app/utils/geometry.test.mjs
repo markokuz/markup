@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   areaRings,
+  areaToCutAt,
   cloudOutline,
   pointInRings,
   ringsPath,
@@ -41,6 +42,16 @@ assert.ok(pointInRings({ x: 8, y: 8 }, [square, hole]));
 assert.ok(!pointInRings({ x: 3, y: 3 }, [square, hole]));
 assert.ok(!pointInRings({ x: 20, y: 20 }, [square, hole]));
 assert.ok(!pointInRings({ x: 1, y: 1 }, []));
+
+// A cutout starts in the topmost area under the click, seeing through cutouts and past locked areas.
+const under = { id: "under", kind: "area", points: square };
+const over = { id: "over", kind: "area", ...holed };
+assert.equal(areaToCutAt([under, over], { x: 8, y: 8 }).id, "over");
+assert.equal(areaToCutAt([under, over], { x: 3, y: 3 }).id, "under");
+assert.equal(areaToCutAt([over], { x: 3, y: 3 }), undefined);
+assert.equal(areaToCutAt([under, { ...over, locked: true }], { x: 8, y: 8 }).id, "under");
+assert.equal(areaToCutAt([{ id: "cloud", kind: "cloud", points: square }], { x: 8, y: 8 }), undefined);
+assert.equal(areaToCutAt([under], { x: 20, y: 20 }), undefined);
 
 // Cutouts wind against the outline whichever way they were clicked, so nonzero fill leaves them empty.
 const pathWinding = (d) =>

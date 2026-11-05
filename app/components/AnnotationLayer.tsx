@@ -41,6 +41,7 @@ import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import {
   areaRings,
+  areaToCutAt,
   boxCorners,
   cloudPath,
   eraseFromStrokes,
@@ -533,16 +534,24 @@ export function AnnotationLayer({
       }
 
       if (state.tool === "area" || state.tool === "polyline" || state.tool === "count") {
+        const drawing = state.shapes.find(
+          (s) => s.id === state.drawingShapeId && s.kind === state.tool,
+        );
+        // A shape in progress stays what it started as; only a new one follows the mode.
+        const startingCut = state.tool === "area" && !drawing && state.areaMode === "cut";
+        const cutoutTarget = startingCut
+          ? areaToCutAt(state.shapes, pdfPoint)
+          : drawing && state.shapes.find((s) => s.id === state.cutoutTargetId);
+        if (startingCut && !cutoutTarget) {
+          showSaveStatus("warning", "Click inside an unlocked area to start cutting it out.");
+          return;
+        }
         // shortcut: only the clicks are checked, so a cutout's edge can still cross a concave
         // outline or another cutout; clip the polygons if that shows up in real use.
-        const cutoutTarget = state.shapes.find((s) => s.id === state.cutoutTargetId);
         if (state.tool === "area" && cutoutTarget && !pointInRings(pdfPoint, areaRings(cutoutTarget))) {
           showSaveStatus("warning", "A cutout has to stay inside the area, clear of other cutouts.");
           return;
         }
-        const drawing = state.shapes.find(
-          (s) => s.id === state.drawingShapeId && s.kind === state.tool,
-        );
         // pointerdown's event.detail is always 0 in Chromium, so the click count can't say this.
         const previous = lastPressRef.current;
         lastPressRef.current = { time: event.timeStamp, x: local.x, y: local.y };
@@ -565,6 +574,7 @@ export function AnnotationLayer({
                 : {}),
             },
             drawing: true,
+            cutoutTargetId: startingCut ? cutoutTarget?.id : undefined,
           });
           setPreviewEnd(pdfPoint);
           return;
@@ -744,6 +754,7 @@ export function AnnotationLayer({
       state.shapes,
       state.drawingShapeId,
       state.cutoutTargetId,
+      state.areaMode,
       state.cloudMode,
       state.drawEraser,
       state.countStart,

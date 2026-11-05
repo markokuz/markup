@@ -123,6 +123,8 @@ export interface ShapeAnnotation extends MarkupFlags {
 export type CloudMode = "rect" | "freehand";
 /** Line and Rect tools: dimensioned measurement or plain markup. */
 export type DrawMode = "measure" | "plain";
+/** Area tool: draw a new area, or cut an opening out of an existing one. */
+export type AreaMode = "add" | "cut";
 
 export interface Scale {
   unitsPerPdfPoint: number;
@@ -237,6 +239,7 @@ export interface TabsState {
   countStart: number;
   lineMode: DrawMode;
   rectMode: DrawMode;
+  areaMode: AreaMode;
   settings: AppSettings;
 }
 
@@ -261,6 +264,7 @@ export type AppState = Omit<DocumentTab, "id"> & {
   countStart: number;
   lineMode: DrawMode;
   rectMode: DrawMode;
+  areaMode: AreaMode;
   settings: AppSettings;
 };
 
@@ -334,11 +338,10 @@ export type AppAction =
   | { type: "UPDATE_RECTANGLE"; id: string; updates: Partial<RectMeasurement> }
   | { type: "ADD_NOTE"; note: NoteAnnotation }
   | { type: "UPDATE_NOTE"; id: string; updates: Partial<NoteAnnotation> }
-  | { type: "ADD_SHAPE"; shape: ShapeAnnotation; drawing?: boolean }
+  /** `cutoutTargetId`: the shape being drawn becomes a cutout in that area when finished. */
+  | { type: "ADD_SHAPE"; shape: ShapeAnnotation; drawing?: boolean; cutoutTargetId?: string }
   | { type: "APPEND_SHAPE_POINT"; id: string; point: Point2D }
   | { type: "FINISH_SHAPE" }
-  /** Pick the Area tool to draw a cutout in this area. */
-  | { type: "START_CUTOUT"; id: string }
   | { type: "UPDATE_SHAPE"; id: string; updates: Partial<ShapeAnnotation> }
   | { type: "DELETE_SHAPE"; id: string }
   | { type: "SET_SELECTION"; ids: string[] }
@@ -374,6 +377,7 @@ export type AppAction =
     }
   | { type: "SET_LINE_MODE"; mode: DrawMode }
   | { type: "SET_RECT_MODE"; mode: DrawMode }
+  | { type: "SET_AREA_MODE"; mode: AreaMode }
   | { type: "UPDATE_SETTINGS"; patch: Partial<AppSettings> }
   | { type: "SET_TOOL_COLOR"; tool: ColorTool; color: string }
   | { type: "SET_HOTKEY"; tool: ToolMode; key: string }
@@ -422,5 +426,6 @@ export const initialTabsState: TabsState = {
   countStart: 1,
   lineMode: "measure",
   rectMode: "measure",
+  areaMode: "add",
   settings: DEFAULT_SETTINGS,
 };

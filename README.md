@@ -66,7 +66,7 @@ Use the tools in the left sidebar:
 | Tool | What it does |
 |------|--------------|
 | **Line** | Click two points to draw a dimension line with a length label |
-| **Area** | Click corners to measure area and perimeter. Select an area and press **Cut out** to subtract an opening |
+| **Area** | **Add**: click corners to measure area and perimeter. **Cut out**: click inside an area, then around an opening to subtract it |
 | **Run** | Click along a wall, pipe or conduit run for its total length. Double-click or press Enter to finish |
 | **Rect** | Click and drag to draw a rectangle with width and height labels |
 | **Select** | Click annotations to select, drag to move, or drag a marquee to select multiple |

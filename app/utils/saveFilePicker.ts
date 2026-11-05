@@ -85,6 +85,17 @@ export class SavePermissionError extends Error {
   }
 }
 
+/** Writing to the file itself failed, for example because another program has it locked. */
+export class SaveWriteError extends Error {
+  constructor(
+    readonly fileName: string,
+    readonly reason: unknown,
+  ) {
+    super(`Couldn't write "${fileName}".`);
+    this.name = "SaveWriteError";
+  }
+}
+
 /** Overwrite an existing file handle, asking for write access only if it isn't granted yet. */
 export async function writeBlobToHandle(
   handle: FileSystemFileHandle,
@@ -102,7 +113,11 @@ export async function writeBlobToHandle(
     }
   }
 
-  const writable = await handle.createWritable();
-  await writable.write(blob);
-  await writable.close();
+  try {
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  } catch (error) {
+    throw new SaveWriteError(handle.name, error);
+  }
 }

@@ -4,8 +4,10 @@ import { buildProjectBlob, getProjectFileName } from "@/app/utils/projectFile";
 import {
   saveBlobAs,
   SavePermissionError,
+  SaveWriteError,
   writeBlobToHandle,
 } from "@/app/utils/saveFilePicker";
+import { describeWriteFailure } from "@/app/utils/saveError";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { putSession } from "@/app/utils/sessionStore";
 import { buildMarkedUpImageBlob, getScreenUpDocDirection } from "@/app/utils/exportDocument";
@@ -194,6 +196,11 @@ export async function saveTabWithFeedback(
         "warning",
         `Saved in this browser. Allow file access to also update ${error.fileName}.`,
       );
+    } else if (error instanceof SaveWriteError) {
+      // The toast drops the browser's wording, so keep it here for debugging.
+      console.error(`Couldn't write ${error.fileName}:`, error.reason);
+      const { text, hint } = describeWriteFailure(error.fileName, error.reason);
+      showSaveStatus("error", text, hint);
     } else {
       const message = error instanceof Error ? error.message : "Unknown error";
       showSaveStatus("error", `Couldn't save: ${message}`);

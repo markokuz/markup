@@ -7,6 +7,8 @@ export type SaveStatusKind = "saving" | "success" | "warning" | "error" | "info"
 export interface SaveStatus {
   kind: SaveStatusKind;
   text: string;
+  /** What to do next, on its own line under the text. */
+  hint?: string;
   /** Changes on every report so the same message shown twice still re-animates. */
   id: number;
 }
@@ -16,8 +18,8 @@ let current: SaveStatus | null = null;
 let nextId = 1;
 const listeners = new Set<(status: SaveStatus | null) => void>();
 
-export function showSaveStatus(kind: SaveStatusKind, text: string): void {
-  current = { kind, text, id: nextId++ };
+export function showSaveStatus(kind: SaveStatusKind, text: string, hint?: string): void {
+  current = { kind, text, hint, id: nextId++ };
   listeners.forEach((listener) => listener(current));
 }
 

@@ -12,6 +12,9 @@ const DURATION_MS: Record<SaveStatusKind, number | null> = {
   error: 6000,
 };
 
+/** A hint is advice to read and act on, so it stays up longer. */
+const HINT_DURATION_MS = 12000;
+
 const STYLES: Record<SaveStatusKind, string> = {
   saving: "border-border bg-surface text-text-primary",
   success: "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200",
@@ -28,7 +31,10 @@ export function SaveToast() {
     if (!status) return;
     const duration = DURATION_MS[status.kind];
     if (duration === null) return;
-    const timer = window.setTimeout(() => clearSaveStatus(status.id), duration);
+    const timer = window.setTimeout(
+      () => clearSaveStatus(status.id),
+      status.hint ? HINT_DURATION_MS : duration,
+    );
     return () => window.clearTimeout(timer);
   }, [status]);
 
@@ -41,14 +47,17 @@ export function SaveToast() {
       {status && (
         <div
           key={status.id}
-          className={`flex max-w-md items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium shadow-md ${STYLES[status.kind]}`}
+          className={`flex w-max max-w-md items-center gap-2 border px-4 py-1.5 text-sm font-medium shadow-md ${status.hint ? "rounded-2xl" : "rounded-full"} ${STYLES[status.kind]}`}
         >
           {status.kind === "saving" && (
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
           )}
           {status.kind === "success" && <span aria-hidden>✓</span>}
           {status.kind === "error" && <span aria-hidden>!</span>}
-          <span>{status.text}</span>
+          <span>
+            {status.text}
+            {status.hint && <span className="mt-0.5 block font-normal">{status.hint}</span>}
+          </span>
         </div>
       )}
     </div>

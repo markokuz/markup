@@ -24,7 +24,10 @@ import {
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
+import { showSaveStatus } from "@/app/utils/saveStatus";
 import {
+  areaOutline,
+  cutoutCount,
   DRAW_DEFAULT_WIDTH,
   DRAW_MAX_WIDTH,
   DRAW_MIN_WIDTH,
@@ -454,6 +457,11 @@ export function StatusBar() {
         )}`
       : null;
 
+  const selectedArea =
+    state.selectedIds.length === 1
+      ? state.shapes.find((s) => s.id === state.selectedIds[0] && s.kind === "area" && !s.locked)
+      : undefined;
+
   const lineCount = state.measurements.filter((m) => !m.isCalibration).length;
   const rectCount = state.rectangles.length;
   const noteCount = state.notes.length;
@@ -485,6 +493,39 @@ export function StatusBar() {
           <span className="font-mono text-accent">
             Selected: {selectedRectLabel}
           </span>
+        )}
+
+        {selectedArea && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="Subtract an opening from this area: click around it, then double-click, press Enter or click the first point"
+              onClick={() => {
+                dispatch({ type: "START_CUTOUT", id: selectedArea.id });
+                showSaveStatus("info", "Click around the opening. Double-click or Enter to finish.");
+              }}
+              className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+            >
+              Cut out
+            </button>
+            {cutoutCount(selectedArea) > 0 && (
+              <button
+                type="button"
+                title="Fill this area's cutouts back in"
+                onClick={() => {
+                  dispatch({ type: "RECORD_UNDO" });
+                  dispatch({
+                    type: "UPDATE_SHAPE",
+                    id: selectedArea.id,
+                    updates: { points: areaOutline(selectedArea), breaks: undefined },
+                  });
+                }}
+                className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+              >
+                Remove cutouts
+              </button>
+            )}
+          </div>
         )}
 
         {selectedTexts.length > 0 && (

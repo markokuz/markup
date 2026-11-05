@@ -47,9 +47,11 @@ import { NoteAnnotation } from "@/app/components/NoteAnnotation";
 import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import {
+  areaRings,
   boxCorners,
   cloudPath,
   eraseFromStrokes,
+  pointInRings,
   rotateAround,
   simplifyPath,
   smoothClosedPath,
@@ -541,6 +543,13 @@ export function AnnotationLayer({
       }
 
       if (state.tool === "area" || state.tool === "polyline" || state.tool === "count") {
+        // shortcut: only the clicks are checked, so a cutout's edge can still cross a concave
+        // outline or another cutout; clip the polygons if that shows up in real use.
+        const cutoutTarget = state.shapes.find((s) => s.id === state.cutoutTargetId);
+        if (state.tool === "area" && cutoutTarget && !pointInRings(pdfPoint, areaRings(cutoutTarget))) {
+          showSaveStatus("warning", "A cutout has to stay inside the area, clear of other cutouts.");
+          return;
+        }
         const drawing = state.shapes.find(
           (s) => s.id === state.drawingShapeId && s.kind === state.tool,
         );
@@ -763,6 +772,7 @@ export function AnnotationLayer({
       state.settings.textSize,
       state.shapes,
       state.drawingShapeId,
+      state.cutoutTargetId,
       state.cloudMode,
       state.drawEraser,
       state.countStart,

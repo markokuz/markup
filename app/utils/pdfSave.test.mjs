@@ -42,6 +42,36 @@ const data = {
 const up = { x: 0, y: 1 };
 const bytesOf = async (blob) => new Uint8Array(await blob.arrayBuffer());
 
+// Runs and cutouts survive a save, and a cutout is drawn as a second ring of the same path.
+const takeoffData = {
+  ...data,
+  shapes: [
+    { id: "run", kind: "polyline", points: [{ x: 10, y: 10 }, { x: 60, y: 10 }, { x: 60, y: 90 }] },
+    {
+      id: "room",
+      kind: "area",
+      points: [
+        { x: 100, y: 100 }, { x: 400, y: 100 }, { x: 400, y: 400 }, { x: 100, y: 400 },
+        { x: 200, y: 200 }, { x: 300, y: 200 }, { x: 300, y: 300 }, { x: 200, y: 300 },
+      ],
+      breaks: [4],
+    },
+  ],
+};
+const savedTakeoff = await readPdfWithMarkups(await bytesOf(await buildPdfWithMarkups(original, takeoffData, up)));
+assert.deepEqual(savedTakeoff.data.shapes, takeoffData.shapes);
+const takeoffPage = await PDFDocument.load(await bytesOf(await buildPdfWithMarkups(original, takeoffData, up)));
+const takeoffOps = (() => {
+  const contents = takeoffPage.getPage(0).node.Contents();
+  return Array.from({ length: contents.size() }, (_, i) => contents.lookup(i, PDFRawStream))
+    .map((stream) => new TextDecoder("latin1").decode(decodePDFRawStream(stream).decode()))
+    .join("\n");
+})();
+// A run is drawn as straight segments: smoothing it would misdraw what was measured.
+assert.ok(/60 -90 l/.test(takeoffOps) || /60 -10 l/.test(takeoffOps), "run drawn with line segments");
+const runOps = takeoffOps.slice(takeoffOps.indexOf("10 -10 m"), takeoffOps.indexOf("100 -100 m"));
+assert.ok(runOps.length > 0 && !/ c\n/.test(runOps), "run has no curve operators");
+
 // A PDF this app never saved is left alone.
 assert.equal(await readPdfWithMarkups(original), null);
 

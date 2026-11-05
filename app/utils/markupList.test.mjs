@@ -49,4 +49,16 @@ assert.equal(summarizeRows(rows, "ft").length, 1);
 assert.match(summarizeRows(rows, "ft")[0].display, /\(2\)$/);
 assert.equal(buildMarkupRows({ ...scaled, scale: null }).find((r) => r.id === "run").display, "Not calibrated");
 
+// Cutouts come off the area but not the perimeter, and the row says they are there.
+const room = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+const opening = [{ x: 2, y: 2 }, { x: 4, y: 2 }, { x: 4, y: 4 }, { x: 2, y: 4 }];
+const [holed] = buildMarkupRows({
+  ...scaled,
+  measurements: [],
+  shapes: [{ id: "room", kind: "area", color: "#111111", points: [...room, ...opening], breaks: [4] }],
+});
+assert.equal(holed.area, 96);
+assert.equal(holed.perimeter, 40);
+assert.match(holed.display, /1 cutout$/);
+
 console.log("markupList: all checks passed");

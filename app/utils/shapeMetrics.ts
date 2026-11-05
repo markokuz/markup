@@ -1,5 +1,5 @@
 import type { Point2D, Scale, ShapeAnnotation, Unit } from "@/app/types";
-import { formatArea, polygonArea, polylineLength, splitStrokes } from "@/app/utils/geometry";
+import { areaRings, formatArea, polygonArea, polylineLength, splitStrokes } from "@/app/utils/geometry";
 import { NOTE_CARD } from "@/app/utils/noteLayout";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
@@ -15,10 +15,23 @@ export function getAreaMetrics(
 ): { area: number; perimeter: number } | null {
   if (shape.kind !== "area" || !scale || shape.points.length < 3) return null;
   const k = displayPerDoc(scale, unit);
+  const [outline, ...holes] = areaRings(shape);
+  const net = polygonArea(outline) - holes.reduce((sum, hole) => sum + polygonArea(hole), 0);
   return {
-    area: polygonArea(shape.points) * k * k,
-    perimeter: polylineLength(shape.points, true) * k,
+    area: Math.max(0, net) * k * k,
+    // The outer edge only: an opening doesn't add to the room's edge.
+    perimeter: polylineLength(outline, true) * k,
   };
+}
+
+/** An area's outer ring, without its cutouts. */
+export function areaOutline(shape: ShapeAnnotation): Point2D[] {
+  return areaRings(shape)[0] ?? shape.points;
+}
+
+/** How many cutouts an area has. */
+export function cutoutCount(shape: ShapeAnnotation): number {
+  return shape.kind === "area" ? Math.max(0, areaRings(shape).length - 1) : 0;
 }
 
 /** A run's total length along all its segments, in display units. */

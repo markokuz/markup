@@ -101,6 +101,7 @@ export function isValidMarkupData(data: unknown): boolean {
           Object.hasOwn(SHAPE_KIND_LABELS, s.kind) &&
           Array.isArray(s.points) &&
           s.points.every(isPoint) &&
+          (s.breaks == null || (Array.isArray(s.breaks) && s.breaks.every(Number.isInteger))) &&
           (s.text == null || typeof s.text === "string") &&
           // Only embedded images: a URL here would load from a stranger's server on open.
           (s.image == null || (typeof s.image === "string" && s.image.startsWith("data:image/"))) &&

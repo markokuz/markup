@@ -169,8 +169,10 @@ export interface DocumentTab {
   notes: NoteAnnotation[];
   shapes: ShapeAnnotation[];
   groups: MarkupGroup[];
-  /** Area polygon or count group still receiving clicks. */
+  /** Area polygon, run or count group still receiving clicks. */
   drawingShapeId: string | null;
+  /** The area that the area being drawn gets cut out of when it finishes. */
+  cutoutTargetId: string | null;
   selectedIds: string[];
   pendingPoint: Point2D | null;
   pendingMarquee: PendingMarquee | null;
@@ -305,6 +307,8 @@ export type AppAction =
   | { type: "ADD_SHAPE"; shape: ShapeAnnotation; drawing?: boolean }
   | { type: "APPEND_SHAPE_POINT"; id: string; point: Point2D }
   | { type: "FINISH_SHAPE" }
+  /** Pick the Area tool to draw a cutout in this area. */
+  | { type: "START_CUTOUT"; id: string }
   | { type: "UPDATE_SHAPE"; id: string; updates: Partial<ShapeAnnotation> }
   | { type: "DELETE_SHAPE"; id: string }
   | { type: "SET_SELECTION"; ids: string[] }

@@ -241,6 +241,51 @@ export function joinStrokes(pieces: Point2D[][]): { points: Point2D[]; breaks?: 
   return breaks.length ? { points, breaks } : { points };
 }
 
+/** An area's closed rings: the outline first, then its cutouts. Rings under 3 points don't count. */
+export function areaRings(shape: { points: Point2D[]; breaks?: number[] }): Point2D[][] {
+  return splitStrokes(shape.points, shape.breaks).filter((ring) => ring.length >= 3);
+}
+
+export function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    if (
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Inside the outline and not in one of its cutouts. */
+export function pointInRings(point: Point2D, rings: Point2D[][]): boolean {
+  const [outline, ...holes] = rings;
+  return !!outline && pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole));
+}
+
+/** SVG path of straight segments through `points`, left open. */
+export function polylinePath(points: Point2D[]): string {
+  return points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+}
+
+/**
+ * SVG path for an area's rings, with cutouts wound against the outline. That makes the
+ * default nonzero fill leave them empty everywhere: pdf-lib's drawSvgPath has no even-odd.
+ */
+export function ringsPath(rings: Point2D[][]): string {
+  const outlineSign = Math.sign(signedArea(rings[0] ?? []));
+  return rings
+    .map((ring, index) => {
+      const sameWay = index > 0 && Math.sign(signedArea(ring)) === outlineSign;
+      return `${polylinePath(sameWay ? [...ring].reverse() : ring)} Z`;
+    })
+    .join(" ");
+}
+
 /** SVG path for every piece of a drawing. */
 export function strokesPath(pieces: Point2D[][]): string {
   return pieces

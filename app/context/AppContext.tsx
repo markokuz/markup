@@ -16,6 +16,7 @@ import {
   type AppState,
   type DocumentTab,
   type Point2D,
+  type ShapeAnnotation,
   type TabsState,
 } from "@/app/types";
 import {
@@ -25,7 +26,7 @@ import {
   type AppSettings,
 } from "@/app/utils/settings";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
-import { eraseFromStrokes, joinStrokes } from "@/app/utils/geometry";
+import { eraseFromStrokes, joinStrokes, splitStrokes } from "@/app/utils/geometry";
 import { drawPieces, drawWidth } from "@/app/utils/shapeMetrics";
 import { markupIds, nextGroupName, wouldNestInItself } from "@/app/utils/groups";
 import { deleteSession } from "@/app/utils/sessionStore";
@@ -52,15 +53,42 @@ function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): st
 
 /** Ends the in-progress area/run/count; an area under 3 vertices or a run under 2 is discarded. */
 function finishDrawingShape(tab: DocumentTab): DocumentTab {
-  if (!tab.drawingShapeId) return tab;
+  if (!tab.drawingShapeId) return tab.cutoutTargetId ? { ...tab, cutoutTargetId: null } : tab;
   const shape = tab.shapes.find((s) => s.id === tab.drawingShapeId);
   const incomplete =
     (shape?.kind === "area" && shape.points.length < 3) ||
     (shape?.kind === "polyline" && shape.points.length < 2);
+  const target = tab.shapes.find((s) => s.id === tab.cutoutTargetId && s.kind === "area");
+  if (target && shape?.kind === "area") return finishCutout(tab, target, shape, incomplete);
   return {
     ...tab,
     drawingShapeId: null,
+    cutoutTargetId: null,
     shapes: incomplete ? tab.shapes.filter((s) => s.id !== shape.id) : tab.shapes,
+  };
+}
+
+/** Moves the area just drawn into `target` as a cutout, as one undo step however many clicks it took. */
+function finishCutout(
+  tab: DocumentTab,
+  target: ShapeAnnotation,
+  drawn: ShapeAnnotation,
+  incomplete: boolean,
+): DocumentTab {
+  // Keep history up to the state just before the drawn shape existed.
+  let keep = tab.history.length;
+  while (keep > 0 && tab.history[keep - 1].shapes.some((s) => s.id === drawn.id)) keep--;
+  return {
+    ...tab,
+    drawingShapeId: null,
+    cutoutTargetId: null,
+    history: tab.history.slice(0, keep),
+    selectedIds: [target.id],
+    shapes: tab.shapes.flatMap((s) => {
+      if (s.id === drawn.id) return [];
+      if (s.id !== target.id || incomplete) return [s];
+      return [{ ...s, ...joinStrokes([...splitStrokes(s.points, s.breaks), drawn.points]) }];
+    }),
   };
 }
 
@@ -436,8 +464,25 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           s.id === action.id ? { ...s, points: [...s.points, action.point] } : s,
         ),
       }));
-    case "FINISH_SHAPE":
-      return updateActiveTab(state, finishDrawingShape);
+    case "FINISH_SHAPE": {
+      const next = updateActiveTab(state, finishDrawingShape);
+      // After a cutout the Area tool has done its job; another click shouldn't start a new area.
+      return getActiveTab(state)?.cutoutTargetId ? { ...next, tool: "select" } : next;
+    }
+    case "START_CUTOUT":
+      return {
+        ...updateActiveTab(state, (tab) => ({
+          ...finishDrawingShape(tab),
+          cutoutTargetId: action.id,
+          selectedIds: [],
+          pendingPoint: null,
+          pendingMarquee: null,
+          editingDimension: null,
+          editingNoteId: null,
+        })),
+        tool: "area",
+        drawEraser: false,
+      };
     case "UPDATE_SHAPE":
       return updateActiveTab(state, (tab) => ({
         ...tab,

@@ -6,7 +6,16 @@ import { arrowPolygonPoints, toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { viewportZoom } from "@/app/utils/documentViewport";
-import { cloudOutline, cloudPath, polygonCentroid, polylineMidpoint, splitStrokes, strokesPath } from "@/app/utils/geometry";
+import {
+  areaRings,
+  cloudOutline,
+  cloudPath,
+  polygonCentroid,
+  polylineMidpoint,
+  ringsPath,
+  splitStrokes,
+  strokesPath,
+} from "@/app/utils/geometry";
 import {
   TEXT_DEFAULT_SIZE,
   TEXT_FONT_FAMILY,
@@ -16,6 +25,7 @@ import {
   textScreenBox,
 } from "@/app/utils/noteLayout";
 import {
+  areaOutline,
   CALLOUT_LEADER_OFFSET,
   CLOSE_AREA_PX,
   countStartAt,
@@ -152,10 +162,11 @@ export function ShapeAnnotation({
       pts.length >= 3 &&
       Math.hypot(cursor.x - first.x, cursor.y - first.y) <= CLOSE_AREA_PX;
     const bandEnd = willClose ? first : cursor;
+    const rings = ringsPath(areaRings({ points: pts, breaks: shape.breaks }));
     return (
       <g pointerEvents="none">
         {isSelected && pts.length >= 3 && (
-          <polygon points={ptsAttr} fill="none" stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />
+          <path d={rings} fill="none" stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />
         )}
         {isDrawing ? (
           <>
@@ -206,9 +217,9 @@ export function ShapeAnnotation({
             )}
           </>
         ) : (
-          <polygon points={ptsAttr} fill={`${color}2e`} stroke={color} strokeWidth={strokeWidth} />
+          <path d={rings} fill={`${color}2e`} stroke={color} strokeWidth={strokeWidth} />
         )}
-        {label && !isDrawing && <ShapeLabel at={toScreen(polygonCentroid(shape.points))} text={label} color={color} />}
+        {label && !isDrawing && <ShapeLabel at={toScreen(polygonCentroid(areaOutline(shape)))} text={label} color={color} />}
       </g>
     );
   }

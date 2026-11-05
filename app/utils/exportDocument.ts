@@ -56,8 +56,19 @@ import {
   textLines,
   wrapNoteText,
 } from "@/app/utils/noteLayout";
-import { cloudOutline, cloudPath, polygonCentroid, polylineMidpoint, splitStrokes, strokesPath } from "@/app/utils/geometry";
 import {
+  areaRings,
+  cloudOutline,
+  cloudPath,
+  polygonCentroid,
+  polylineMidpoint,
+  polylinePath,
+  ringsPath,
+  splitStrokes,
+  strokesPath,
+} from "@/app/utils/geometry";
+import {
+  areaOutline,
   CALLOUT_LEADER_OFFSET,
   countStartAt,
   DRAW_DEFAULT_WIDTH,
@@ -800,14 +811,12 @@ function drawShapesOnCanvas(
     context.lineWidth = style.borderWidth;
 
     if (shape.kind === "area" && shape.points.length >= 3) {
-      const path = new Path2D();
-      shape.points.forEach((p, i) => (i === 0 ? path.moveTo(p.x, p.y) : path.lineTo(p.x, p.y)));
-      path.closePath();
+      const path = new Path2D(ringsPath(areaRings(shape)));
       context.fillStyle = `${color}2e`;
       context.fill(path);
       context.stroke(path);
       if (label) {
-        drawPillLabelOnCanvas(context, polygonCentroid(shape.points), label, textAngle, style.fontSize, color);
+        drawPillLabelOnCanvas(context, polygonCentroid(areaOutline(shape)), label, textAngle, style.fontSize, color);
       }
     } else if (shape.kind === "polyline" && shape.points.length >= 2) {
       const path = new Path2D();
@@ -914,9 +923,7 @@ function drawShapesOnPdf(
     const label = getShapeLabel(shape, scale, displayUnit);
 
     if (shape.kind === "area" && shape.points.length >= 3) {
-      const path =
-        shape.points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${-p.y}`).join(" ") + " Z";
-      page.drawSvgPath(path, {
+      page.drawSvgPath(ringsPath(areaRings(shape).map((ring) => ring.map(flip))), {
         x: 0,
         y: 0,
         color,
@@ -926,10 +933,11 @@ function drawShapesOnPdf(
         borderOpacity: 1,
       });
       if (label) {
-        drawPillLabelOnPdf(page, polygonCentroid(shape.points), label, upDir, style.fontSize, font, color);
+        drawPillLabelOnPdf(page, polygonCentroid(areaOutline(shape)), label, upDir, style.fontSize, font, color);
       }
     } else if (shape.kind === "polyline" && shape.points.length >= 2) {
-      page.drawSvgPath(strokesPath([shape.points.map(flip)]), {
+      // Straight segments: strokesPath smooths, which would misdraw the run that was measured.
+      page.drawSvgPath(polylinePath(shape.points.map(flip)), {
         x: 0,
         y: 0,
         borderColor: color,

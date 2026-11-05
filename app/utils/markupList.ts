@@ -11,7 +11,13 @@ import { DEFAULT_ANNOTATION_COLOR } from "@/app/utils/colors";
 import { docDistance } from "@/app/utils/coordinates";
 import { getRectDocHeight, getRectDocWidth } from "@/app/utils/dimensions";
 import { formatArea } from "@/app/utils/geometry";
-import { countStartAt, getAreaMetrics, getPolylineLength, SHAPE_KIND_LABELS } from "@/app/utils/shapeMetrics";
+import {
+  countStartAt,
+  cutoutCount,
+  getAreaMetrics,
+  getPolylineLength,
+  SHAPE_KIND_LABELS,
+} from "@/app/utils/shapeMetrics";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
 /** One row of the Markups list / CSV, like Bluebeam's Markups List. */
@@ -107,10 +113,13 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
     };
     if (s.kind === "area") {
       const metrics = getAreaMetrics(s, scale, unit);
+      const cutouts = cutoutCount(s);
       rows.push({
         ...base,
         display: metrics
-          ? `${formatArea(metrics.area, unit)} · P ${dist(metrics.perimeter)}`
+          ? `${formatArea(metrics.area, unit)} · P ${dist(metrics.perimeter)}${
+              cutouts ? ` · ${cutouts} cutout${cutouts === 1 ? "" : "s"}` : ""
+            }`
           : "Not calibrated",
         ...metrics,
       });

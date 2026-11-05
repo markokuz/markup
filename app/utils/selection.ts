@@ -17,7 +17,15 @@ import {
   toScreenPoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
-import { cloudOutline, rotateAround, rotatedBoxCorners, splitStrokes } from "@/app/utils/geometry";
+import {
+  areaRings,
+  cloudOutline,
+  pointInPolygon,
+  pointInRings,
+  rotateAround,
+  rotatedBoxCorners,
+  splitStrokes,
+} from "@/app/utils/geometry";
 import { noteCardSize, textInkScreenBox, textScreenBox } from "@/app/utils/noteLayout";
 import { drawWidth } from "@/app/utils/shapeMetrics";
 
@@ -208,8 +216,10 @@ function shapeScreenSegments(
       piece.slice(1).map((p, i): [Point2D, Point2D] => [piece[i], p]),
     );
   }
+  // Each of an area's rings closes on itself; the gap between them isn't an edge.
+  if (shape.kind === "area") return splitStrokes(shape.points.map(toScreen), shape.breaks).flatMap(closedSegments);
   const pts = (shape.kind === "cloud" ? cloudOutline(shape.points) : shape.points).map(toScreen);
-  const closed = shape.kind === "area" || shape.kind === "cloud" || shape.kind === "image";
+  const closed = shape.kind === "cloud" || shape.kind === "image";
   const segments: [Point2D, Point2D][] = [];
   for (let i = 0; i < (closed ? pts.length : pts.length - 1); i++) {
     segments.push([pts[i], pts[(i + 1) % pts.length]]);
@@ -221,21 +231,6 @@ function calloutTextRect(shape: ShapeAnnotation, viewport: DocumentViewport): Sc
   if (shape.kind !== "callout" || shape.points.length < 2) return null;
   const pos = toScreenPoint(viewport, shape.points[1].x, shape.points[1].y);
   return { x: pos.x, y: pos.y, width: estimateLabelWidth(shape.text || "Callout"), height: 28 };
-}
-
-function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const a = polygon[i];
-    const b = polygon[j];
-    if (
-      a.y > point.y !== b.y > point.y &&
-      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
-    ) {
-      inside = !inside;
-    }
-  }
-  return inside;
 }
 
 export function findAnnotationsInMarquee(
@@ -416,9 +411,12 @@ export function hitTestAnnotations(
           : LINE_HIT_SLOP;
     const nearEdge = segments.some(([a, b]) => distanceToSegment(point, a, b) <= slop);
     const insideArea =
-      (shape.kind === "area" || shape.kind === "image" || shape.kind === "text") &&
-      points.length >= 3 &&
-      pointInPolygon(point, points);
+      shape.kind === "area"
+        ? // `points` holds every ring end to end, so `breaks` still marks where each starts.
+          pointInRings(point, areaRings({ points, breaks: shape.breaks }))
+        : (shape.kind === "image" || shape.kind === "text") &&
+          points.length >= 3 &&
+          pointInPolygon(point, points);
     const textRect = calloutTextRect(shape, viewport);
     const onText = textRect !== null && pointInRect(point, textRect);
     if (nearEdge || insideArea || onText) {

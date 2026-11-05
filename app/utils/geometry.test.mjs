@@ -1,7 +1,10 @@
 // Run: node app/utils/geometry.test.mjs
 import assert from "node:assert/strict";
 import {
+  areaRings,
   cloudOutline,
+  pointInRings,
+  ringsPath,
   cloudPath,
   eraseFromStrokes,
   joinStrokes,
@@ -28,6 +31,31 @@ assert.equal(polygonArea([...square].reverse()), 100);
 assert.equal(polylineLength(square, true), 40);
 assert.equal(polylineLength(square, false), 30);
 assert.deepEqual(polygonCentroid(square), { x: 5, y: 5 });
+
+// An area's rings: outline first, then cutouts; a stray short ring doesn't count.
+const hole = [{ x: 2, y: 2 }, { x: 4, y: 2 }, { x: 4, y: 4 }, { x: 2, y: 4 }];
+const holed = joinStrokes([square, hole]);
+assert.deepEqual(areaRings(holed), [square, hole]);
+assert.deepEqual(areaRings({ points: [...square, { x: 1, y: 1 }], breaks: [4] }), [square]);
+assert.ok(pointInRings({ x: 8, y: 8 }, [square, hole]));
+assert.ok(!pointInRings({ x: 3, y: 3 }, [square, hole]));
+assert.ok(!pointInRings({ x: 20, y: 20 }, [square, hole]));
+assert.ok(!pointInRings({ x: 1, y: 1 }, []));
+
+// Cutouts wind against the outline whichever way they were clicked, so nonzero fill leaves them empty.
+const pathWinding = (d) =>
+  d.split("Z").filter((s) => s.trim()).map((ring) => {
+    const pts = [...ring.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map((m) => ({ x: +m[1], y: +m[2] }));
+    return Math.sign(pts.reduce((sum, a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      return sum + a.x * b.y - b.x * a.y;
+    }, 0));
+  });
+const [outlineWay, holeWay] = pathWinding(ringsPath([square, hole]));
+assert.equal(holeWay, -outlineWay);
+const [outlineWay2, holeWay2] = pathWinding(ringsPath([square, [...hole].reverse()]));
+assert.equal(holeWay2, -outlineWay2);
+assert.equal(ringsPath([]), "");
 
 // Halfway along the path, not the middle vertex: 10 + 30 long puts it 10 into the second leg.
 assert.deepEqual(polylineMidpoint([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 30 }]), { x: 10, y: 10 });

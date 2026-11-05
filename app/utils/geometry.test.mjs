@@ -12,6 +12,7 @@ import {
   polygonArea,
   polygonCentroid,
   polylineLength,
+  polylineMidpoint,
   rotateAround,
   rotatedBoxCorners,
 } from "./geometry.ts";
@@ -27,6 +28,12 @@ assert.equal(polygonArea([...square].reverse()), 100);
 assert.equal(polylineLength(square, true), 40);
 assert.equal(polylineLength(square, false), 30);
 assert.deepEqual(polygonCentroid(square), { x: 5, y: 5 });
+
+// Halfway along the path, not the middle vertex: 10 + 30 long puts it 10 into the second leg.
+assert.deepEqual(polylineMidpoint([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 30 }]), { x: 10, y: 10 });
+assert.deepEqual(polylineMidpoint([{ x: 0, y: 0 }, { x: 10, y: 0 }]), { x: 5, y: 0 });
+// Zero-length legs (a duplicate vertex) don't divide by zero.
+assert.deepEqual(polylineMidpoint([{ x: 2, y: 2 }, { x: 2, y: 2 }]), { x: 2, y: 2 });
 
 const triangle = [
   { x: 0, y: 0 },

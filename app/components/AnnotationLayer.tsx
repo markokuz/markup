@@ -143,8 +143,14 @@ const ROTATION_SNAP_TOLERANCE_DEG = 5;
 const TEXT_CURSOR_GAP_PX = 2;
 const CALIBRATE_TO_MEASURE =
   "Set the scale to measure: click Calibrate, then two points on a known dimension. For markup only, switch to Plain.";
+/** Two presses this close in time and space are a double-click. */
+const DOUBLE_CLICK_MS = 400;
+const DOUBLE_CLICK_PX = 5;
+
 const CALIBRATE_FOR_AREA =
   "Set the scale to see area and perimeter: click Calibrate, then two points on a known dimension.";
+const CALIBRATE_FOR_RUN =
+  "Set the scale to see this run's length: click Calibrate, then two points on a known dimension.";
 /** Selected text's move tab sits this far outside its left edge (centre), clear of the corner handles. */
 const TEXT_MOVE_TAB_OFFSET_PX = 16;
 /** Text tool I-beam whose hotspot is its exact centre (the system `text` cursor's varies by OS). */
@@ -199,6 +205,8 @@ export function AnnotationLayer({
   const dragRef = useRef<DragMode | null>(null);
   /** A move drag has started but not moved yet, so its undo step is still to be saved. */
   const moveUndoPendingRef = useRef(false);
+  /** Last vertex press on an area or run, to spot a double-click. */
+  const lastPressRef = useRef({ time: -Infinity, x: 0, y: 0 });
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -532,13 +540,20 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "area" || state.tool === "count") {
+      if (state.tool === "area" || state.tool === "polyline" || state.tool === "count") {
         const drawing = state.shapes.find(
           (s) => s.id === state.drawingShapeId && s.kind === state.tool,
         );
+        // pointerdown's event.detail is always 0 in Chromium, so the click count can't say this.
+        const previous = lastPressRef.current;
+        lastPressRef.current = { time: event.timeStamp, x: local.x, y: local.y };
+        const secondPress =
+          event.timeStamp - previous.time <= DOUBLE_CLICK_MS &&
+          Math.hypot(local.x - previous.x, local.y - previous.y) <= DOUBLE_CLICK_PX;
         if (!drawing) {
-          // An area still draws unscaled, just without its label.
+          // Areas and runs still draw unscaled, just without their label.
           if (state.tool === "area" && !state.scale) promptCalibration(CALIBRATE_FOR_AREA);
+          if (state.tool === "polyline" && !state.scale) promptCalibration(CALIBRATE_FOR_RUN);
           dispatch({
             type: "ADD_SHAPE",
             shape: {
@@ -561,11 +576,22 @@ export function AnnotationLayer({
             drawing.points.length >= 3 &&
             Math.hypot(local.x - first.x, local.y - first.y) <= CLOSE_AREA_PX;
           // Second press of a double-click finishes without adding a duplicate vertex.
-          if (closesOnFirst || event.detail >= 2) {
+          if (closesOnFirst || secondPress) {
             dispatch({ type: "FINISH_SHAPE" });
             setPreviewEnd(null);
             return;
           }
+        }
+        if (drawing.kind === "polyline") {
+          // Second press of a double-click finishes without adding a duplicate vertex.
+          if (secondPress) {
+            dispatch({ type: "FINISH_SHAPE" });
+            setPreviewEnd(null);
+            return;
+          }
+          const last = drawing.points[drawing.points.length - 1];
+          dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: snapToLine(last, local) });
+          return;
         }
         dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: pdfPoint });
         return;
@@ -998,7 +1024,12 @@ export function AnnotationLayer({
             : pdfPoint,
         );
       } else if (state.drawingShapeId) {
-        setPreviewEnd(pdfPoint);
+        const drawing = state.shapes.find((s) => s.id === state.drawingShapeId);
+        setPreviewEnd(
+          drawing?.kind === "polyline"
+            ? snapToLine(drawing.points[drawing.points.length - 1], local)
+            : pdfPoint,
+        );
       }
     },
     [dispatch, eraseAlong, eraserRadius, erasing, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.fileType, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, unturnRectPoint, viewport],
@@ -1631,6 +1662,7 @@ export function AnnotationLayer({
     transformTarget?.kind === "shape" &&
     (transformTarget.item.kind === "cloud" ||
       transformTarget.item.kind === "area" ||
+      transformTarget.item.kind === "polyline" ||
       transformTarget.item.kind === "draw");
 
   /** Grip left of selected text, so it can be moved without hitting a corner handle. */

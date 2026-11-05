@@ -50,11 +50,13 @@ function removeIdsFromSelection(selectedIds: string[], removedIds: string[]): st
   return selectedIds.filter((id) => !removed.has(id));
 }
 
-/** Ends the in-progress area/count; an area with fewer than 3 vertices is discarded. */
+/** Ends the in-progress area/run/count; an area under 3 vertices or a run under 2 is discarded. */
 function finishDrawingShape(tab: DocumentTab): DocumentTab {
   if (!tab.drawingShapeId) return tab;
   const shape = tab.shapes.find((s) => s.id === tab.drawingShapeId);
-  const incomplete = shape?.kind === "area" && shape.points.length < 3;
+  const incomplete =
+    (shape?.kind === "area" && shape.points.length < 3) ||
+    (shape?.kind === "polyline" && shape.points.length < 2);
   return {
     ...tab,
     drawingShapeId: null,

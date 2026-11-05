@@ -21,12 +21,24 @@ export function getAreaMetrics(
   };
 }
 
-/** On-canvas label: area + perimeter for areas (counts show only their numbered dots). */
+/** A run's total length along all its segments, in display units. */
+export function getPolylineLength(
+  shape: ShapeAnnotation,
+  scale: Scale | null,
+  unit: Unit,
+): number | null {
+  if (shape.kind !== "polyline" || !scale || shape.points.length < 2) return null;
+  return polylineLength(shape.points, false) * displayPerDoc(scale, unit);
+}
+
+/** On-canvas label: area + perimeter for areas, total length for runs (counts show only their numbered dots). */
 export function getShapeLabel(
   shape: ShapeAnnotation,
   scale: Scale | null,
   unit: Unit,
 ): string | null {
+  const length = getPolylineLength(shape, scale, unit);
+  if (length !== null) return formatDistance(length, unit);
   const metrics = getAreaMetrics(shape, scale, unit);
   if (!metrics) return null;
   return `${formatArea(metrics.area, unit)} · P ${formatDistance(metrics.perimeter, unit)}`;
@@ -34,6 +46,8 @@ export function getShapeLabel(
 
 export const SHAPE_KIND_LABELS: Record<ShapeAnnotation["kind"], string> = {
   area: "Area",
+  // "Length", not its own type: a run's total belongs with the two-point lines in the summary.
+  polyline: "Length",
   count: "Count",
   cloud: "Cloud",
   draw: "Drawing",

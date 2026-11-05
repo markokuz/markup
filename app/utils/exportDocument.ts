@@ -56,7 +56,7 @@ import {
   textLines,
   wrapNoteText,
 } from "@/app/utils/noteLayout";
-import { cloudOutline, cloudPath, polygonCentroid, splitStrokes, strokesPath } from "@/app/utils/geometry";
+import { cloudOutline, cloudPath, polygonCentroid, polylineMidpoint, splitStrokes, strokesPath } from "@/app/utils/geometry";
 import {
   CALLOUT_LEADER_OFFSET,
   countStartAt,
@@ -809,6 +809,17 @@ function drawShapesOnCanvas(
       if (label) {
         drawPillLabelOnCanvas(context, polygonCentroid(shape.points), label, textAngle, style.fontSize, color);
       }
+    } else if (shape.kind === "polyline" && shape.points.length >= 2) {
+      const path = new Path2D();
+      shape.points.forEach((p, i) => (i === 0 ? path.moveTo(p.x, p.y) : path.lineTo(p.x, p.y)));
+      context.save();
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      context.stroke(path);
+      context.restore();
+      if (label) {
+        drawPillLabelOnCanvas(context, polylineMidpoint(shape.points), label, textAngle, style.fontSize, color);
+      }
     } else if (shape.kind === "count") {
       shape.points.forEach((p, i) => {
         context.beginPath();
@@ -916,6 +927,16 @@ function drawShapesOnPdf(
       });
       if (label) {
         drawPillLabelOnPdf(page, polygonCentroid(shape.points), label, upDir, style.fontSize, font, color);
+      }
+    } else if (shape.kind === "polyline" && shape.points.length >= 2) {
+      page.drawSvgPath(strokesPath([shape.points.map(flip)]), {
+        x: 0,
+        y: 0,
+        borderColor: color,
+        borderWidth: style.borderWidth,
+      });
+      if (label) {
+        drawPillLabelOnPdf(page, polylineMidpoint(shape.points), label, upDir, style.fontSize, font, color);
       }
     } else if (shape.kind === "count") {
       shape.points.forEach((p, i) => {

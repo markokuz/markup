@@ -12,6 +12,7 @@ import { UNIT_LABELS } from "@/app/utils/units";
 const COLOR_TOOLS: { id: ColorTool; label: string }[] = [
   { id: "measure", label: "Line" },
   { id: "area", label: "Area" },
+  { id: "polyline", label: "Run" },
   { id: "count", label: "Count" },
   { id: "rectangle", label: "Rectangle" },
   { id: "cloud", label: "Cloud" },

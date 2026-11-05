@@ -13,6 +13,11 @@ const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
     hint: "Click corners to measure area and perimeter. Double-click, Enter, or click the first point to finish",
   },
   {
+    id: "polyline",
+    label: "Run",
+    hint: "Click along a wall, pipe or conduit run to measure its total length. Double-click or Enter to finish",
+  },
+  {
     id: "count",
     label: "Count",
     hint: "Click each item to count it. Press Enter or Esc to start a new count",
@@ -314,6 +319,21 @@ function ToolIcon({ tool }: { tool: ToolMode }) {
             strokeWidth="1.5"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case "polyline":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M3 16 L8 7 L13 13 L17 4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <circle cx="3" cy="16" r="1.75" fill="currentColor" />
+          <circle cx="8" cy="7" r="1.75" fill="currentColor" />
+          <circle cx="13" cy="13" r="1.75" fill="currentColor" />
+          <circle cx="17" cy="4" r="1.75" fill="currentColor" />
         </svg>
       );
     case "count":

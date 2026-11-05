@@ -6,6 +6,7 @@ export type ColorTool =
   | "measure"
   | "rectangle"
   | "area"
+  | "polyline"
   | "count"
   | "cloud"
   | "draw"
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     measure: DEFAULT_ANNOTATION_COLOR,
     rectangle: DEFAULT_ANNOTATION_COLOR,
     area: DEFAULT_ANNOTATION_COLOR,
+    polyline: DEFAULT_ANNOTATION_COLOR,
     count: DEFAULT_ANNOTATION_COLOR,
     cloud: REDLINE_COLOR,
     draw: REDLINE_COLOR,
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hotkeys: {
     measure: "m",
     area: "a",
+    polyline: "p",
     count: "c",
     rectangle: "r",
     cloud: "k",

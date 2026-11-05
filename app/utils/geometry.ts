@@ -28,6 +28,22 @@ export function polylineLength(points: Point2D[], closed: boolean): number {
   return total;
 }
 
+/** The point halfway along an open polyline, measured along its segments. */
+export function polylineMidpoint(points: Point2D[]): Point2D {
+  let remaining = polylineLength(points, false) / 2;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length > 0 && remaining <= length) {
+      const t = remaining / length;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    remaining -= length;
+  }
+  return points[0] ?? { x: 0, y: 0 };
+}
+
 /** Area-weighted centroid; falls back to the vertex average for degenerate polygons. */
 export function polygonCentroid(points: Point2D[]): Point2D {
   const area = signedArea(points);

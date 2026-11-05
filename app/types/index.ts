@@ -9,6 +9,7 @@ export type ToolMode =
   | "pan"
   | "note"
   | "area"
+  | "polyline"
   | "count"
   | "cloud"
   | "draw"
@@ -86,13 +87,13 @@ export interface NoteAnnotation extends MarkupFlags {
   label?: string;
 }
 
-export type ShapeKind = "area" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
+export type ShapeKind = "area" | "polyline" | "count" | "cloud" | "draw" | "callout" | "text" | "image";
 
-/** Generic multi-point markup: area polygon, count group, revision cloud, freehand drawing or callout. */
+/** Generic multi-point markup: area polygon, measured run, count group, revision cloud, freehand drawing or callout. */
 export interface ShapeAnnotation extends MarkupFlags {
   id: string;
   kind: ShapeKind;
-  /** area: vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor] */
+  /** area: vertices · polyline: run vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor] */
   points: Point2D[];
   /** Callout and free text. */
   text?: string;

@@ -5,7 +5,7 @@ import { createJiti } from "jiti";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
-const { rowsToCsv } = await jiti.import("./markupList.ts");
+const { buildMarkupRows, rowsToCsv, summarizeRows } = await jiti.import("./markupList.ts");
 
 const row = (fields) => ({ id: "x", type: "Note", name: "", color: "#000000", text: "", display: "", ...fields });
 const cells = (fields) => rowsToCsv([row(fields)], "ft").split("\r\n")[1];
@@ -27,5 +27,26 @@ assert.equal(cells({ text: "a, b" }), `,Note,,"a, b",,,,,,#000000`);
 assert.equal(cells({ text: "Check this" }), ",Note,,Check this,,,,,,#000000");
 assert.equal(cells({ type: "Length", length: 5.5555 }), ",Length,,,5.556,,,,,#000000");
 assert.equal(cells({ type: "Length", length: -5 }), ",Length,,,-5,,,,,#000000");
+
+// A run is measured along every segment, and totals with two-point lines of the same colour.
+const scaled = {
+  measurements: [{ id: "line", start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, labelOffset: { x: 0, y: 0 }, color: "#111111" }],
+  rectangles: [],
+  notes: [],
+  shapes: [
+    { id: "run", kind: "polyline", color: "#111111", points: [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 4 }] },
+    { id: "short", kind: "polyline", color: "#111111", points: [{ x: 0, y: 0 }] },
+  ],
+  scale: { unitsPerPdfPoint: 1, calibrationUnit: "ft" },
+  displayUnit: "ft",
+};
+const rows = buildMarkupRows(scaled);
+assert.equal(rows.find((r) => r.id === "run").type, "Length");
+assert.equal(rows.find((r) => r.id === "run").length, 7);
+assert.equal(rows.find((r) => r.id === "short").display, "Not calibrated");
+assert.equal(summarizeRows(rows, "ft").length, 1);
+// The line and the run; a one-point run has no length yet, so it isn't counted.
+assert.match(summarizeRows(rows, "ft")[0].display, /\(2\)$/);
+assert.equal(buildMarkupRows({ ...scaled, scale: null }).find((r) => r.id === "run").display, "Not calibrated");
 
 console.log("markupList: all checks passed");

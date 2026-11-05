@@ -6,7 +6,7 @@ import { arrowPolygonPoints, toScreenPoint } from "@/app/utils/coordinates";
 import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { viewportZoom } from "@/app/utils/documentViewport";
-import { cloudOutline, cloudPath, polygonCentroid, splitStrokes, strokesPath } from "@/app/utils/geometry";
+import { cloudOutline, cloudPath, polygonCentroid, polylineMidpoint, splitStrokes, strokesPath } from "@/app/utils/geometry";
 import {
   TEXT_DEFAULT_SIZE,
   TEXT_FONT_FAMILY,
@@ -209,6 +209,39 @@ export function ShapeAnnotation({
           <polygon points={ptsAttr} fill={`${color}2e`} stroke={color} strokeWidth={strokeWidth} />
         )}
         {label && !isDrawing && <ShapeLabel at={toScreen(polygonCentroid(shape.points))} text={label} color={color} />}
+      </g>
+    );
+  }
+
+  if (shape.kind === "polyline") {
+    const ptsAttr = pts.map((p) => `${p.x},${p.y}`).join(" ");
+    const cursor = isDrawing && cursorDoc ? toScreen(cursorDoc) : null;
+    const last = pts[pts.length - 1];
+    // While drawing, the total runs out to the cursor so the next segment can be judged.
+    const liveLabel =
+      isDrawing && cursorDoc
+        ? getShapeLabel({ ...shape, points: [...shape.points, cursorDoc] }, scale, displayUnit)
+        : null;
+    return (
+      <g pointerEvents="none">
+        {isSelected && pts.length >= 2 && (
+          <polyline points={ptsAttr} fill="none" stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />
+        )}
+        <polyline
+          points={ptsAttr}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {cursor && last && (
+          <line x1={last.x} y1={last.y} x2={cursor.x} y2={cursor.y} stroke={color} strokeWidth={1.5} strokeDasharray="6 4" />
+        )}
+        {(isDrawing || isSelected) &&
+          pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={3.5} fill={color} stroke="#fff" strokeWidth={1} />)}
+        {liveLabel && cursor && <ShapeLabel at={{ x: cursor.x, y: cursor.y - 22 }} text={liveLabel} color={color} />}
+        {label && !isDrawing && <ShapeLabel at={toScreen(polylineMidpoint(shape.points))} text={label} color={color} />}
       </g>
     );
   }

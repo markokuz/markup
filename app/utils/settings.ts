@@ -35,6 +35,8 @@ export interface AppSettings {
   drawWidth?: number;
   /** Eraser diameter last picked, in screen px. */
   eraserSize?: number;
+  /** Side toolbar tools kept in its More menu. A list of hidden ones, so tools added later start visible. */
+  hiddenTools?: ToolMode[];
 }
 
 /** Reserved for the magnifier toggle. */

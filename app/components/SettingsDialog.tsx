@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import type { ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { ColorWheel } from "@/app/components/ColorWheel";
+import { SIDE_TOOLS, ToolIcon } from "@/app/components/SideToolbar";
 import { MARKUP_PALETTE } from "@/app/utils/colors";
 import { RESERVED_KEYS, type ColorTool } from "@/app/utils/settings";
 import { UNIT_LABELS } from "@/app/utils/units";
@@ -35,7 +36,7 @@ const TOOL_LABELS = Object.fromEntries(HOTKEY_TOOLS.map((t) => [t.id, t.label]))
   string
 >;
 
-type SettingsTab = "general" | "snapping" | "colours" | "shortcuts";
+type SettingsTab = "general" | "toolbar" | "snapping" | "colours" | "shortcuts";
 
 const TABS: { id: SettingsTab; label: string; detail: string; icon: React.ReactNode }[] = [
   {
@@ -47,6 +48,19 @@ const TABS: { id: SettingsTab; label: string; detail: string; icon: React.ReactN
         <path d="M2.5 4.5h1.75M7.75 4.5h5.75M2.5 11.5h5.75M11.75 11.5h1.75" />
         <circle cx="6" cy="4.5" r="1.75" />
         <circle cx="10" cy="11.5" r="1.75" />
+      </>
+    ),
+  },
+  {
+    id: "toolbar",
+    label: "Toolbar",
+    detail: "Ticked tools are always in the side toolbar. The rest move to its More menu, and their shortcuts keep working.",
+    icon: (
+      <>
+        <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
+        <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
+        <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
+        <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
       </>
     ),
   },
@@ -331,6 +345,32 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
+            {tab === "toolbar" && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 py-2">
+                {SIDE_TOOLS.map((tool) => (
+                  <label
+                    key={tool.id}
+                    title={tool.hint}
+                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-text-primary hover:bg-surface-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!settings.hiddenTools?.includes(tool.id)}
+                      onChange={(event) => {
+                        const others = (settings.hiddenTools ?? []).filter((id) => id !== tool.id);
+                        dispatch({
+                          type: "UPDATE_SETTINGS",
+                          patch: { hiddenTools: event.target.checked ? others : [...others, tool.id] },
+                        });
+                      }}
+                    />
+                    <ToolIcon tool={tool.id} />
+                    {tool.id === "text" ? "Text / Note" : tool.label}
+                  </label>
+                ))}
+              </div>
+            )}
+
             {tab === "snapping" && (
               <div className="divide-y divide-border [&>*]:py-4 [&>*:first-child]:pt-2">
                 <div className="space-y-3">
@@ -469,7 +509,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
           {confirmingReset ? (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border px-6 py-3">
               <p role="alert" className="min-w-0 flex-1 basis-56 text-sm text-text-primary">
-                Reset colours, shortcuts, units, snapping and the calibration line to their defaults?
+                Reset colours, shortcuts, the toolbar, units, snapping and the calibration line to their defaults?
               </p>
               <div className="flex shrink-0 gap-2">
                 <button type="button" autoFocus onClick={closeResetConfirm} className="btn-secondary">
@@ -479,7 +519,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                   type="button"
                   onClick={() => {
                     dispatch({ type: "RESET_SETTINGS" });
-                    setHotkeyNote("Colours, shortcuts, units, snapping and the calibration line were reset.");
+                    setHotkeyNote("Colours, shortcuts, the toolbar, units, snapping and the calibration line were reset.");
                     closeResetConfirm();
                   }}
                   className="rounded-lg border border-red-600/30 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-600/10 dark:border-red-400/50 dark:text-red-400 dark:hover:bg-red-400/10"

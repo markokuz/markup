@@ -1,12 +1,13 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { AreaMode, CloudMode, DrawMode, ToolMode } from "@/app/types";
+import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 
-const TOOLS: { id: ToolMode; label: string; hint: string }[] = [
+export const SIDE_TOOLS: { id: ToolMode; label: string; hint: string }[] = [
   { id: "select", label: "Select", hint: "Move and edit measurements" },
   { id: "measure", label: "Line", hint: "Draw dimension lines" },
   {
@@ -92,7 +93,7 @@ function CountStartInput({ value, onChange }: { value: number; onChange: (n: num
 
   return (
     <label
-      className="flex flex-col items-center gap-0.5 text-[9px] font-medium text-text-secondary"
+      className="flex min-w-0 flex-col items-center gap-0.5 text-[9px] font-medium text-text-secondary"
       title="Number for the first item in a new count. Resets to 1 when you reopen the Count tool."
     >
       Start #
@@ -134,7 +135,7 @@ function ModeToggle<T extends string>({
   onChange: (mode: T) => void;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-lg bg-surface-muted p-0.5">
+    <div className="col-span-2 grid grid-cols-2 gap-0.5 rounded-lg bg-surface-muted p-0.5">
       {options.map((mode) => (
         <button
           key={mode.id}
@@ -158,11 +159,37 @@ function ModeToggle<T extends string>({
 export function SideToolbar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const hidden = new Set(state.settings.hiddenTools);
+  const hiddenTools = SIDE_TOOLS.filter((tool) => hidden.has(tool.id));
   // A short window can cut off the tool list; a tool's options opening under it change what fits.
   const { scrollRef, overflow, updateOverflow, scrollBy } = useScrollHints(
     "y",
-    `${Boolean(state.fileBytes)}:${state.tool}`,
+    `${Boolean(state.fileBytes)}:${state.tool}:${hiddenTools.length}`,
   );
+  const moreOpen = moreMenu !== null;
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    moreMenuRef.current?.querySelector("button")?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!moreMenuRef.current?.contains(target) && !moreButtonRef.current?.contains(target)) setMoreMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMoreMenu(null);
+      moreButtonRef.current?.focus();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [moreOpen]);
 
   if (!state.fileBytes) return null;
 
@@ -173,102 +200,181 @@ export function SideToolbar() {
   const isActive = (tool: ToolMode) =>
     state.tool === tool || (tool === "text" && state.tool === "note");
 
+  const shownIcon = (tool: ToolMode) => (tool === "text" && state.tool === "note" ? "note" : tool);
+  const hintWithKey = (tool: { id: ToolMode; hint: string }) =>
+    state.settings.hotkeys[tool.id] ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})` : tool.hint;
+  const pickTool = (tool: ToolMode) => {
+    // Re-clicking Text keeps Note if that is the one picked.
+    if (!(tool === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool });
+  };
+  const toolButtonClass = (active: boolean) =>
+    `flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-0.5 py-2 text-[10px] font-medium transition ${
+      active ? "bg-accent text-white shadow-sm" : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+    }`;
+
+  /** The picked tool's own options, across both columns of the row under it. */
+  const toolOptions = (tool: ToolMode) => {
+    if (tool === "text" && isActive("text")) {
+      return (
+        <ModeToggle
+          options={TEXT_TOOLS}
+          value={state.tool === "note" ? "note" : "text"}
+          onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
+        />
+      );
+    }
+    if (tool !== state.tool) return null;
+    switch (tool) {
+      case "measure":
+        return (
+          <ModeToggle
+            options={LINE_MODES}
+            value={state.lineMode}
+            onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
+          />
+        );
+      case "area":
+        return (
+          <ModeToggle
+            options={AREA_MODES}
+            value={state.areaMode}
+            onChange={(mode) => {
+              dispatch({ type: "SET_AREA_MODE", mode });
+              if (mode === "cut") {
+                showSaveStatus("info", "Click inside an area, then around the opening. Double-click or Enter to finish.");
+              }
+            }}
+          />
+        );
+      case "rectangle":
+        return (
+          <ModeToggle
+            options={RECT_MODES}
+            value={state.rectMode}
+            onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
+          />
+        );
+      case "cloud":
+        return (
+          <ModeToggle
+            options={CLOUD_MODES}
+            value={state.cloudMode}
+            onChange={(mode) => dispatch({ type: "SET_CLOUD_MODE", mode })}
+          />
+        );
+      case "count":
+        return (
+          <div className="col-span-2 grid grid-cols-2 items-end gap-1 rounded-lg bg-surface-muted p-1">
+            <CountStartInput
+              value={state.countStart}
+              onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
+            />
+            <button
+              type="button"
+              title="Finish this count and start a new one on your next click (or press Enter)"
+              disabled={!countInProgress}
+              onClick={() => dispatch({ type: "FINISH_SHAPE" })}
+              className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
+            >
+              New
+            </button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const activeHidden = hiddenTools.find((tool) => isActive(tool.id));
+
   return (
-    <aside className="relative flex w-14 shrink-0 flex-col border-r border-border bg-surface">
+    <aside className="relative flex w-26 shrink-0 flex-col border-r border-border bg-surface">
       <div
         ref={scrollRef}
         onScroll={updateOverflow}
-        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // Dense flow: a tool's options take the next full row, and the tool after it still fills the cell beside it.
+        className="grid min-h-0 flex-1 grid-flow-row-dense grid-cols-2 content-start gap-1 overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {TOOLS.map((tool) => (
+        {SIDE_TOOLS.filter((tool) => !hidden.has(tool.id)).map((tool) => (
           <Fragment key={tool.id}>
             <button
               type="button"
-              title={
-                state.settings.hotkeys[tool.id]
-                  ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})`
-                  : tool.hint
-              }
-              onClick={() => {
-                // Re-clicking Text keeps Note if that is the one picked.
-                if (!(tool.id === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool: tool.id });
-              }}
-              className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium transition ${
-                isActive(tool.id)
-                  ? "bg-accent text-white shadow-sm"
-                  : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-              }`}
+              title={hintWithKey(tool)}
+              onClick={() => pickTool(tool.id)}
+              className={toolButtonClass(isActive(tool.id))}
             >
-              <ToolIcon tool={tool.id === "text" && state.tool === "note" ? "note" : tool.id} />
+              <ToolIcon tool={shownIcon(tool.id)} />
               <span>{tool.id === "text" && state.tool === "note" ? "Note" : tool.label}</span>
             </button>
-            {tool.id === "text" && isActive("text") && (
-              <ModeToggle
-                options={TEXT_TOOLS}
-                value={state.tool === "note" ? "note" : "text"}
-                onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
-              />
-            )}
-            {tool.id === "measure" && state.tool === "measure" && (
-              <ModeToggle
-                options={LINE_MODES}
-                value={state.lineMode}
-                onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
-              />
-            )}
-            {tool.id === "area" && state.tool === "area" && (
-              <ModeToggle
-                options={AREA_MODES}
-                value={state.areaMode}
-                onChange={(mode) => {
-                  dispatch({ type: "SET_AREA_MODE", mode });
-                  if (mode === "cut") {
-                    showSaveStatus("info", "Click inside an area, then around the opening. Double-click or Enter to finish.");
-                  }
-                }}
-              />
-            )}
-            {tool.id === "rectangle" && state.tool === "rectangle" && (
-              <ModeToggle
-                options={RECT_MODES}
-                value={state.rectMode}
-                onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
-              />
-            )}
-            {tool.id === "cloud" && state.tool === "cloud" && (
-              <ModeToggle
-                options={CLOUD_MODES}
-                value={state.cloudMode}
-                onChange={(mode) => dispatch({ type: "SET_CLOUD_MODE", mode })}
-              />
-            )}
-            {tool.id === "count" && state.tool === "count" && (
-              <div className="flex flex-col gap-1 rounded-lg bg-surface-muted p-1">
-                <CountStartInput
-                  value={state.countStart}
-                  onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
-                />
-                <button
-                  type="button"
-                  title="Finish this count and start a new one on your next click (or press Enter)"
-                  disabled={!countInProgress}
-                  onClick={() => dispatch({ type: "FINISH_SHAPE" })}
-                  className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
-                >
-                  New
-                </button>
-              </div>
-            )}
+            {toolOptions(tool.id)}
           </Fragment>
         ))}
+        {hiddenTools.length > 0 && (
+          <>
+            {/* Shows the hidden tool in hand, so the active tool is always visible. */}
+            <button
+              ref={moreButtonRef}
+              type="button"
+              title={activeHidden ? `${hintWithKey(activeHidden)}. Click for more tools` : "More tools"}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                setMoreMenu((open) => (open ? null : { x: box.right + 4, y: box.top }));
+              }}
+              className={`relative ${toolButtonClass(Boolean(activeHidden))}`}
+            >
+              {/* Flyout mark: this button opens a menu even when it is showing a tool. */}
+              <span aria-hidden className="absolute bottom-1 right-1 h-0 w-0 border-b-[5px] border-l-[5px] border-b-current border-l-transparent" />
+              {activeHidden ? <ToolIcon tool={shownIcon(activeHidden.id)} /> : <MoreIcon />}
+              <span>{activeHidden ? (state.tool === "note" ? "Note" : activeHidden.label) : "More"}</span>
+            </button>
+            {activeHidden && toolOptions(activeHidden.id)}
+          </>
+        )}
       </div>
+      {moreMenu && (
+        <FloatingMenu x={moreMenu.x} y={moreMenu.y} menuRef={moreMenuRef}>
+          {hiddenTools.map((tool) => (
+            <button
+              key={tool.id}
+              type="button"
+              role="menuitem"
+              title={tool.hint}
+              onClick={() => {
+                setMoreMenu(null);
+                pickTool(tool.id);
+              }}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-muted ${
+                isActive(tool.id) ? "text-accent" : "text-text-primary"
+              }`}
+            >
+              <ToolIcon tool={shownIcon(tool.id)} />
+              <span className="flex-1 pr-4">{tool.id === "text" ? "Text / Note" : tool.label}</span>
+              {state.settings.hotkeys[tool.id] && (
+                <span className="font-mono text-xs text-text-muted">{state.settings.hotkeys[tool.id].toUpperCase()}</span>
+              )}
+            </button>
+          ))}
+        </FloatingMenu>
+      )}
       {overflow.start && <ScrollHint direction="up" title="More tools above" onClick={() => scrollBy(-1)} />}
       {overflow.end && <ScrollHint direction="down" title="More tools below" onClick={() => scrollBy(1)} />}
     </aside>
   );
 }
 
-function ToolIcon({ tool }: { tool: ToolMode }) {
+function MoreIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+      <circle cx="4.5" cy="10" r="1.75" />
+      <circle cx="10" cy="10" r="1.75" />
+      <circle cx="15.5" cy="10" r="1.75" />
+    </svg>
+  );
+}
+
+export function ToolIcon({ tool }: { tool: ToolMode }) {
   switch (tool) {
     case "measure":
       return (

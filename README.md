@@ -57,6 +57,8 @@ Before measuring, tell Markup how document pixels map to real-world distance.
 
 A green banner confirms the scale is set. The calibration line stays on the drawing as a dashed amber reference.
 
+On a PDF you can skip the clicks: the arrow beside **Calibrate** lists standard scales like `1/4" = 1'-0"`, `1" = 20'` and `1:100`. Check one against a known dimension, since a set printed to fit won't match its stated scale. The status bar shows the current sheet's scale; click it to calibrate again.
+
 Each sheet of a PDF has its own scale and starts uncalibrated, since a plan and a detail are rarely drawn at the same scale. On a sheet with no scale, **Use scale from sheet N** in the status bar copies the scale from the closest calibrated sheet. If most of a set shares one, **Use scale on N other sheets** copies the current sheet's scale to every sheet that has none, and **Use this scale on all sheets** in the calibration dialog sets it on every sheet, replacing any scale they had.
 
 ### 3. Measure
@@ -72,9 +74,11 @@ Use the tools in the left sidebar:
 | **Select** | Click annotations to select, drag to move, or drag a marquee to select multiple |
 | **Pan** | Drag the canvas to scroll; you can also hold the middle mouse button in any tool |
 
-Measurements appear in the display unit shown in the status bar. Change it anytime with the **Display unit** dropdown (ft, in, m, mm).
+Choose which tools stay visible in **Settings > Toolbar**. The rest move to the **More** button, and their shortcuts keep working.
 
-The Markups panel lists and totals every sheet, or just the current one. Clicking a markup on another sheet takes you there, and the CSV export has a **Sheet** column.
+Measurements appear in the display unit shown in the status bar. Change it anytime with the **Display unit** dropdown (ft, in, m, mm). **Settings > General** sets how finely feet and inches show: the nearest inch down to 1/16", or decimal feet.
+
+The Markups panel lists and totals every sheet, or just the current one. Clicking a markup scrolls to it, even on another sheet, and the CSV export has a **Sheet** column.
 
 ### 4. Edit annotations
 
@@ -89,6 +93,7 @@ With the **Select** tool active:
 - **Drag a label** to reposition it.
 - Use the color palette in the status bar to change annotation color.
 - Press **Delete** or click **Delete** in the status bar to remove selected annotations.
+- **Right-click** a markup to rename, copy, duplicate, delete or lock it, or to select everything like it. Right-click the empty page to paste there.
 
 ### 5. Save your work
 
@@ -98,13 +103,18 @@ Click **Save PDF** or **Save PNG** (depending on the file type) to download a co
 
 | Action | Shortcut |
 |--------|----------|
+| List every shortcut | `?` |
 | Undo | `Ctrl+Z` / `Cmd+Z` (goes to the sheet the change was on) |
+| Copy / cut / paste | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
+| Duplicate | `Ctrl+D` |
+| Select everything on the sheet | `Ctrl+A` |
 | Previous / next sheet | `Page Up` / `Page Down` |
 | Run tool | `P` |
 | Delete selected | `Delete` or `Backspace` |
 | Deselect / cancel | `Escape` |
 | Zoom | Scroll wheel, or use **+** / **−** in the toolbar |
-| Pan | Middle mouse button (any tool), or the **Pan** tool |
+| Fit page / fit width | `Ctrl+0` / `Ctrl+2`, or the buttons beside the zoom |
+| Pan | Hold `Space` and drag, or the middle mouse button (any tool), or the **Pan** tool |
 
 - You must calibrate before using **Line** or **Rect** — the status bar will remind you if scale is not set.
 - TIFF files (including scanned drawings) are supported alongside standard image formats.

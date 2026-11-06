@@ -8,7 +8,7 @@ import { ColorWheel } from "@/app/components/ColorWheel";
 import { SIDE_TOOLS, ToolIcon } from "@/app/components/SideToolbar";
 import { MARKUP_PALETTE } from "@/app/utils/colors";
 import { RESERVED_KEYS, type ColorTool } from "@/app/utils/settings";
-import { UNIT_LABELS } from "@/app/utils/units";
+import { UNIT_LABELS, type FeetPrecision } from "@/app/utils/units";
 
 const COLOR_TOOLS: { id: ColorTool; label: string }[] = [
   { id: "measure", label: "Line" },
@@ -23,7 +23,7 @@ const COLOR_TOOLS: { id: ColorTool; label: string }[] = [
   { id: "note", label: "Note" },
 ];
 
-const HOTKEY_TOOLS: { id: ToolMode; label: string }[] = [
+export const HOTKEY_TOOLS: { id: ToolMode; label: string }[] = [
   ...COLOR_TOOLS,
   { id: "snapshot", label: "Snapshot" },
   { id: "calibrate", label: "Calibrate" },
@@ -340,6 +340,32 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                         {UNIT_LABELS[unit]}
                       </option>
                     ))}
+                  </select>
+                </label>
+                <label className="flex items-center justify-between gap-4 text-sm text-text-primary">
+                  <span>
+                    Feet and inches precision
+                    <span className="mt-0.5 block text-xs text-text-muted">
+                      How finely lengths are shown, on screen and in saved files. Measuring and CSV values stay exact.
+                    </span>
+                  </span>
+                  <select
+                    value={settings.feetPrecision ?? 1}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      dispatch({
+                        type: "UPDATE_SETTINGS",
+                        patch: { feetPrecision: value === "decimal" ? value : (Number(value) as FeetPrecision) },
+                      });
+                    }}
+                    className="rounded border border-border bg-surface px-2 py-1"
+                  >
+                    <option value={1}>Nearest inch</option>
+                    <option value={2}>1/2&quot;</option>
+                    <option value={4}>1/4&quot;</option>
+                    <option value={8}>1/8&quot;</option>
+                    <option value={16}>1/16&quot;</option>
+                    <option value="decimal">Decimal feet</option>
                   </select>
                 </label>
               </div>

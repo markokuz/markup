@@ -11,9 +11,10 @@ import { MagnifierLoupe } from "@/app/components/MagnifierLoupe";
 import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
 import { getTabScroll, saveTabScroll, tabScrollKey } from "@/app/utils/tabScroll";
-import { viewerBridge } from "@/app/utils/viewerBridge";
+import { viewportZoom } from "@/app/utils/documentViewport";
+import { takePendingReveal, viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/zoomAnchor";
-import { clampZoom } from "@/app/utils/zoomLevels";
+import { clampZoom, fitZoom } from "@/app/utils/zoomLevels";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
@@ -21,6 +22,12 @@ import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
 /** Each wheel notch zooms by this factor, so steps feel the same at 25% and 1600%. */
 const ZOOM_WHEEL_FACTOR = 1.1;
 const ZOOM_COMMIT_DELAY_MS = 120;
+/** The scroll area's p-6 padding, both sides together. */
+const CANVAS_PADDING_TOTAL_PX = 48;
+/** Fit width leaves room for the vertical scrollbar a tall page brings back. */
+const SCROLLBAR_ALLOWANCE_PX = 20;
+/** Keep a revealed markup this far inside the view before scrolling to it. */
+const REVEAL_MARGIN_PX = 60;
 
 export function PdfViewer() {
   const {
@@ -131,6 +138,9 @@ export function PdfViewer() {
     null,
   );
   const [isPanning, setIsPanning] = useState(false);
+  /** Space is held: a left drag pans, whatever the tool. */
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeldRef = useRef(false);
 
   const clearPreviewTransform = useCallback(() => {
     const el = overlayRef.current;
@@ -244,6 +254,45 @@ export function PdfViewer() {
     }
   }, [zoom, clearPreviewTransform]);
 
+  // Comes before the effect below, which uses revealDocPoint on a sheet's first render.
+  useLayoutEffect(() => {
+    viewerBridge.getFitZoom = (mode) => {
+      const scrollEl = scrollRef.current;
+      if (!scrollEl || !viewport) return null;
+      // Offset sizes: a fitted page drops the scrollbars the page has now.
+      const scale = viewportZoom(viewport);
+      return fitZoom(
+        mode,
+        { width: viewport.width / scale, height: viewport.height / scale },
+        {
+          width: scrollEl.offsetWidth - CANVAS_PADDING_TOTAL_PX - (mode === "width" ? SCROLLBAR_ALLOWANCE_PX : 0),
+          height: scrollEl.offsetHeight - CANVAS_PADDING_TOTAL_PX,
+        },
+      );
+    };
+    viewerBridge.revealDocPoint = (point) => {
+      const scrollEl = scrollRef.current;
+      const overlay = overlayRef.current;
+      if (!scrollEl || !overlay || !viewport) return;
+      const target = viewport.convertToViewportPoint(point.x, point.y);
+      const scrollRect = scrollEl.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      const x = overlayRect.left + target.x - scrollRect.left;
+      const y = overlayRect.top + target.y - scrollRect.top;
+      const inView =
+        x > REVEAL_MARGIN_PX &&
+        y > REVEAL_MARGIN_PX &&
+        x < scrollEl.clientWidth - REVEAL_MARGIN_PX &&
+        y < scrollEl.clientHeight - REVEAL_MARGIN_PX;
+      if (inView) return;
+      scrollEl.scrollBy(x - scrollEl.clientWidth / 2, y - scrollEl.clientHeight / 2);
+    };
+    return () => {
+      viewerBridge.getFitZoom = null;
+      viewerBridge.revealDocPoint = null;
+    };
+  }, [viewport]);
+
   // On first render for this tab, return to where the user left it, or center
   // the document instead of letting the browser pin the view to a corner.
   useLayoutEffect(() => {
@@ -258,6 +307,9 @@ export function PdfViewer() {
       scrollEl.scrollLeft = Math.max(0, (scrollEl.scrollWidth - scrollEl.clientWidth) / 2);
       scrollEl.scrollTop = 0;
     }
+    // Arrived from a Markups list row on another sheet: show that markup.
+    const reveal = takePendingReveal();
+    if (reveal) viewerBridge.revealDocPoint?.(reveal);
   }, [scrollKey, viewport]);
 
   // Remember this tab's scroll position (only once the initial position is set,
@@ -366,7 +418,7 @@ export function PdfViewer() {
     if (!el || !fileBytes) return;
 
     const onMiddlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 1) return;
+      if (event.button !== 1 && !(event.button === 0 && spaceHeldRef.current)) return;
       event.preventDefault();
       event.stopPropagation();
       beginPan(event.clientX, event.clientY);
@@ -407,6 +459,40 @@ export function PdfViewer() {
     };
   }, [fileBytes, beginPan, endPan]);
 
+  // Holding Space pans without leaving the tool, so a line or area in progress carries on.
+  useEffect(() => {
+    if (!fileBytes) return;
+    const setHeld = (held: boolean) => {
+      spaceHeldRef.current = held;
+      setSpaceHeld(held);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      const target = event.target as HTMLElement;
+      if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target.tagName === "BUTTON") {
+        // Someone tabbing around presses Space to use the button; after a mouse click it is only left focused.
+        if (target.matches(":focus-visible")) return;
+        target.blur();
+      }
+      event.preventDefault();
+      if (!event.repeat) setHeld(true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") setHeld(false);
+    };
+    // Alt-tabbing away while it is down would never deliver the keyup.
+    const onBlur = () => setHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [fileBytes]);
+
   const handlePanPointerDown = (event: React.PointerEvent) => {
     if (tool !== "pan" || event.button !== 0 || !scrollRef.current) return;
     beginPan(event.clientX, event.clientY);
@@ -425,7 +511,7 @@ export function PdfViewer() {
     endPan();
   };
 
-  const panCursor = isPanning ? "grabbing" : tool === "pan" ? "grab" : undefined;
+  const panCursor = isPanning ? "grabbing" : tool === "pan" || spaceHeld ? "grab" : undefined;
 
   const showLoupe = tool === "calibrate" || (loupeEnabled && tool !== "pan");
   const overflowing =
@@ -477,7 +563,10 @@ export function PdfViewer() {
     <div className="relative isolate min-h-0 min-w-0 flex-1">
       <div
         ref={scrollRef}
-        className="h-full w-full overflow-auto bg-canvas-bg p-6"
+        // The markup layer sets its own cursor, so the pan cursor has to outrank it.
+        className={`h-full w-full overflow-auto bg-canvas-bg p-6 ${
+          isPanning ? "[&_*]:cursor-grabbing!" : spaceHeld ? "[&_*]:cursor-grab!" : ""
+        }`}
         style={{ cursor: panCursor }}
         onPointerDown={handlePanPointerDown}
         onPointerMove={handlePanPointerMove}

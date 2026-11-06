@@ -1,5 +1,6 @@
 import type { ToolMode, Unit } from "@/app/types";
 import { DEFAULT_ANNOTATION_COLOR, LEGACY_REDLINE_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
+import type { FeetPrecision } from "@/app/utils/units";
 
 /** Tools that create a coloured markup. */
 export type ColorTool =
@@ -35,6 +36,8 @@ export interface AppSettings {
   drawWidth?: number;
   /** Eraser diameter last picked, in screen px. */
   eraserSize?: number;
+  /** How finely feet and inches are shown; unset is the nearest inch. */
+  feetPrecision?: FeetPrecision;
   /** Side toolbar tools kept in its More menu. A list of hidden ones, so tools added later start visible. */
   hiddenTools?: ToolMode[];
 }

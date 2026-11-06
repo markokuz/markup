@@ -5,11 +5,18 @@ import { createJiti } from "jiti";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
-const { buildMarkupRows, rowsToCsv, summarizeRows } = await jiti.import("./markupList.ts");
+const { buildMarkupRows, markupCenter, rowsToCsv, summarizeRows } = await jiti.import("./markupList.ts");
 const { withoutNearestCutout } = await jiti.import("./shapeMetrics.ts");
 
 const row = (fields) => ({ id: "x", type: "Note", name: "", color: "#000000", text: "", display: "", ...fields });
 const cells = (fields) => rowsToCsv([row(fields)], "ft").split("\r\n")[1];
+
+// The point a Markups list row scrolls to, for each kind of markup.
+assert.deepEqual(markupCenter({ start: { x: 0, y: 0 }, end: { x: 10, y: 20 } }), { x: 5, y: 10 });
+assert.deepEqual(markupCenter({ topLeft: { x: 2, y: 8 }, bottomRight: { x: 4, y: 2 } }), { x: 3, y: 5 });
+assert.deepEqual(markupCenter({ position: { x: 7, y: 9 } }), { x: 7, y: 9 });
+assert.deepEqual(markupCenter({ points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 1, y: 6 }] }), { x: 2, y: 3 });
+assert.equal(markupCenter({ points: [] }), null);
 
 // Text a spreadsheet would run as a formula is neutralised, however it starts.
 assert.equal(cells({ text: "=1+1" }), ",Note,,'=1+1,,,,,,#000000,");

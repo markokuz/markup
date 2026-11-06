@@ -5,7 +5,10 @@ import type { DocumentRotation, ShapeAnnotation, ToolMode, Unit } from "@/app/ty
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
 import { ColorWheel } from "@/app/components/ColorWheel";
+import { ScalePresetMenu } from "@/app/components/ScalePresetMenu";
 import { SettingsButton } from "@/app/components/SettingsDialog";
+import { ShortcutsButton } from "@/app/components/ShortcutsDialog";
+import { describeScale } from "@/app/utils/scalePresets";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
@@ -21,6 +24,7 @@ import {
   DEFAULT_ANNOTATION_COLOR,
   MARKUP_PALETTE,
 } from "@/app/utils/colors";
+import { viewerBridge } from "@/app/utils/viewerBridge";
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
 import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
@@ -107,6 +111,13 @@ export function Toolbar() {
     dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, -1) });
   };
 
+  const fitView = (mode: "page" | "width") => {
+    const zoom = viewerBridge.getFitZoom?.(mode);
+    if (!zoom) return;
+    setZoomAnchor("center");
+    dispatch({ type: "SET_ZOOM", zoom });
+  };
+
   const rotateCw = () => {
     const next = ((state.rotation + 90) % 360) as DocumentRotation;
     dispatch({ type: "SET_ROTATION", rotation: next });
@@ -125,7 +136,7 @@ export function Toolbar() {
           <h1 className="text-lg font-semibold tracking-tight text-text-primary">
             Markup
           </h1>
-          <span className="hidden text-xs text-text-muted sm:inline">
+          <span className="hidden text-xs text-text-muted xl:inline">
             PDF & image measure
           </span>
         </div>
@@ -167,6 +178,8 @@ export function Toolbar() {
               {tool.label}
             </button>
           ))}
+          {/* Paper scales only mean something on a PDF: an image has no paper size. */}
+          {state.fileType === "pdf" && <ScalePresetMenu />}
           {calibrationPrompt && (
             <div
               role="status"
@@ -226,6 +239,31 @@ export function Toolbar() {
               aria-label="Zoom in"
             >
               +
+            </button>
+            <button
+              type="button"
+              onClick={() => fitView("page")}
+              disabled={!state.fileBytes}
+              className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              aria-label="Fit page"
+              title="Fit page (Ctrl+0)"
+            >
+              <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="3.5" width="8" height="9" rx="1" />
+                <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => fitView("width")}
+              disabled={!state.fileBytes}
+              className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              aria-label="Fit width"
+              title="Fit width (Ctrl+2)"
+            >
+              <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1.5 3v10M14.5 3v10M4 8h8M6 6 4 8l2 2M10 6l2 2-2 2" />
+              </svg>
             </button>
           </div>
 
@@ -339,6 +377,7 @@ export function Toolbar() {
               </div>
             )}
           </div>
+          <ShortcutsButton />
           <SettingsButton />
         </div>
       </div>
@@ -774,6 +813,36 @@ export function StatusBar() {
             </div>
           </div>
         )}
+
+        <button
+          type="button"
+          aria-pressed={state.snapLines}
+          title={`Straighten lines to ${state.settings.snapStepDeg}° while drawing. Angle and tolerance are in Settings.`}
+          onClick={() => dispatch({ type: "SET_SNAP_LINES", enabled: !state.snapLines })}
+          className={`rounded-md border px-2 py-1 text-xs transition ${
+            state.snapLines
+              ? "border-accent text-accent"
+              : "border-border text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+          }`}
+        >
+          Snap {state.snapLines ? "on" : "off"}
+        </button>
+
+        <button
+          type="button"
+          title={state.scale ? "This sheet's scale. Click to calibrate it again." : "This sheet has no scale. Click to calibrate."}
+          onClick={() => {
+            clearCalibrationPrompt();
+            dispatch({ type: "SET_TOOL", tool: "calibrate" });
+          }}
+          className="max-w-44 truncate whitespace-nowrap rounded-md border border-border px-2 py-1 text-xs text-text-secondary transition hover:bg-surface-muted hover:text-text-primary"
+        >
+          {state.scale ? (
+            <>Scale: <span className="font-mono text-text-primary">{state.fileType === "pdf" ? describeScale(state.scale) : "set"}</span></>
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400">No scale</span>
+          )}
+        </button>
 
         <label className="flex items-center gap-2 text-text-secondary">
           Display unit

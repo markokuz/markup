@@ -39,6 +39,8 @@ interface MarkupClipboard {
   shapes: Omit<ShapeAnnotation, "id">[];
   /** Centre of the copied group's bounding box. */
   center: Point2D;
+  /** That box's width and height. */
+  size: { width: number; height: number };
   /** Real-world metres per unit in the source tab (null if uncalibrated). */
   metersPerUnit: number | null;
 }
@@ -121,9 +123,48 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       { x: Math.min(...xs), y: Math.min(...ys) },
       { x: Math.max(...xs), y: Math.max(...ys) },
     ),
+    size: { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) },
     metersPerUnit: metersPerDocUnit(source.scale),
   };
   return lines.length + rects.length + notes.length + shapes.length;
+}
+
+/**
+ * Where a group's centre can go (one axis) with all of it on the page, since a markup
+ * off the page can't be clicked. A group bigger than the page is centred on it.
+ */
+function keepOnPage(center: number, size: number, pageSize: number): number {
+  if (size >= pageSize) return pageSize / 2;
+  return Math.min(Math.max(center, size / 2), pageSize - size / 2);
+}
+
+/** A duplicate lands this far from the original, in screen px, so both can be seen. */
+const DUPLICATE_OFFSET_PX = 20;
+
+/** New copies of the selected markups, just off the originals. Leaves the clipboard as it was. */
+export function duplicateSelection(source: CopySource, viewport: DocumentViewport) {
+  const saved = clipboard;
+  const copied = copySelection(source, viewport);
+  const copy = clipboard;
+  const zoom = source.zoom || 1;
+  // Steps back the other way at the page's edge, where paste would otherwise stack it on the original.
+  const step = (center: number, size: number, pageSize: number) =>
+    center * zoom +
+    (center * zoom + (size * zoom) / 2 + DUPLICATE_OFFSET_PX > pageSize ? -DUPLICATE_OFFSET_PX : DUPLICATE_OFFSET_PX);
+  const pasted =
+    copied > 0 && copy
+      ? buildPaste({
+          viewport,
+          zoom,
+          scale: source.scale,
+          targetScreen: {
+            x: step(copy.center.x, copy.size.width, viewport.width),
+            y: step(copy.center.y, copy.size.height, viewport.height),
+          },
+        })
+      : null;
+  clipboard = saved;
+  return pasted;
 }
 
 interface PasteTarget {
@@ -146,12 +187,16 @@ export function buildPaste(target: PasteTarget): {
 } | null {
   if (!clipboard) return null;
   const clip = clipboard;
-  const { viewport, targetScreen } = target;
+  const { viewport } = target;
   const zoom = target.zoom || 1;
 
   const destMetersPerUnit = metersPerDocUnit(target.scale);
   const sizeFactor =
     clip.metersPerUnit && destMetersPerUnit ? clip.metersPerUnit / destMetersPerUnit : 1;
+  const targetScreen = {
+    x: keepOnPage(target.targetScreen.x, clip.size.width * sizeFactor * zoom, viewport.width),
+    y: keepOnPage(target.targetScreen.y, clip.size.height * sizeFactor * zoom, viewport.height),
+  };
   const toDoc = (p: Point2D): Point2D =>
     viewport.convertToDocPoint(
       targetScreen.x + (p.x - clip.center.x) * sizeFactor * zoom,

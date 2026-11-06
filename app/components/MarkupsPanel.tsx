@@ -13,6 +13,7 @@ import {
 } from "@/app/utils/groups";
 import {
   buildMarkupRows,
+  markupCenter,
   rowsToCsv,
   summarizeRows,
   type MarkupRow,
@@ -22,6 +23,7 @@ import type { MarkupGroup } from "@/app/types";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
+import { revealOnNextSheet, viewerBridge } from "@/app/utils/viewerBridge";
 
 /** Group rename targets share the rename box with rows; their ids carry this prefix. */
 const GROUP_KEY = "group:";
@@ -382,15 +384,19 @@ export function MarkupsPanel() {
   const selectRow = (id: string, list: string, event: React.MouseEvent) => {
     dispatch({ type: "SET_TOOL", tool: "select" });
     setActiveGroupId(isUngroupedList(list) ? null : list);
+    const markup = [...tab.measurements, ...tab.rectangles, ...tab.notes, ...tab.shapes].find((m) => m.id === id);
+    const center = markup ? markupCenter(markup) : null;
     // On another sheet: go there and pick it; a selection can't span sheets.
     const rowPage = rowsById.get(id)?.page;
     if (rowPage !== undefined && rowPage !== state.page) {
+      revealOnNextSheet(center);
       dispatch({ type: "SET_PAGE", page: rowPage });
       dispatch({ type: "SET_SELECTION", ids: [id] });
       setAnchor({ list, id });
       return;
     }
     const additive = event.ctrlKey || event.metaKey;
+    if (center && !additive && !event.shiftKey) viewerBridge.revealDocPoint?.(center);
     if (event.shiftKey && anchor && anchor.list === list) {
       const ids = listIds(list);
       const [a, b] = [ids.indexOf(anchor.id), ids.indexOf(id)].sort((x, y) => x - y);

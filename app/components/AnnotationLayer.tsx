@@ -68,7 +68,8 @@ import { convertUnits, formatDistance } from "@/app/utils/units";
 import { docDistance } from "@/app/utils/coordinates";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { ANNOTATION_ROOT_ID } from "@/app/utils/viewerBridge";
-import { copySelection } from "@/app/utils/clipboard";
+import { buildPaste, copySelection, duplicateSelection, hasClipboardContent } from "@/app/utils/clipboard";
+import { buildMarkupRows } from "@/app/utils/markupList";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { promptCalibration } from "@/app/utils/calibrationPrompt";
 import { nextGroupName } from "@/app/utils/groups";
@@ -164,19 +165,23 @@ const TEXT_TOOL_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
     '<path d="M5 2.5h6M8 2.5v19M5 21.5h6" fill="none" stroke-linecap="round" stroke="#000" stroke-width="1.5"/>' +
     "</svg>",
 )}") 8 12, text`;
-/** Right-click menu for the markup `id` (or the selection it belongs to). */
+/** Right-click menu for the markup `id` (or the selection it belongs to); null `id`: the empty page. */
 interface ContextMenu {
-  id: string;
+  id: string | null;
   /** Window point clicked; the menu closes if the view scrolls or zooms. */
   clientX: number;
   clientY: number;
   /** The same point on the document. */
   docPoint: Point2D;
+  /** Showing the box that names the markup, instead of the menu's items. */
+  renaming?: boolean;
 }
 
 interface ContextMenuItem {
   label: string;
   run: () => void;
+  /** Shortcut shown beside the label. */
+  keys?: string;
 }
 
 function createId() {
@@ -215,6 +220,7 @@ export function AnnotationLayer({
   const lastPressRef = useRef({ time: -Infinity, x: 0, y: 0 });
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   /** A new callout arrow from the right-click menu is following the pointer, waiting for a click. */
   const [placingArrow, setPlacingArrow] = useState<{ id: string; index: number } | null>(null);
 
@@ -255,7 +261,13 @@ export function AnnotationLayer({
   useEffect(() => {
     if (!contextMenu) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (!contextMenuRef.current?.contains(event.target as Node)) setContextMenu(null);
+      if (contextMenuRef.current?.contains(event.target as Node)) return;
+      // Clicking away keeps a typed name, as it does in the Markups list.
+      const input = renameInputRef.current;
+      if (contextMenu.id && input && input.value !== input.defaultValue) {
+        dispatch({ type: "SET_ANNOTATION_LABEL", id: contextMenu.id, label: input.value });
+      }
+      setContextMenu(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setContextMenu(null);
@@ -272,7 +284,7 @@ export function AnnotationLayer({
       window.removeEventListener("wheel", close);
       window.removeEventListener("resize", close);
     };
-  }, [contextMenu]);
+  }, [contextMenu, dispatch]);
 
   const handleSelect = useCallback(
     (id: string, additive: boolean) => {
@@ -484,8 +496,8 @@ export function AnnotationLayer({
         setContextMenu(null);
         return;
       }
-      // Right-click opens the tool's menu instead of placing a point.
-      if ((state.tool === "measure" || state.tool === "area") && event.button !== 0) return;
+      // Right-click opens the menu instead of placing a point.
+      if (state.tool !== "select" && event.button !== 0) return;
 
       const overlay = overlayRef.current;
       if (!overlay) return;
@@ -495,6 +507,8 @@ export function AnnotationLayer({
 
       if (state.tool === "select") {
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+        // Right-clicking a selected markup keeps the selection, for the menu's group actions.
+        if (event.button !== 0) return;
         const hitId = hitTestAnnotations(
           local,
           state.measurements,
@@ -1187,11 +1201,50 @@ export function AnnotationLayer({
   };
 
   /** What the right-click menu offers for markup `id`, given the selection it opens with and where it was clicked. */
-  const contextMenuItems = (id: string, selection: string[], docPoint: Point2D): ContextMenuItem[] => {
+  const contextMenuItems = (id: string | null, selection: string[], docPoint: Point2D): ContextMenuItem[] => {
     const close = (run: () => void) => () => {
       setContextMenu(null);
       run();
     };
+    if (id === null) {
+      const markupIds = [
+        ...state.measurements.filter((m) => !m.isCalibration),
+        ...state.rectangles,
+        ...state.notes,
+        ...state.shapes,
+      ].map((m) => m.id);
+      return [
+        ...(hasClipboardContent()
+          ? [
+              {
+                label: "Paste here",
+                keys: "Ctrl+V",
+                run: close(() => {
+                  const pasted = buildPaste({
+                    viewport,
+                    zoom: state.zoom,
+                    scale: state.scale,
+                    targetScreen: toScreenPoint(viewport, docPoint.x, docPoint.y),
+                  });
+                  if (pasted) dispatch({ type: "PASTE_ANNOTATIONS", ...pasted });
+                }),
+              },
+            ]
+          : []),
+        ...(markupIds.length > 0
+          ? [
+              {
+                label: "Select all",
+                keys: "Ctrl+A",
+                run: close(() => {
+                  dispatch({ type: "SET_TOOL", tool: "select" });
+                  dispatch({ type: "SET_SELECTION", ids: markupIds });
+                }),
+              },
+            ]
+          : []),
+      ];
+    }
     const area = state.shapes.find((s) => s.id === id && s.kind === "area" && !s.locked);
     const filledIn = area && withoutNearestCutout(area, docPoint);
     const removeCutout: ContextMenuItem[] = filledIn
@@ -1218,10 +1271,35 @@ export function AnnotationLayer({
         run: close(() => dispatch({ type: "SET_LOCKED", ids, locked: !allLocked })),
       };
     };
+    /** Copy, Duplicate and Delete for `ids`. */
+    const editItems = (ids: string[]): ContextMenuItem[] => [
+      {
+        label: "Copy",
+        keys: "Ctrl+C",
+        run: close(() => {
+          const copied = copySelection({ ...state, selectedIds: ids }, viewport);
+          if (copied > 0) showSaveStatus("success", `Copied ${copied} item${copied === 1 ? "" : "s"}`);
+        }),
+      },
+      {
+        label: "Duplicate",
+        keys: "Ctrl+D",
+        run: close(() => {
+          const copies = duplicateSelection({ ...state, selectedIds: ids }, viewport);
+          if (copies) dispatch({ type: "PASTE_ANNOTATIONS", ...copies });
+        }),
+      },
+      {
+        label: "Delete",
+        keys: "Del",
+        run: close(() => dispatch({ type: "DELETE_ANNOTATIONS", ids })),
+      },
+    ];
     if (state.tool === "select" && selection.length >= 2 && selection.includes(id)) {
       const markups = selection.filter((selected) => byId.has(selected));
       return [
         ...removeCutout,
+        ...editItems(markups),
         {
           // A new Markups-panel group; it doesn't change what's selected or drawn.
           label: "Create group",
@@ -1242,6 +1320,25 @@ export function AnnotationLayer({
     const arrowIndex =
       callout && callout.points.length > 2 ? calloutTipIndexAt(callout, docAtScreen, viewport) : -1;
     return [
+      {
+        label: "Rename",
+        run: () => setContextMenu((menu) => menu && { ...menu, renaming: true }),
+      },
+      ...editItems([id]),
+      {
+        label: "Select all like this",
+        run: close(() => {
+          const rows = buildMarkupRows(state);
+          const target = rows.find((row) => row.id === id);
+          dispatch({ type: "SET_TOOL", tool: "select" });
+          dispatch({
+            type: "SET_SELECTION",
+            ids: rows
+              .filter((row) => row.type === target?.type && row.color === target?.color)
+              .map((row) => row.id),
+          });
+        }),
+      },
       ...removeCutout,
       ...(callout
         ? [
@@ -1285,8 +1382,13 @@ export function AnnotationLayer({
 
   const handleContextMenu = (event: React.MouseEvent<SVGSVGElement>) => {
     setContextMenu(null);
-    if (state.tool !== "select" && state.tool !== "measure" && state.tool !== "area") return;
-    if (state.tool === "area" && state.drawingShapeId) return;
+    // Typing in a field keeps the browser's menu, with its own Paste.
+    if ((event.target as Element).closest("input, textarea, [contenteditable]")) return;
+    // Mid-drawing it does nothing, and the browser's own menu would only get in the way.
+    if (state.drawingShapeId || state.pendingPoint) {
+      event.preventDefault();
+      return;
+    }
     const overlay = overlayRef.current;
     if (!overlay) return;
     const local = getLocalCoords(overlay, event.clientX, event.clientY);
@@ -1306,26 +1408,27 @@ export function AnnotationLayer({
             state.scale,
             state.displayUnit,
           )
-        : hitTestAnnotations(
-            local,
-            state.tool === "measure" ? lines : [],
-            [],
-            [],
-            state.tool === "area" ? areas : [],
-            viewport,
-            state.scale,
-            state.displayUnit,
-          );
+        : state.tool === "measure" || state.tool === "area"
+          ? hitTestAnnotations(
+              local,
+              state.tool === "measure" ? lines : [],
+              [],
+              [],
+              state.tool === "area" ? areas : [],
+              viewport,
+              state.scale,
+              state.displayUnit,
+            )
+          : null;
     // Hit testing sees through a cutout, but right-clicking inside one is how you reach it.
     const holedArea =
-      !hitId && state.tool !== "measure"
+      !hitId && (state.tool === "select" || state.tool === "area")
         ? areas.findLast((s) => cutoutCount(s) > 0 && pointInPolygon(docPoint, areaOutline(s)))?.id
         : undefined;
-    const targetId = hitId ?? holedArea;
-    if (!targetId) return;
+    const targetId = hitId ?? holedArea ?? null;
     let selection = state.selectedIds;
     // Right-clicking outside the selection selects what was clicked first.
-    if (state.tool === "select" && !selection.includes(targetId)) {
+    if (targetId && state.tool === "select" && !selection.includes(targetId)) {
       selection = [targetId];
       dispatch({ type: "SET_SELECTION", ids: [targetId] });
     }
@@ -1345,6 +1448,33 @@ export function AnnotationLayer({
   };
 
   const renderContextMenu = (menu: ContextMenu) => {
+    if (menu.renaming && menu.id) {
+      const id = menu.id;
+      const current = [...state.measurements, ...state.rectangles, ...state.notes, ...state.shapes].find(
+        (m) => m.id === id,
+      )?.label;
+      return (
+        <FloatingMenu x={menu.clientX + 4} y={menu.clientY + 4} menuRef={contextMenuRef}>
+          <input
+            ref={renameInputRef}
+            autoFocus
+            defaultValue={current ?? ""}
+            aria-label="Markup name"
+            placeholder="Name, like Kitchen"
+            onFocus={(event) => event.target.select()}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              const input = event.currentTarget;
+              if (input.value !== input.defaultValue) {
+                dispatch({ type: "SET_ANNOTATION_LABEL", id, label: input.value });
+              }
+              setContextMenu(null);
+            }}
+            className="input-field w-48 px-2 py-1 text-sm"
+          />
+        </FloatingMenu>
+      );
+    }
     const items = contextMenuItems(menu.id, state.selectedIds, menu.docPoint);
     if (items.length === 0) return null;
     return (
@@ -1354,10 +1484,11 @@ export function AnnotationLayer({
             key={menuItem.label}
             type="button"
             role="menuitem"
-            className="block w-full rounded-md px-3 py-1.5 text-left text-sm text-text-primary hover:bg-surface-muted"
+            className="flex w-full items-center justify-between gap-6 rounded-md px-3 py-1.5 text-left text-sm text-text-primary hover:bg-surface-muted"
             onClick={menuItem.run}
           >
             {menuItem.label}
+            {menuItem.keys && <span className="text-xs text-text-muted">{menuItem.keys}</span>}
           </button>
         ))}
       </FloatingMenu>
@@ -2025,9 +2156,7 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
-        {contextMenu &&
-          (state.tool === "select" || state.tool === "measure" || state.tool === "area") &&
-          renderContextMenu(contextMenu)}
+        {contextMenu && renderContextMenu(contextMenu)}
         {callouts
           .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length >= 2 && !c.locked)
           .map((c) => {

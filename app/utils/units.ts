@@ -20,18 +20,48 @@ export function convertUnits(value: number, from: Unit, to: Unit): number {
   return fromMeters(toMeters(value, from), to);
 }
 
-function formatFeetAndInches(feetDecimal: number): string {
-  const totalInches = Math.round(Math.max(0, feetDecimal) * 12);
-  const feet = Math.floor(totalInches / 12);
-  const inches = totalInches % 12;
+/** Parts of an inch to round feet and inches to (1 = whole inches), or decimal feet. */
+export type FeetPrecision = 1 | 2 | 4 | 8 | 16 | "decimal";
 
-  if (feet === 0 && inches === 0) {
+let feetPrecision: FeetPrecision = 1;
+
+/**
+ * Set from the settings as they change. Module-level so formatDistance's many callers,
+ * exports included, all agree without each being passed it.
+ */
+export function setFeetPrecision(precision: FeetPrecision | undefined) {
+  feetPrecision = precision ?? 1;
+}
+
+/** `3 1/2`, `3` or `1/2`, from a count of 1/`parts` inches; "" for zero. */
+function formatInches(count: number, parts: number): string {
+  const whole = Math.floor(count / parts);
+  let numerator = count % parts;
+  let denominator = parts;
+  while (numerator > 0 && numerator % 2 === 0) {
+    numerator /= 2;
+    denominator /= 2;
+  }
+  const fraction = numerator > 0 ? `${numerator}/${denominator}` : "";
+  return [whole > 0 ? String(whole) : "", fraction].filter(Boolean).join(" ");
+}
+
+function formatFeetAndInches(feetDecimal: number): string {
+  if (feetPrecision === "decimal") {
+    return `${Math.max(0, feetDecimal).toFixed(2)} ft`;
+  }
+  const parts = feetPrecision;
+  const total = Math.round(Math.max(0, feetDecimal) * 12 * parts);
+  const feet = Math.floor(total / (12 * parts));
+  const inches = formatInches(total % (12 * parts), parts);
+
+  if (feet === 0 && !inches) {
     return "0'";
   }
   if (feet === 0) {
     return `${inches}"`;
   }
-  if (inches === 0) {
+  if (!inches) {
     return `${feet}'`;
   }
   return `${feet}' ${inches}"`;
@@ -50,6 +80,9 @@ export function formatDistance(value: number, unit: Unit): string {
     return formatFeetAndInches(value);
   }
   if (unit === "in") {
+    if (feetPrecision !== "decimal" && feetPrecision > 1) {
+      return `${formatInches(Math.round(Math.max(0, value) * feetPrecision), feetPrecision) || "0"}"`;
+    }
     const rounded = Math.round(value * 100) / 100;
     const text = Number.isInteger(rounded)
       ? String(rounded)
@@ -60,9 +93,9 @@ export function formatDistance(value: number, unit: Unit): string {
   return `${value.toFixed(decimals)} ${unit}`;
 }
 
-/** Split a `10' 1"` label into its feet and inches parts (null for other labels). */
+/** Split a `10' 1"` or `10' 1 1/2"` label into its feet and inches parts (null for other labels). */
 export function splitFeetInches(label: string): [string, string] | null {
-  const match = /^(\d+')\s(\d+")$/.exec(label);
+  const match = /^(\d+')\s([\d /]+")$/.exec(label);
   return match ? [match[1], match[2]] : null;
 }
 

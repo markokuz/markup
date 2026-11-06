@@ -9,6 +9,20 @@ export function clampZoom(value: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
 }
 
+/**
+ * Zoom that fits the page in the scroll area. Rounds down, since rounding up would
+ * overflow by a pixel and bring the scrollbars back.
+ */
+export function fitZoom(
+  mode: "page" | "width",
+  page: { width: number; height: number },
+  area: { width: number; height: number },
+): number {
+  const across = area.width / page.width;
+  const zoom = mode === "width" ? across : Math.min(across, area.height / page.height);
+  return clampZoom(Math.floor(zoom * 100) / 100);
+}
+
 /** The next button stop above (`direction` 1) or below (-1) `zoom`. */
 export function stepZoom(zoom: number, direction: 1 | -1): number {
   const next =

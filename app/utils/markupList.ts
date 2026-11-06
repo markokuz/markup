@@ -2,6 +2,7 @@ import type {
   MarkupGroup,
   Measurement,
   NoteAnnotation,
+  Point2D,
   RectMeasurement,
   Scale,
   ShapeAnnotation,
@@ -217,6 +218,24 @@ export function summarizeRows(rows: MarkupRow[], unit: Unit): MarkupTotal[] {
           ? `${g.count}`
           : `${formatArea(g.area, unit)} (${g.n})`,
   }));
+}
+
+/** Middle of a markup's bounding box, for scrolling to it. Null for a shape with no points yet. */
+export function markupCenter(
+  markup: Measurement | RectMeasurement | NoteAnnotation | ShapeAnnotation,
+): Point2D | null {
+  const points =
+    "start" in markup
+      ? [markup.start, markup.end]
+      : "topLeft" in markup
+        ? [markup.topLeft, markup.bottomRight]
+        : "position" in markup
+          ? [markup.position]
+          : markup.points;
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
 }
 
 function csvCell(value: string | number | undefined): string {

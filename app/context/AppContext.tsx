@@ -26,6 +26,7 @@ import {
   saveSettings,
   type AppSettings,
 } from "@/app/utils/settings";
+import { setFeetPrecision } from "@/app/utils/units";
 import { appendHistory, createUndoSnapshot } from "@/app/utils/history";
 import { eraseFromStrokes, joinStrokes, splitStrokes } from "@/app/utils/geometry";
 import { markupsOnPage, pageOf, pagesWithMarkups } from "@/app/utils/pages";
@@ -716,7 +717,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
             // A sheet's calibration line stays until its scale is replaced: it would no longer be true.
             measurements: [
               ...tab.measurements.filter((m) => !m.isCalibration || !pages.includes(pageOf(m))),
-              onCurrentPage(tab, action.calibrationMeasurement),
+              ...(action.calibrationMeasurement ? [onCurrentPage(tab, action.calibrationMeasurement)] : []),
             ],
             calibrateDialogOpen: false,
             pendingCalibrationLine: null,
@@ -991,6 +992,8 @@ const AppDispatchContext = createContext<Dispatch<AppAction> | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [tabsState, dispatch] = useReducer(appReducer, initialTabsState, initTabsState);
   const appState = mergeActiveTabView(tabsState);
+  // During render, so every label below already uses it on the render a change arrives in.
+  setFeetPrecision(tabsState.settings.feetPrecision);
 
   useEffect(() => {
     saveConfirmCloseUnsaved(tabsState.confirmCloseUnsaved);

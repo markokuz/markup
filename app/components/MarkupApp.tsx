@@ -12,13 +12,14 @@ import { PdfViewer } from "@/app/components/PdfCanvas";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
-import { buildPaste, copySelection, hasClipboardContent } from "@/app/utils/clipboard";
+import { buildPaste, copySelection, duplicateSelection, hasClipboardContent } from "@/app/utils/clipboard";
 import { openDroppedFile } from "@/app/utils/openFile";
 import { saveTabWithFeedback } from "@/app/utils/projectSave";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { toolForHotkey } from "@/app/utils/settings";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { viewerBridge } from "@/app/utils/viewerBridge";
+import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 
 const NON_TEXT_INPUTS = new Set(["color", "checkbox", "radio", "range", "button", "file"]);
 
@@ -128,14 +129,48 @@ function MarkupShell() {
       const ctrl = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
 
-      if (ctrl && key === "c" && !isTextEntry) {
+      if (ctrl && (key === "0" || key === "2") && !isTextEntry) {
+        event.preventDefault();
+        const fitted = viewerBridge.getFitZoom?.(key === "0" ? "page" : "width");
+        if (fitted) {
+          setZoomAnchor("center");
+          dispatch({ type: "SET_ZOOM", zoom: fitted });
+        }
+        return;
+      }
+
+      if (ctrl && key === "a" && !isTextEntry && stateRef.current.fileBytes) {
+        event.preventDefault();
+        const { measurements, rectangles, notes, shapes } = stateRef.current;
+        dispatch({ type: "SET_TOOL", tool: "select" });
+        dispatch({
+          type: "SET_SELECTION",
+          // The current sheet's markups; the calibration line is reference, not a markup.
+          ids: [...measurements.filter((m) => !m.isCalibration), ...rectangles, ...notes, ...shapes].map((m) => m.id),
+        });
+        return;
+      }
+
+      if (ctrl && key === "d" && !isTextEntry) {
+        // Always ours: the browser's bookmark dialog is never what's wanted here.
+        event.preventDefault();
+        const current = stateRef.current;
+        if (current.selectedIds.length === 0 || !current.documentViewport) return;
+        const copies = duplicateSelection(current, current.documentViewport);
+        if (copies) dispatch({ type: "PASTE_ANNOTATIONS", ...copies });
+        return;
+      }
+
+      if (ctrl && (key === "c" || key === "x") && !isTextEntry) {
         const current = stateRef.current;
         if (current.selectedIds.length === 0 || !current.documentViewport) return;
         // Markups are selected, so a stray page text highlight is accidental.
         window.getSelection()?.removeAllRanges();
         event.preventDefault();
         const copied = copySelection(current, current.documentViewport);
-        if (copied > 0) showSaveStatus("success", `Copied ${copied} item${copied === 1 ? "" : "s"}`);
+        if (copied === 0) return;
+        if (key === "x") dispatch({ type: "DELETE_SELECTED" });
+        showSaveStatus("success", `${key === "x" ? "Cut" : "Copied"} ${copied} item${copied === 1 ? "" : "s"}`);
         return;
       }
 

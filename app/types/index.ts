@@ -92,10 +92,12 @@ type ShapeKind = "area" | "polyline" | "count" | "cloud" | "draw" | "callout" | 
 export interface ShapeAnnotation extends MarkupFlags {
   id: string;
   kind: ShapeKind;
-  /** area: vertices · polyline: run vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor] */
+  /** area: vertices · polyline: run vertices · count: markers · cloud: two corners · draw: stroke points · callout: [arrow tip, text anchor, ...more arrow tips] */
   points: Point2D[];
   /** Callout and free text. */
   text?: string;
+  /** Callout only: card width in screen px; text wraps to it. Unset: sized to the text. */
+  width?: number;
   /** Text only: font size in doc units (points on a PDF); points = [screen-aligned top-left]. */
   fontSize?: number;
   bold?: boolean;

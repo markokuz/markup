@@ -9,7 +9,6 @@ import {
   polylineLength,
   splitStrokes,
 } from "@/app/utils/geometry";
-import { NOTE_CARD } from "@/app/utils/noteLayout";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 
 /** Display units per document unit under the calibration. */
@@ -103,12 +102,6 @@ export const CLOSE_AREA_PX = 10;
 export function countStartAt(shape: ShapeAnnotation): number {
   return shape.startAt ?? 1;
 }
-
-/** Screen offset (px) from a callout's card anchor to where its leader line attaches. */
-export const CALLOUT_LEADER_OFFSET: Point2D = {
-  x: 0,
-  y: NOTE_CARD.padY + NOTE_CARD.lineHeight / 2,
-};
 
 /** Draw tool line thickness, in screen px at any zoom like every markup's stroke. */
 export const DRAW_DEFAULT_WIDTH = 2;

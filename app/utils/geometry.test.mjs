@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   areaRings,
   areaToCutAt,
+  boxEdgePoint,
   cloudOutline,
   pointInRings,
   ringsPath,
@@ -146,5 +147,16 @@ assert.ok(near(bendCut[0][1], { x: 50, y: 0 }) && near(bendCut[0][2], { x: 50, y
 assert.ok(near(bendCut[1][0], { x: 50, y: 30 }));
 // Leftovers shorter than minLength are dropped.
 assert.equal(eraseFromStrokes(line, { x: 50, y: 0 }, 49.5, 1).length, 0);
+
+// A leader leaves the card's border in line with the card's centre, on whichever side faces the tip.
+{
+  const box = { x: 0, y: 0, width: 100, height: 40 };
+  assert.deepEqual(boxEdgePoint(box, { x: 200, y: 20 }), { x: 100, y: 20 });
+  assert.deepEqual(boxEdgePoint(box, { x: -50, y: 20 }), { x: 0, y: 20 });
+  assert.deepEqual(boxEdgePoint(box, { x: 50, y: 500 }), { x: 50, y: 40 });
+  assert.deepEqual(boxEdgePoint(box, { x: 150, y: 60 }), { x: 100, y: 40 });
+  // A tip dead centre has no direction: stay put rather than produce NaN.
+  assert.deepEqual(boxEdgePoint(box, { x: 50, y: 20 }), { x: 50, y: 20 });
+}
 
 console.log("geometry: all checks passed");

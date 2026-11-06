@@ -88,6 +88,18 @@ export function rotateAround(p: Point2D, c: Point2D, deg: number): Point2D {
 }
 
 /** Corners (TL, TR, BR, BL) of a w×h box whose top-left is `anchor`, turned `deg` about it. */
+/** Where the line from an axis-aligned box's centre towards `target` crosses the box's border. */
+export function boxEdgePoint(
+  box: { x: number; y: number; width: number; height: number },
+  target: Point2D,
+): Point2D {
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const dx = target.x - centre.x;
+  const dy = target.y - centre.y;
+  const t = Math.min(box.width / 2 / Math.abs(dx), box.height / 2 / Math.abs(dy));
+  return Number.isFinite(t) ? { x: centre.x + dx * t, y: centre.y + dy * t } : centre;
+}
+
 export function rotatedBoxCorners(anchor: Point2D, w: number, h: number, deg: number): Point2D[] {
   return [
     anchor,

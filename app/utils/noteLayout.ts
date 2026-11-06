@@ -1,5 +1,6 @@
 import type { Point2D, ShapeAnnotation } from "@/app/types";
 import { viewportZoom, type DocumentViewport } from "@/app/utils/documentViewport";
+import { boxEdgePoint } from "@/app/utils/geometry";
 
 /** Note card metrics in screen px; exports divide by zoom so the card matches what was on screen. */
 export const NOTE_CARD = {
@@ -29,6 +30,13 @@ export function wrapNoteText(
         line = word;
       } else {
         line = candidate;
+      }
+      // Like the HTML card's break-words: a word wider than the card splits across lines.
+      while (line.length > 1 && measure(line) > maxWidth) {
+        let fit = line.length - 1;
+        while (fit > 1 && measure(line.slice(0, fit)) > maxWidth) fit--;
+        lines.push(line.slice(0, fit));
+        line = line.slice(fit);
       }
     }
     lines.push(line);
@@ -145,7 +153,8 @@ export function noteCardSize(text: string, cardWidth?: number): { width: number;
   const ctx = measureContext;
   const measure = (line: string) => {
     if (!ctx) return line.length * 7;
-    ctx.font = `${NOTE_CARD.fontSize}px ui-sans-serif, system-ui, sans-serif`;
+    // The card's own font: it inherits the page's, so handles and arrows land on its real edge.
+    ctx.font = `${NOTE_CARD.fontSize}px ${getComputedStyle(document.body).fontFamily}`;
     return ctx.measureText(line).width;
   };
   const lines = wrapNoteText(text || "Note", measure, noteTextWidth(cardWidth));
@@ -156,6 +165,33 @@ export function noteCardSize(text: string, cardWidth?: number): { width: number;
     width: cardWidth ?? Math.max(textWidth + NOTE_CARD_CHROME_X, NOTE_CARD.minWidth),
     height: lines.length * NOTE_CARD.lineHeight + NOTE_CARD.padY * 2 + 2,
   };
+}
+
+/** A callout's arrow tips: its points are [first tip, card anchor, ...more tips]. */
+export function calloutTips(shape: Pick<ShapeAnnotation, "points">): Point2D[] {
+  return [shape.points[0], ...shape.points.slice(2)];
+}
+
+/** A callout's card on screen (it stays upright at any view rotation). */
+export function calloutCardBox(
+  shape: Pick<ShapeAnnotation, "points" | "text" | "width">,
+  viewport: DocumentViewport,
+): { x: number; y: number; width: number; height: number } {
+  const anchor = viewport.convertToViewportPoint(shape.points[1].x, shape.points[1].y);
+  return { x: anchor.x, y: anchor.y, ...noteCardSize(shape.text || "Callout", shape.width) };
+}
+
+/** Each callout arrow on screen as [start on the card's border, tip]. */
+export function calloutLeaders(
+  shape: Pick<ShapeAnnotation, "points" | "text" | "width">,
+  viewport: DocumentViewport,
+): [Point2D, Point2D][] {
+  if (shape.points.length < 2) return [];
+  const card = calloutCardBox(shape, viewport);
+  return calloutTips(shape).map((p) => {
+    const tip = viewport.convertToViewportPoint(p.x, p.y);
+    return [boxEdgePoint(card, tip), tip];
+  });
 }
 
 /** Turns a doc-space "screen up" direction by `deg` clockwise on screen. */

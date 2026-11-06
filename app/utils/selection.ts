@@ -26,7 +26,13 @@ import {
   rotatedBoxCorners,
   splitStrokes,
 } from "@/app/utils/geometry";
-import { noteCardSize, textInkScreenBox, textScreenBox } from "@/app/utils/noteLayout";
+import {
+  calloutCardBox,
+  calloutLeaders,
+  noteCardSize,
+  textInkScreenBox,
+  textScreenBox,
+} from "@/app/utils/noteLayout";
 import { drawWidth } from "@/app/utils/shapeMetrics";
 
 /** Screen corners (TL, TR, BR, BL) of a note card, turned with the note. */
@@ -209,6 +215,7 @@ function shapeScreenSegments(
 ): [Point2D, Point2D][] {
   const toScreen = (p: Point2D) => toScreenPoint(viewport, p.x, p.y);
   if (shape.kind === "text") return closedSegments(textScreenCorners(shape, viewport));
+  if (shape.kind === "callout") return calloutLeaders(shape, viewport);
   if (shape.kind === "count") return shape.points.map((p) => [toScreen(p), toScreen(p)]);
   if (shape.kind === "draw") {
     // Erased gaps are not part of the drawing: only join points within each piece.
@@ -229,8 +236,7 @@ function shapeScreenSegments(
 
 function calloutTextRect(shape: ShapeAnnotation, viewport: DocumentViewport): ScreenRect | null {
   if (shape.kind !== "callout" || shape.points.length < 2) return null;
-  const pos = toScreenPoint(viewport, shape.points[1].x, shape.points[1].y);
-  return { x: pos.x, y: pos.y, width: estimateLabelWidth(shape.text || "Callout"), height: 28 };
+  return calloutCardBox(shape, viewport);
 }
 
 export function findAnnotationsInMarquee(
@@ -299,6 +305,25 @@ const LINE_HIT_SLOP = 14;
 const LABEL_HIT_PADDING = 4;
 /** Free text is hit only on (or just around) its box, so stacked lines stay separate targets. */
 const TEXT_HIT_SLOP = 2;
+
+/** Index in `shape.points` of the callout arrow nearest screen `point`, or -1 if it isn't on one. */
+export function calloutTipIndexAt(
+  shape: ShapeAnnotation,
+  point: Point2D,
+  viewport: DocumentViewport,
+): number {
+  if (pointInRect(point, calloutCardBox(shape, viewport))) return -1;
+  let best = -1;
+  let bestDist = LINE_HIT_SLOP;
+  calloutLeaders(shape, viewport).forEach(([start, tip], i) => {
+    const dist = distanceToSegment(point, start, tip);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      best = i === 0 ? 0 : i + 1;
+    }
+  });
+  return best;
+}
 
 export function hitTestAnnotations(
   point: Point2D,

@@ -7,6 +7,12 @@ import { decodePDFRawStream, PDFDocument, PDFName, PDFRawStream, StandardFonts }
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
 const { buildPdfWithMarkups, readPdfWithMarkups } = await jiti.import("./pdfSave.ts");
+const { wrapNoteText } = await jiti.import("./noteLayout.ts");
+
+// Words wrap whole; one wider than the card splits across lines, even at a 1-character width.
+assert.deepEqual(wrapNoteText("ab cd", (s) => s.length, 3), ["ab", "cd"]);
+assert.deepEqual(wrapNoteText("abcdefgh x", (s) => s.length, 3), ["abc", "def", "gh", "x"]);
+assert.deepEqual(wrapNoteText("abc", (s) => s.length, 0), ["a", "b", "c"]);
 
 const source = await PDFDocument.create();
 const font = await source.embedFont(StandardFonts.Helvetica);
@@ -208,6 +214,13 @@ const awkwardData = {
   shapes: [
     { id: "t2", kind: "text", points: [{ x: 100, y: 200 }], text: awkward, fontSize: 14, bold: true },
     { id: "c2", kind: "callout", points: [{ x: 100, y: 100 }, { x: 200, y: 120 }], text: awkward },
+    {
+      id: "c3",
+      kind: "callout",
+      points: [{ x: 100, y: 400 }, { x: 200, y: 420 }, { x: 500, y: 500 }, { x: 250, y: 430 }],
+      text: "Two more arrows, one with its tip under the card",
+      width: 150,
+    },
   ],
 };
 const savedAwkward = await bytesOf(await buildPdfWithMarkups(original, awkwardData));
@@ -215,6 +228,9 @@ const readAwkward = await readPdfWithMarkups(savedAwkward);
 assert.equal(readAwkward.data.notes[0].text, awkward);
 assert.equal(readAwkward.data.shapes[0].text, awkward);
 assert.equal(readAwkward.data.shapes[1].text, awkward);
+// A callout's extra arrows and resized card survive a save.
+assert.equal(readAwkward.data.shapes[2].points.length, 4);
+assert.equal(readAwkward.data.shapes[2].width, 150);
 
 // Damaged markup data opens as a plain PDF instead of reaching the app.
 const damaged = await PDFDocument.load(saved1);

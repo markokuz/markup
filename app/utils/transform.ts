@@ -1,7 +1,8 @@
 import type { AppAction, NoteAnnotation, Point2D, RectMeasurement, ShapeAnnotation } from "@/app/types";
 import { toDocPoint, toScreenPoint } from "@/app/utils/coordinates";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
-import { cloudOutline, rotateAround } from "@/app/utils/geometry";
+import { cloudOutline, rotateAround, rotatedBoxCorners } from "@/app/utils/geometry";
+import { calloutCardBox, NOTE_CARD } from "@/app/utils/noteLayout";
 import { noteScreenCorners, rectScreenCorners, textScreenCorners } from "@/app/utils/selection";
 
 /** A markup the resize/rotate handles can act on. */
@@ -56,6 +57,10 @@ export function getTransformFrame(
   const shape = target.item;
   if (shape.kind === "text" && shape.points.length >= 1) {
     return frameFrom(textScreenCorners(shape, viewport), shape.rotation ?? 0, true, true);
+  }
+  if (shape.kind === "callout" && shape.points.length >= 2) {
+    const { x, y, width, height } = calloutCardBox(shape, viewport);
+    return frameFrom(rotatedBoxCorners({ x, y }, width, height, 0), 0, true, false);
   }
   if (shape.kind === "image" && shape.points.length === 4) {
     const corners = shape.points.map(toScreen);
@@ -137,6 +142,11 @@ export function scaleTarget(
   };
   const grabbed = toLocal(frame.corners[corner]);
   const now = toLocal(pointer);
+  const isCard = target.kind === "note" || (target.kind === "shape" && target.item.kind === "callout");
+  const cardWidth = Math.hypot(
+    frame.corners[1].x - frame.corners[0].x,
+    frame.corners[1].y - frame.corners[0].y,
+  );
   let sx: number;
   let sy: number;
   if (frame.uniform) {
@@ -145,8 +155,10 @@ export function scaleTarget(
     sx = sy = Math.max(MIN_SCALE, (now.x * grabbed.x + now.y * grabbed.y) / lengthSq);
   } else {
     sx = Math.abs(grabbed.x) < 1e-6 ? 1 : Math.max(MIN_SCALE, now.x / grabbed.x);
-    // A note's height follows its text: resizing only changes how wide the box is.
-    sy = target.kind === "note" || Math.abs(grabbed.y) < 1e-6 ? 1 : Math.max(MIN_SCALE, now.y / grabbed.y);
+    // A card's height follows its text: resizing only changes how wide the box is.
+    sy = isCard || Math.abs(grabbed.y) < 1e-6 ? 1 : Math.max(MIN_SCALE, now.y / grabbed.y);
+    // Stop at the minimum width here, so the corner opposite the handle stays put.
+    if (isCard) sx = Math.max(sx, NOTE_CARD.minWidth / cardWidth);
   }
   const map = (p: Point2D) => {
     const l = toLocal(toScreenPoint(viewport, p.x, p.y));
@@ -156,17 +168,21 @@ export function scaleTarget(
 
   if (target.kind === "rect") return null;
   if (target.kind === "note") {
-    const width = Math.hypot(
-      frame.corners[1].x - frame.corners[0].x,
-      frame.corners[1].y - frame.corners[0].y,
-    );
     return {
       type: "UPDATE_NOTE",
       id: target.item.id,
-      updates: { position: map(target.item.position), width: Math.max(width * sx, 48) },
+      updates: { position: map(target.item.position), width: cardWidth * sx },
     };
   }
   const shape = target.item;
+  if (shape.kind === "callout") {
+    // Only the card resizes; the arrow tips keep pointing where they were.
+    return {
+      type: "UPDATE_SHAPE",
+      id: shape.id,
+      updates: { points: shape.points.map((p, i) => (i === 1 ? map(p) : p)), width: cardWidth * sx },
+    };
+  }
   if (shape.kind === "text") {
     return {
       type: "UPDATE_SHAPE",

@@ -18,6 +18,7 @@ import {
   toScreenRect,
 } from "@/app/utils/coordinates";
 import {
+  calloutTipIndexAt,
   findAnnotationsInMarquee,
   hitTestAnnotations,
   screenRectFromPoints,
@@ -82,6 +83,7 @@ import {
 } from "@/app/utils/transform";
 import { viewportZoom } from "@/app/utils/documentViewport";
 import {
+  calloutCardBox,
   TEXT_DEFAULT_SIZE,
   TEXT_LINE_HEIGHT,
   textFirstLineMiddle,
@@ -117,7 +119,8 @@ type DragMode =
   | { type: "shapePoint"; id: string; index: number }
   | { type: "marquee"; startScreen: Point2D; currentScreen: Point2D; additive: boolean }
   | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D }
-  | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[] }
+  /** `only`: move just this point (a callout's card, leaving its arrow tips where they point). */
+  | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[]; only?: number }
   /** A freehand stroke being dragged out: a cloud outline or a drawing. */
   | { type: "freehand"; kind: "cloud" | "draw"; points: Point2D[] }
   /** Draw tool eraser being dragged; `last` is the previous screen point it rubbed at. */
@@ -150,6 +153,10 @@ const CALIBRATE_FOR_RUN =
   "Set the scale to see this run's length: click Calibrate, then two points on a known dimension.";
 /** Selected text's move tab sits this far outside its left edge (centre), clear of the corner handles. */
 const TEXT_MOVE_TAB_OFFSET_PX = 16;
+/** Selected callout's + handle sits this far below its card (centre). */
+const CALLOUT_ADD_HANDLE_OFFSET_PX = 16;
+/** A click on the + handle with no drag leaves the new arrow's tip this far below the handle. */
+const CALLOUT_NEW_ARROW_PX = 48;
 /** Text tool I-beam whose hotspot is its exact centre (the system `text` cursor's varies by OS). */
 const TEXT_TOOL_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="24" viewBox="0 0 16 24">' +
@@ -208,6 +215,42 @@ export function AnnotationLayer({
   const lastPressRef = useRef({ time: -Infinity, x: 0, y: 0 });
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  /** A new callout arrow from the right-click menu is following the pointer, waiting for a click. */
+  const [placingArrow, setPlacingArrow] = useState<{ id: string; index: number } | null>(null);
+
+  const cancelPlacingArrow = useCallback(() => {
+    setPlacingArrow(null);
+    dispatch({ type: "UNDO" });
+  }, [dispatch]);
+
+  const moveShapePoint = useCallback(
+    (id: string, index: number, point: Point2D) => {
+      const shape = state.shapes.find((s) => s.id === id);
+      if (!shape) return;
+      // Stay on the page: a handle dragged off it could never be grabbed again.
+      const screen = toScreenPoint(viewport, point.x, point.y);
+      const onPage = toDocPoint(
+        viewport,
+        Math.min(Math.max(screen.x, 0), viewport.width),
+        Math.min(Math.max(screen.y, 0), viewport.height),
+      );
+      dispatch({
+        type: "UPDATE_SHAPE",
+        id,
+        updates: { points: shape.points.map((p, i) => (i === index ? onPage : p)) },
+      });
+    },
+    [dispatch, state.shapes, viewport],
+  );
+
+  useEffect(() => {
+    if (!placingArrow) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") cancelPlacingArrow();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [cancelPlacingArrow, placingArrow]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -265,7 +308,7 @@ export function AnnotationLayer({
   );
 
   const startShapeDrag = useCallback(
-    (shape: ShapeAnnotationType, originPdf: Point2D, event: React.PointerEvent) => {
+    (shape: ShapeAnnotationType, originPdf: Point2D, event: React.PointerEvent, only?: number) => {
       if (shape.locked) return;
       moveUndoPendingRef.current = true;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -274,6 +317,7 @@ export function AnnotationLayer({
         id: shape.id,
         originPdf,
         points: shape.points.map((p) => ({ ...p })),
+        only,
       };
     },
     [],
@@ -466,7 +510,9 @@ export function AnnotationLayer({
           handleSelect(hitId, additive);
           const shape = state.shapes.find((s) => s.id === hitId);
           // Shapes have no per-part handles: press and drag moves the whole markup.
-          if (shape && !additive) startShapeDrag(shape, pdfPoint, event);
+          // A callout's arrow line moves it all; the very edge of its card moves just the card.
+          const cardOnly = shape?.kind === "callout" && calloutTipIndexAt(shape, local, viewport) < 0;
+          if (shape && !additive) startShapeDrag(shape, pdfPoint, event, cardOnly ? 1 : undefined);
           return;
         }
 
@@ -812,6 +858,11 @@ export function AnnotationLayer({
         if (next !== selectCursor) setSelectCursor(next);
       }
 
+      if (placingArrow) {
+        moveShapePoint(placingArrow.id, placingArrow.index, pdfPoint);
+        return;
+      }
+
       if (dragRef.current) {
         const drag = dragRef.current;
 
@@ -929,20 +980,18 @@ export function AnnotationLayer({
           const update = scaleTarget(drag.target, drag.frame, drag.corner, local, viewport);
           if (update) dispatch(update);
         } else if (drag.type === "shapePoint") {
-          const shape = state.shapes.find((s) => s.id === drag.id);
-          if (!shape) return;
-          dispatch({
-            type: "UPDATE_SHAPE",
-            id: drag.id,
-            updates: { points: shape.points.map((p, i) => (i === drag.index ? pdfPoint : p)) },
-          });
+          moveShapePoint(drag.id, drag.index, pdfPoint);
         } else if (drag.type === "shapeBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
           const dy = pdfPoint.y - drag.originPdf.y;
           dispatch({
             type: "UPDATE_SHAPE",
             id: drag.id,
-            updates: { points: drag.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) },
+            updates: {
+              points: drag.points.map((p, i) =>
+                drag.only === undefined || drag.only === i ? { x: p.x + dx, y: p.y + dy } : p,
+              ),
+            },
           });
         } else if (drag.type === "noteBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
@@ -976,7 +1025,7 @@ export function AnnotationLayer({
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, moveShapePoint, placingArrow, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
   );
 
   /**
@@ -985,9 +1034,24 @@ export function AnnotationLayer({
    */
   const handlePointerDownCapture = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
+      const overlay = overlayRef.current;
+      if (placingArrow) {
+        // This press only places the arrow; it mustn't also select or move what's under it.
+        event.stopPropagation();
+        event.preventDefault();
+        if (event.button !== 0) {
+          cancelPlacingArrow();
+          return;
+        }
+        if (overlay) {
+          const at = getLocalCoords(overlay, event.clientX, event.clientY);
+          moveShapePoint(placingArrow.id, placingArrow.index, toDocPoint(viewport, at.x, at.y));
+        }
+        setPlacingArrow(null);
+        return;
+      }
       if (state.tool !== "select" || (event.button !== 0 && event.button !== 2)) return;
       if (event.shiftKey || event.ctrlKey || event.metaKey) return;
-      const overlay = overlayRef.current;
       if (!overlay) return;
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
       const hitId = hitTestAnnotations(
@@ -1017,7 +1081,7 @@ export function AnnotationLayer({
         moved: false,
       };
     },
-    [overlayRef, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
+    [cancelPlacingArrow, moveShapePoint, overlayRef, placingArrow, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -1115,6 +1179,13 @@ export function AnnotationLayer({
     dragRef.current = { type: "endpoint", id, endpoint };
   };
 
+  /** Adds an arrow tip to a callout at `at` and returns its index in the points. */
+  const addArrowTip = (callout: ShapeAnnotationType, at: Point2D) => {
+    dispatch({ type: "RECORD_UNDO" });
+    dispatch({ type: "UPDATE_SHAPE", id: callout.id, updates: { points: [...callout.points, at] } });
+    return callout.points.length;
+  };
+
   /** What the right-click menu offers for markup `id`, given the selection it opens with and where it was clicked. */
   const contextMenuItems = (id: string, selection: string[], docPoint: Point2D): ContextMenuItem[] => {
     const close = (run: () => void) => () => {
@@ -1165,8 +1236,41 @@ export function AnnotationLayer({
     }
     if (!byId.has(id)) return [];
     const line = state.measurements.find((m) => m.id === id);
+    const callout = state.shapes.find((s) => s.id === id && s.kind === "callout" && !s.locked);
+    const docAtScreen = toScreenPoint(viewport, docPoint.x, docPoint.y);
+    // The last arrow stays: a callout without one is just a note.
+    const arrowIndex =
+      callout && callout.points.length > 2 ? calloutTipIndexAt(callout, docAtScreen, viewport) : -1;
     return [
       ...removeCutout,
+      ...(callout
+        ? [
+            {
+              label: "Add arrow",
+              run: close(() => {
+                setPlacingArrow({ id, index: addArrowTip(callout, docPoint) });
+                showSaveStatus("info", "Click where the arrow should point", "Esc cancels");
+              }),
+            },
+          ]
+        : []),
+      ...(callout && arrowIndex >= 0
+        ? [
+            {
+              label: "Remove arrow",
+              run: close(() => {
+                const [first, anchor, ...more] = callout.points;
+                const tips = [first, ...more].filter((_, i) => (arrowIndex === 0 ? i !== 0 : i !== arrowIndex - 1));
+                dispatch({ type: "RECORD_UNDO" });
+                dispatch({
+                  type: "UPDATE_SHAPE",
+                  id,
+                  updates: { points: [tips[0], anchor, ...tips.slice(1)] },
+                });
+              }),
+            },
+          ]
+        : []),
       ...(line?.plain
         ? [
             {
@@ -1495,10 +1599,17 @@ export function AnnotationLayer({
 
   // Callout text reuses the note card so editing and styling match notes exactly.
   const renderCalloutCard = (shape: ShapeAnnotationType) =>
-    shape.points.length === 2 ? (
+    shape.points.length >= 2 ? (
       <NoteAnnotation
         key={`${shape.id}-card`}
-        note={{ id: shape.id, position: shape.points[1], text: shape.text ?? "", color: shape.color, locked: shape.locked }}
+        note={{
+          id: shape.id,
+          position: shape.points[1],
+          text: shape.text ?? "",
+          width: shape.width,
+          color: shape.color,
+          locked: shape.locked,
+        }}
         placeholder="Callout"
         viewport={viewport}
         isSelected={state.selectedIds.includes(shape.id)}
@@ -1513,7 +1624,8 @@ export function AnnotationLayer({
           const overlay = overlayRef.current;
           if (!overlay) return;
           const local = getLocalCoords(overlay, event.clientX, event.clientY);
-          startShapeDrag(shape, toDocPoint(viewport, local.x, local.y), event);
+          // Dragging the card leaves the arrows pointing at what they mark.
+          startShapeDrag(shape, toDocPoint(viewport, local.x, local.y), event, 1);
         }}
       />
     ) : null;
@@ -1663,6 +1775,8 @@ export function AnnotationLayer({
       transformTarget?.kind === "shape" && transformTarget.item.kind === "text"
         ? transformTarget.item
         : null;
+    // A callout's card stays upright, so its arrows can leave from any side of it.
+    const rotatable = !(transformTarget?.kind === "shape" && transformTarget.item.kind === "callout");
     return (
       <g key="transform-handles">
         {showFrameOutline && (
@@ -1675,19 +1789,23 @@ export function AnnotationLayer({
             pointerEvents="none"
           />
         )}
-        <line x1={topMid.x} y1={topMid.y} x2={knob.x} y2={knob.y} stroke={SELECTION_ACCENT} strokeWidth={1.5} pointerEvents="none" />
-        <circle
-          cx={knob.x}
-          cy={knob.y}
-          r={6}
-          fill="#ffffff"
-          stroke={SELECTION_ACCENT}
-          strokeWidth={2}
-          style={{ cursor: "grab", pointerEvents: "all" }}
-          onPointerDown={(event) => startTransformDrag(event, { type: "rotate" })}
-        >
-          <title>Rotate (Shift snaps to 15°)</title>
-        </circle>
+        {rotatable && (
+          <>
+            <line x1={topMid.x} y1={topMid.y} x2={knob.x} y2={knob.y} stroke={SELECTION_ACCENT} strokeWidth={1.5} pointerEvents="none" />
+            <circle
+              cx={knob.x}
+              cy={knob.y}
+              r={6}
+              fill="#ffffff"
+              stroke={SELECTION_ACCENT}
+              strokeWidth={2}
+              style={{ cursor: "grab", pointerEvents: "all" }}
+              onPointerDown={(event) => startTransformDrag(event, { type: "rotate" })}
+            >
+              <title>Rotate (Shift snaps to 15°)</title>
+            </circle>
+          </>
+        )}
         {frame.scalable &&
           frame.corners.map((p, i) => (
             <rect
@@ -1840,6 +1958,8 @@ export function AnnotationLayer({
       style={{
         cursor: erasing
           ? "none"
+          : placingArrow
+            ? "crosshair"
           : state.tool === "select" && selectCursor
             ? selectCursor
             : state.tool === "pan"
@@ -1909,21 +2029,56 @@ export function AnnotationLayer({
           (state.tool === "select" || state.tool === "measure" || state.tool === "area") &&
           renderContextMenu(contextMenu)}
         {callouts
-          .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length === 2 && !c.locked)
+          .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length >= 2 && !c.locked)
           .map((c) => {
-            const tip = toScreenPoint(viewport, c.points[0].x, c.points[0].y);
+            const card = calloutCardBox(c, viewport);
+            const add = { x: card.x + card.width / 2, y: card.y + card.height + CALLOUT_ADD_HANDLE_OFFSET_PX };
             return (
-              <circle
-                key={`${c.id}-tip`}
-                cx={tip.x}
-                cy={tip.y}
-                r={6}
-                fill="#0f172a"
-                stroke={c.color ?? REDLINE_COLOR}
-                strokeWidth={2}
-                style={{ cursor: "crosshair", pointerEvents: "all" }}
-                onPointerDown={(event) => onShapePointPointerDown(c.id, 0, event)}
-              />
+              <g key={`${c.id}-arrow-handles`}>
+                {c.points.map((p, i) => {
+                  // Index 1 is the card's anchor, not an arrow.
+                  if (i === 1) return null;
+                  const tip = toScreenPoint(viewport, p.x, p.y);
+                  return (
+                    <circle
+                      key={i}
+                      cx={tip.x}
+                      cy={tip.y}
+                      r={6}
+                      fill="#0f172a"
+                      stroke={c.color ?? REDLINE_COLOR}
+                      strokeWidth={2}
+                      style={{ cursor: "crosshair", pointerEvents: "all" }}
+                      onPointerDown={(event) => onShapePointPointerDown(c.id, i, event)}
+                    />
+                  );
+                })}
+                {!state.editingNoteId && (
+                  <g
+                    style={{ cursor: "copy", pointerEvents: "all" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      dragRef.current = {
+                        type: "shapePoint",
+                        id: c.id,
+                        index: addArrowTip(c, toDocPoint(viewport, add.x, add.y + CALLOUT_NEW_ARROW_PX)),
+                      };
+                    }}
+                  >
+                    <title>Drag to add an arrow</title>
+                    <circle cx={add.x} cy={add.y} r={8} fill={SELECTION_ACCENT} stroke="#ffffff" strokeWidth={1.5} />
+                    <path
+                      d={`M${add.x - 4} ${add.y}h8M${add.x} ${add.y - 4}v8`}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      pointerEvents="none"
+                    />
+                  </g>
+                )}
+              </g>
             );
           })}
         {marqueePreview && (

@@ -17,6 +17,7 @@ import {
   strokesPath,
 } from "@/app/utils/geometry";
 import {
+  calloutLeaders,
   TEXT_DEFAULT_SIZE,
   TEXT_FONT_FAMILY,
   TEXT_LINE_HEIGHT,
@@ -26,7 +27,6 @@ import {
 } from "@/app/utils/noteLayout";
 import {
   areaOutline,
-  CALLOUT_LEADER_OFFSET,
   CLOSE_AREA_PX,
   countStartAt,
   drawWidth,
@@ -345,21 +345,22 @@ export function ShapeAnnotation({
     );
   }
 
-  if (shape.kind === "callout" && pts.length === 2) {
-    const tip = pts[0];
-    const end = {
-      x: pts[1].x + CALLOUT_LEADER_OFFSET.x,
-      y: pts[1].y + CALLOUT_LEADER_OFFSET.y,
-    };
-    const len = Math.hypot(end.x - tip.x, end.y - tip.y) || 1;
-    const dir = { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len };
+  if (shape.kind === "callout" && pts.length >= 2) {
     return (
       <g pointerEvents="none">
-        {isSelected && (
-          <line x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />
-        )}
-        <line x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke={color} strokeWidth={strokeWidth} />
-        <polygon points={arrowPolygonPoints({ tip, dir }, 10, 5)} fill={color} />
+        {calloutLeaders(shape, viewport).map(([end, tip], i) => {
+          const len = Math.hypot(end.x - tip.x, end.y - tip.y) || 1;
+          const dir = { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len };
+          return (
+            <g key={i}>
+              {isSelected && (
+                <line x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke={SELECTION_ACCENT} strokeWidth={8} opacity={0.3} />
+              )}
+              <line x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke={color} strokeWidth={strokeWidth} />
+              <polygon points={arrowPolygonPoints({ tip, dir }, 10, 5)} fill={color} />
+            </g>
+          );
+        })}
       </g>
     );
   }

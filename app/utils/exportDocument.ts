@@ -46,6 +46,7 @@ import {
 } from "@/app/utils/dimensions";
 import { loadImageSource } from "@/app/utils/loadImage";
 import {
+  calloutTips,
   getScreenAxes,
   NOTE_CARD,
   noteTextWidth,
@@ -58,6 +59,7 @@ import {
 } from "@/app/utils/noteLayout";
 import {
   areaRings,
+  boxEdgePoint,
   cloudOutline,
   cloudPath,
   polygonCentroid,
@@ -69,7 +71,6 @@ import {
 } from "@/app/utils/geometry";
 import {
   areaOutline,
-  CALLOUT_LEADER_OFFSET,
   countStartAt,
   DRAW_DEFAULT_WIDTH,
   drawWidth,
@@ -523,6 +524,48 @@ function layoutNoteCard(
   };
 }
 
+const canvasNoteFont = (size: number) => `${size}px Helvetica, Arial, sans-serif`;
+
+function layoutNoteCardOnCanvas(
+  context: CanvasRenderingContext2D,
+  text: string,
+  zoom: number,
+  cardWidth?: number,
+): NoteCardLayout {
+  return layoutNoteCard(
+    text,
+    zoom,
+    (s, size) => {
+      context.font = canvasNoteFont(size);
+      return context.measureText(s).width;
+    },
+    cardWidth,
+  );
+}
+
+/** Each arrow of a callout whose card is laid out as `layout`: from the card's border to its tip. */
+function calloutArrows(
+  shape: ShapeAnnotation,
+  layout: NoteCardLayout,
+  right: Point2D,
+  down: Point2D,
+): { end: Point2D; tip: Point2D; dir: Point2D }[] {
+  const anchor = shape.points[1];
+  // Worked out in the card's own frame, which is the screen's at any view rotation.
+  const box = { x: 0, y: 0, width: layout.width, height: layout.height };
+  return calloutTips(shape).map((tip) => {
+    const dx = tip.x - anchor.x;
+    const dy = tip.y - anchor.y;
+    const edge = boxEdgePoint(box, { x: dx * right.x + dy * right.y, y: dx * down.x + dy * down.y });
+    const end = {
+      x: anchor.x + right.x * edge.x + down.x * edge.y,
+      y: anchor.y + right.y * edge.x + down.y * edge.y,
+    };
+    const len = Math.hypot(tip.x - end.x, tip.y - end.y) || 1;
+    return { end, tip, dir: { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len } };
+  });
+}
+
 /** Draws a note card whose top-left sits at `anchor`, aligned to the screen view. */
 function drawNoteCardOnCanvas(
   context: CanvasRenderingContext2D,
@@ -533,16 +576,7 @@ function drawNoteCardOnCanvas(
   upDir: Point2D,
   cardWidth?: number,
 ) {
-  const font = (size: number) => `${size}px Helvetica, Arial, sans-serif`;
-  const layout = layoutNoteCard(
-    text,
-    zoom,
-    (s, size) => {
-      context.font = font(size);
-      return context.measureText(s).width;
-    },
-    cardWidth,
-  );
+  const layout = layoutNoteCardOnCanvas(context, text, zoom, cardWidth);
   const { right } = getScreenAxes(upDir, false);
 
   context.save();
@@ -556,7 +590,7 @@ function drawNoteCardOnCanvas(
   context.fillStyle = color;
   context.fillRect(0, 0, layout.accentWidth, layout.height);
 
-  context.font = font(layout.fontSize);
+  context.font = canvasNoteFont(layout.fontSize);
   context.fillStyle = NOTE_CARD.textColor;
   context.textBaseline = "middle";
   layout.lines.forEach((line, i) => {
@@ -598,6 +632,20 @@ function drawableText(font: PDFFont, text: string): string {
   }).join("");
 }
 
+function layoutNoteCardOnPdf(
+  font: PDFFont,
+  text: string,
+  zoom: number,
+  cardWidth?: number,
+): NoteCardLayout {
+  return layoutNoteCard(
+    drawableText(font, text),
+    zoom,
+    (s, size) => font.widthOfTextAtSize(s, size),
+    cardWidth,
+  );
+}
+
 function drawNoteCardOnPdf(
   page: PDFPage,
   anchor: Point2D,
@@ -608,12 +656,7 @@ function drawNoteCardOnPdf(
   font: PDFFont,
   cardWidth?: number,
 ) {
-  const layout = layoutNoteCard(
-    drawableText(font, text),
-    zoom,
-    (s, size) => font.widthOfTextAtSize(s, size),
-    cardWidth,
-  );
+  const layout = layoutNoteCardOnPdf(font, text, zoom, cardWidth);
   const { right, down } = getScreenAxes(upDir, true);
   const rotate = degrees((Math.atan2(right.y, right.x) * 180) / Math.PI);
   const at = (dx: number, dy: number) => ({
@@ -850,22 +893,13 @@ function drawShapesOnCanvas(
       context.lineWidth = style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH);
       context.stroke(new Path2D(strokesPath(splitStrokes(shape.points, shape.breaks))));
       context.restore();
-    } else if (shape.kind === "callout" && shape.points.length === 2) {
-      const [tip, anchor] = shape.points;
-      const end = {
-        x: anchor.x + down.x * CALLOUT_LEADER_OFFSET.y * k,
-        y: anchor.y + down.y * CALLOUT_LEADER_OFFSET.y * k,
-      };
-      const len = Math.hypot(tip.x - end.x, tip.y - end.y) || 1;
-      drawDocLineSegment(context, end, tip);
-      fillArrowOnCanvas(
-        context,
-        { tip, dir: { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len } },
-        style.arrowLen,
-        style.arrowHalfWidth,
-        color,
-      );
-      drawNoteCardOnCanvas(context, anchor, shape.text ?? "", color, zoom, upDir);
+    } else if (shape.kind === "callout" && shape.points.length >= 2) {
+      const layout = layoutNoteCardOnCanvas(context, shape.text ?? "", zoom, shape.width);
+      for (const { end, tip, dir } of calloutArrows(shape, layout, right, down)) {
+        drawDocLineSegment(context, end, tip);
+        fillArrowOnCanvas(context, { tip, dir }, style.arrowLen, style.arrowHalfWidth, color);
+      }
+      drawNoteCardOnCanvas(context, shape.points[1], shape.text ?? "", color, zoom, upDir, shape.width);
     } else if (shape.kind === "text" && shape.points.length >= 1) {
       const size = shape.fontSize ?? TEXT_DEFAULT_SIZE;
       const anchor = shape.points[0];
@@ -971,22 +1005,13 @@ function drawShapesOnPdf(
         borderOpacity: 1,
       });
       page.pushOperators(popGraphicsState());
-    } else if (shape.kind === "callout" && shape.points.length === 2) {
-      const [tip, anchor] = shape.points;
-      const end = {
-        x: anchor.x + down.x * CALLOUT_LEADER_OFFSET.y * k,
-        y: anchor.y + down.y * CALLOUT_LEADER_OFFSET.y * k,
-      };
-      const len = Math.hypot(tip.x - end.x, tip.y - end.y) || 1;
-      page.drawLine({ start: end, end: tip, thickness: style.borderWidth, color });
-      fillArrowOnPdf(
-        page,
-        { tip, dir: { x: (tip.x - end.x) / len, y: (tip.y - end.y) / len } },
-        style.arrowLen,
-        style.arrowHalfWidth,
-        color,
-      );
-      drawNoteCardOnPdf(page, anchor, shape.text ?? "", shapeColor(shape), zoom, upDir, font);
+    } else if (shape.kind === "callout" && shape.points.length >= 2) {
+      const layout = layoutNoteCardOnPdf(font, shape.text ?? "", zoom, shape.width);
+      for (const { end, tip, dir } of calloutArrows(shape, layout, right, down)) {
+        page.drawLine({ start: end, end: tip, thickness: style.borderWidth, color });
+        fillArrowOnPdf(page, { tip, dir }, style.arrowLen, style.arrowHalfWidth, color);
+      }
+      drawNoteCardOnPdf(page, shape.points[1], shape.text ?? "", shapeColor(shape), zoom, upDir, font, shape.width);
     } else if (shape.kind === "text" && shape.points.length >= 1) {
       const size = shape.fontSize ?? TEXT_DEFAULT_SIZE;
       const textFace = textFonts[`${shape.bold ? "b" : ""}${shape.italic ? "i" : ""}`];

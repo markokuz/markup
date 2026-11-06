@@ -18,6 +18,7 @@ const ACTIONS: { keys: string; label: string }[] = [
   { keys: "Arrows", label: "Nudge the selection (Shift: further)" },
   { keys: "Enter", label: "Finish an area, run or count" },
   { keys: "Esc", label: "Cancel or deselect" },
+  { keys: "Alt", label: "Hold to place a point without snapping" },
   { keys: "Space + drag", label: "Pan, in any tool" },
   { keys: "Middle drag", label: "Pan, in any tool" },
   { keys: "Wheel", label: "Zoom" },

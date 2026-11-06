@@ -74,6 +74,8 @@ Use the tools in the left sidebar:
 | **Select** | Click annotations to select, drag to move, or drag a marquee to select multiple |
 | **Pan** | Drag the canvas to scroll; you can also hold the middle mouse button in any tool |
 
+**Snap to points** makes **Line**, **Rect**, **Area**, **Run** and **Calibrate** land exactly on the drawing: on line ends and corners, where lines cross, on midpoints, or anywhere along a line. A marker shows what the next click lands on, and it also works when dragging a line end, a rectangle's corner or side, or a vertex. It reads the lines in a PDF, and your own markups on any file (scans and photos have no lines to read). Hold **Alt** to place a point freely, or turn it off with **Points** in the status bar.
+
 Choose which tools stay visible in **Settings > Toolbar**. The rest move to the **More** button, and their shortcuts keep working.
 
 Measurements appear in the display unit shown in the status bar. Change it anytime with the **Display unit** dropdown (ft, in, m, mm). **Settings > General** sets how finely feet and inches show: the nearest inch down to 1/16", or decimal feet.
@@ -110,6 +112,7 @@ Click **Save PDF** or **Save PNG** (depending on the file type) to download a co
 | Select everything on the sheet | `Ctrl+A` |
 | Previous / next sheet | `Page Up` / `Page Down` |
 | Run tool | `P` |
+| Place a point without snapping | Hold `Alt` |
 | Delete selected | `Delete` or `Backspace` |
 | Deselect / cancel | `Escape` |
 | Zoom | Scroll wheel, or use **+** / **−** in the toolbar |

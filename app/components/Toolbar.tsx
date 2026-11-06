@@ -814,19 +814,39 @@ export function StatusBar() {
           </div>
         )}
 
-        <button
-          type="button"
-          aria-pressed={state.snapLines}
-          title={`Straighten lines to ${state.settings.snapStepDeg}° while drawing. Angle and tolerance are in Settings.`}
-          onClick={() => dispatch({ type: "SET_SNAP_LINES", enabled: !state.snapLines })}
-          className={`rounded-md border px-2 py-1 text-xs transition ${
-            state.snapLines
-              ? "border-accent text-accent"
-              : "border-border text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-          }`}
-        >
-          Snap {state.snapLines ? "on" : "off"}
-        </button>
+        <div className="flex items-center gap-1 text-xs text-text-muted" role="group" aria-label="Snapping">
+          Snap
+          {[
+            {
+              label: "Points",
+              on: state.settings.snapPoints !== false,
+              title:
+                "Clicks land on line ends, corners, crossings and midpoints, on the drawing and your markups. Hold Alt to place a point freely.",
+              toggle: (on: boolean) => dispatch({ type: "UPDATE_SETTINGS", patch: { snapPoints: !on } }),
+            },
+            {
+              label: "Angles",
+              on: state.snapLines,
+              title: `Straighten lines to ${state.settings.snapStepDeg}° while drawing. Angle and tolerance are in Settings.`,
+              toggle: (on: boolean) => dispatch({ type: "SET_SNAP_LINES", enabled: !on }),
+            },
+          ].map(({ label, on, title, toggle }) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={on}
+              title={title}
+              onClick={() => toggle(on)}
+              className={`rounded-md border px-2 py-1 text-xs transition ${
+                on
+                  ? "border-accent text-accent"
+                  : "border-border text-text-secondary hover:bg-surface-muted hover:text-text-primary"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         <button
           type="button"

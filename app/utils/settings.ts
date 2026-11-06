@@ -26,6 +26,10 @@ export interface AppSettings {
   snapToleranceDeg: number;
   /** Draw the placed calibration line on the page (it is never exported). */
   showCalibrationLine: boolean;
+  /** Clicks land on nearby line ends, crossings and midpoints. Unset: on. */
+  snapPoints?: boolean;
+  /** Point snapping also lands anywhere along a line. Unset: on. */
+  snapAlongLines?: boolean;
   /** Rotating a markup sticks to 45° multiples when close. */
   snapRotation: boolean;
   /** Dark app colours. Drawing pages stay as they are. */

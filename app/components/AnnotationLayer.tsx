@@ -40,6 +40,9 @@ import { MeasurementLine } from "@/app/components/MeasurementLine";
 import { NoteAnnotation } from "@/app/components/NoteAnnotation";
 import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
+import { SnapMarker } from "@/app/components/SnapMarker";
+import { sheetLines } from "@/app/utils/pdfLines";
+import { findSnap, markupSnapSegments, type SegmentIndex, type SnapHit } from "@/app/utils/snapPoints";
 import {
   areaRings,
   areaToCutAt,
@@ -130,6 +133,14 @@ type DragMode =
   | { type: "group"; id: string; lastPdf: Point2D; moved: boolean };
 
 const MIN_RECT_SIZE = 5;
+/** Tools that measure, so a click lands on the drawing's points. Count, draw and text stay where they're put. */
+const POINT_SNAP_TOOLS = new Set<string>(["calibrate", "measure", "rectangle", "area", "polyline"]);
+/** Drags that place a point of a markup rather than move the whole of it. */
+const POINT_SNAP_DRAGS = new Set<DragMode["type"]>(["endpoint", "rectCorner", "rectEdge", "shapePoint"]);
+/** How close the pointer must be to a point, in screen px, whatever the zoom. */
+const SNAP_RADIUS_PX = 10;
+/** Lets a sheet draw first, and skips reading sheets only flipped past. */
+const LINES_READ_DELAY_MS = 400;
 /** Drags that carry a markup across the page (they show the four-way move cursor). */
 const MOVE_DRAGS = new Set<DragMode["type"]>(["body", "rectBody", "noteBody", "shapeBody", "group"]);
 const MIN_MARQUEE_SIZE = 4;
@@ -221,6 +232,47 @@ export function AnnotationLayer({
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  /** This sheet's line work, once read in the background. */
+  const [drawingLines, setDrawingLines] = useState<SegmentIndex | null>(null);
+  /** The point the next click would land on. */
+  const [snapMark, setSnapMark] = useState<SnapHit | null>(null);
+  const pointSnapOn = state.settings.snapPoints !== false;
+  const alongLines = state.settings.snapAlongLines !== false;
+  const markupSegments = useMemo(
+    () => markupSnapSegments(state, viewport),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these parts of the state hold edges
+    [state.measurements, state.rectangles, state.shapes, viewport],
+  );
+
+  useEffect(() => {
+    const bytes = state.fileBytes;
+    if (!pointSnapOn || state.fileType !== "pdf" || !bytes) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void sheetLines(bytes, state.page).then((lines) => {
+        if (!cancelled) setDrawingLines(lines);
+      });
+    }, LINES_READ_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pointSnapOn, state.fileBytes, state.fileType, state.page]);
+
+  /** What the pointer is on, if anything; Alt lets a point be placed freely. */
+  const findPointSnap = useCallback(
+    (local: Point2D, altKey: boolean, excludeId: string | null): SnapHit | null => {
+      if (!pointSnapOn || altKey) return null;
+      return findSnap(
+        toDocPoint(viewport, local.x, local.y),
+        SNAP_RADIUS_PX / viewportZoom(viewport),
+        drawingLines,
+        markupSegments,
+        { alongLines, excludeId },
+      );
+    },
+    [alongLines, drawingLines, markupSegments, pointSnapOn, viewport],
+  );
   /** A new callout arrow from the right-click menu is following the pointer, waiting for a click. */
   const [placingArrow, setPlacingArrow] = useState<{ id: string; index: number } | null>(null);
 
@@ -504,6 +556,10 @@ export function AnnotationLayer({
 
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
+      const snapHit = POINT_SNAP_TOOLS.has(state.tool)
+        ? findPointSnap(local, event.altKey, state.drawingShapeId)
+        : null;
+      const placed = snapHit?.point ?? pdfPoint;
 
       if (state.tool === "select") {
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
@@ -614,7 +670,10 @@ export function AnnotationLayer({
         }
         // shortcut: only the clicks are checked, so a cutout's edge can still cross a concave
         // outline or another cutout; clip the polygons if that shows up in real use.
-        if (state.tool === "area" && cutoutTarget && !pointInRings(pdfPoint, areaRings(cutoutTarget))) {
+        // A cutout can't sit on its area's own edge, so a snap there gives way to the click itself.
+        const vertex =
+          state.tool === "area" && cutoutTarget && !pointInRings(placed, areaRings(cutoutTarget)) ? pdfPoint : placed;
+        if (state.tool === "area" && cutoutTarget && !pointInRings(vertex, areaRings(cutoutTarget))) {
           showSaveStatus("warning", "A cutout has to stay inside the area, clear of other cutouts.");
           return;
         }
@@ -633,7 +692,7 @@ export function AnnotationLayer({
             shape: {
               id: createId(),
               kind: state.tool,
-              points: [pdfPoint],
+              points: [vertex],
               color: toolColors[state.tool],
               ...(state.tool === "count" && state.countStart !== 1
                 ? { startAt: state.countStart }
@@ -642,7 +701,7 @@ export function AnnotationLayer({
             drawing: true,
             cutoutTargetId: startingCut ? cutoutTarget?.id : undefined,
           });
-          setPreviewEnd(pdfPoint);
+          setPreviewEnd(vertex);
           return;
         }
         if (drawing.kind === "area") {
@@ -665,10 +724,10 @@ export function AnnotationLayer({
             return;
           }
           const last = drawing.points[drawing.points.length - 1];
-          dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: snapToLine(last, local) });
+          dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: snapHit?.point ?? snapToLine(last, local) });
           return;
         }
-        dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: pdfPoint });
+        dispatch({ type: "APPEND_SHAPE_POINT", id: drawing.id, point: vertex });
         return;
       }
 
@@ -750,11 +809,11 @@ export function AnnotationLayer({
       const plainRect = state.rectMode === "plain";
       if (state.tool === "rectangle" && (state.scale || plainRect)) {
         if (!state.pendingPoint) {
-          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
-          setPreviewEnd(pdfPoint);
+          dispatch({ type: "SET_PENDING_POINT", point: placed });
+          setPreviewEnd(placed);
         } else {
           const start = state.pendingPoint;
-          const end = pdfPoint;
+          const end = placed;
           const normalized = normalizeRect(start, end);
           const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
           const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
@@ -779,11 +838,11 @@ export function AnnotationLayer({
 
       if (state.tool === "calibrate" || state.tool === "measure") {
         if (!state.pendingPoint) {
-          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
-          setPreviewEnd(pdfPoint);
+          dispatch({ type: "SET_PENDING_POINT", point: placed });
+          setPreviewEnd(placed);
         } else {
           const start = state.pendingPoint;
-          const end = snapToLine(start, local);
+          const end = snapHit?.point ?? snapToLine(start, local);
 
           if (state.tool === "calibrate") {
             dispatch({
@@ -802,6 +861,7 @@ export function AnnotationLayer({
     [
       dispatch,
       eraseAlong,
+      findPointSnap,
       handleSelect,
       contextMenu,
       overlayRef,
@@ -842,6 +902,18 @@ export function AnnotationLayer({
 
       onCursorMove?.(local);
       if (erasing) setEraserAt(local);
+
+      const moving = dragRef.current;
+      const snapHit =
+        (moving ? POINT_SNAP_DRAGS.has(moving.type) : POINT_SNAP_TOOLS.has(state.tool) && !placingArrow)
+          ? findPointSnap(local, event.altKey, moving && "id" in moving ? moving.id : state.drawingShapeId)
+          : null;
+      // Most moves land on the same point, or none, and needn't redraw every markup.
+      setSnapMark((shown) =>
+        shown?.kind === snapHit?.kind && shown?.point.x === snapHit?.point.x && shown?.point.y === snapHit?.point.y
+          ? shown
+          : snapHit,
+      );
 
       if (state.tool === "select") {
         // Four-way arrows over anything a press would pick up and move, and while moving it.
@@ -935,7 +1007,7 @@ export function AnnotationLayer({
           dispatch({
             type: "UPDATE_MEASUREMENT",
             id: drag.id,
-            updates: { [drag.endpoint]: snapToLine(fixedEnd, local) },
+            updates: { [drag.endpoint]: snapHit?.point ?? snapToLine(fixedEnd, local) },
           });
         } else if (drag.type === "body") {
           const dx = pdfPoint.x - drag.originPdf.x;
@@ -966,7 +1038,8 @@ export function AnnotationLayer({
             },
           });
         } else if (drag.type === "rectCorner" || drag.type === "rectEdge") {
-          const p = rotateAround(local, drag.centre, -drag.rotation);
+          const pointer = snapHit ? toScreenPoint(viewport, snapHit.point.x, snapHit.point.y) : local;
+          const p = rotateAround(pointer, drag.centre, -drag.rotation);
           const moving =
             drag.type === "rectCorner"
               ? p
@@ -994,7 +1067,7 @@ export function AnnotationLayer({
           const update = scaleTarget(drag.target, drag.frame, drag.corner, local, viewport);
           if (update) dispatch(update);
         } else if (drag.type === "shapePoint") {
-          moveShapePoint(drag.id, drag.index, pdfPoint);
+          moveShapePoint(drag.id, drag.index, snapHit?.point ?? pdfPoint);
         } else if (drag.type === "shapeBody") {
           const dx = pdfPoint.x - drag.originPdf.x;
           const dy = pdfPoint.y - drag.originPdf.y;
@@ -1026,20 +1099,22 @@ export function AnnotationLayer({
 
       if (state.pendingPoint) {
         setPreviewEnd(
-          state.tool === "measure" || state.tool === "calibrate"
-            ? snapToLine(state.pendingPoint, local)
-            : pdfPoint,
+          snapHit?.point ??
+            (state.tool === "measure" || state.tool === "calibrate"
+              ? snapToLine(state.pendingPoint, local)
+              : pdfPoint),
         );
       } else if (state.drawingShapeId) {
         const drawing = state.shapes.find((s) => s.id === state.drawingShapeId);
         setPreviewEnd(
-          drawing?.kind === "polyline"
-            ? snapToLine(drawing.points[drawing.points.length - 1], local)
-            : pdfPoint,
+          snapHit?.point ??
+            (drawing?.kind === "polyline"
+              ? snapToLine(drawing.points[drawing.points.length - 1], local)
+              : pdfPoint),
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, moveShapePoint, placingArrow, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
   );
 
   /**
@@ -1100,6 +1175,7 @@ export function AnnotationLayer({
 
   const handlePointerUp = useCallback(() => {
     const drag = dragRef.current;
+    setSnapMark(null);
 
     if (drag?.type === "freehand" && drag.kind === "draw") {
       setFreehandStroke(null);
@@ -2156,6 +2232,11 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
+        {snapMark &&
+          (() => {
+            const at = toScreenPoint(viewport, snapMark.point.x, snapMark.point.y);
+            return <SnapMarker kind={snapMark.kind} x={at.x} y={at.y} pageWidth={viewport.width} />;
+          })()}
         {contextMenu && renderContextMenu(contextMenu)}
         {callouts
           .filter((c) => showEditHandles && singleSelectedId === c.id && c.points.length >= 2 && !c.locked)

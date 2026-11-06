@@ -403,6 +403,22 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
               <div className="divide-y divide-border [&>*]:py-4 [&>*:first-child]:pt-2">
                 <div className="space-y-3">
                   <CheckRow
+                    checked={settings.snapPoints !== false}
+                    onChange={(snapPoints) => dispatch({ type: "UPDATE_SETTINGS", patch: { snapPoints } })}
+                    title="Snap to points"
+                    detail="Line, Rect, Area, Run and Calibrate land on nearby line ends, crossings and midpoints, on the drawing and your markups. Hold Alt to place a point freely. Scans and photos have no lines to read, so only markups snap there."
+                  />
+                  <div className="pl-6">
+                    <CheckRow
+                      checked={settings.snapAlongLines !== false}
+                      onChange={(snapAlongLines) => dispatch({ type: "UPDATE_SETTINGS", patch: { snapAlongLines } })}
+                      title="Also snap anywhere along a line"
+                      detail="When no point is close, land on the nearest line, such as the face of a wall."
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <CheckRow
                     checked={state.snapLines}
                     onChange={(enabled) => dispatch({ type: "SET_SNAP_LINES", enabled })}
                     title="Snap lines while drawing"

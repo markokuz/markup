@@ -179,9 +179,10 @@ export function SideToolbar() {
       if (!moreMenuRef.current?.contains(target) && !moreButtonRef.current?.contains(target)) setMoreMenu(null);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      // These work the menu; anything else, like a tool's hotkey, moves on from it.
+      if (["Tab", "Enter", " ", "Shift"].includes(event.key)) return;
       setMoreMenu(null);
-      moreButtonRef.current?.focus();
+      if (event.key === "Escape") moreButtonRef.current?.focus();
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);

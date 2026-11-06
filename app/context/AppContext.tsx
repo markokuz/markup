@@ -220,7 +220,11 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, settings: { ...state.settings, hotkeys } };
     }
     case "RESET_SETTINGS":
-      return { ...state, settings: { ...DEFAULT_SETTINGS, darkMode: state.settings.darkMode } };
+      return {
+        ...state,
+        settings: { ...DEFAULT_SETTINGS, darkMode: state.settings.darkMode },
+        displayUnit: DEFAULT_SETTINGS.defaultUnit,
+      };
     case "SET_TAB_TOOL_COLOR":
       return updateActiveTab(state, (tab) => {
         const counting = tab.shapes.some((s) => s.id === tab.drawingShapeId && s.kind === "count");

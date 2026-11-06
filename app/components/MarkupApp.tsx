@@ -18,10 +18,9 @@ import { saveTabWithFeedback } from "@/app/utils/projectSave";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { toolForHotkey } from "@/app/utils/settings";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
+import { isLeftoverFocus, isTextEntry } from "@/app/utils/keyboardFocus";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
-
-const NON_TEXT_INPUTS = new Set(["color", "checkbox", "radio", "range", "button", "file"]);
 
 function MarkupShell() {
   const state = useAppState();
@@ -98,16 +97,11 @@ function MarkupShell() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
+      // A select or slider used with the mouse keeps focus, and shouldn't hold on to the shortcuts.
       const isEditing =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT";
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) && !isLeftoverFocus(target);
       // Copy/paste only yields to real text fields; a focused colour picker or select keeps focus after use.
-      const isTextEntry =
-        target.isContentEditable ||
-        target.tagName === "TEXTAREA" ||
-        (target.tagName === "INPUT" &&
-          !NON_TEXT_INPUTS.has((target as HTMLInputElement).type));
+      const inTextField = isTextEntry(target);
 
       if (closeDialogOpen) {
         if (event.key === "Escape") dispatch({ type: "CANCEL_CLOSE_TAB" });
@@ -115,6 +109,8 @@ function MarkupShell() {
       }
       // That dialog handles its own keys; tool hotkeys mustn't act behind it.
       if (pagesDialogOpen) return;
+      // Nor behind this one, whatever in it has focus. Esc still closes it, below.
+      if (stateRef.current.calibrateDialogOpen && event.key !== "Escape") return;
 
       if ((event.key === "PageUp" || event.key === "PageDown") && !isEditing && !target.isContentEditable) {
         const { sheets, page } = stateRef.current;
@@ -129,7 +125,7 @@ function MarkupShell() {
       const ctrl = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
 
-      if (ctrl && (key === "0" || key === "2") && !isTextEntry) {
+      if (ctrl && (key === "0" || key === "2") && !inTextField) {
         event.preventDefault();
         const fitted = viewerBridge.getFitZoom?.(key === "0" ? "page" : "width");
         if (fitted) {
@@ -139,19 +135,19 @@ function MarkupShell() {
         return;
       }
 
-      if (ctrl && key === "a" && !isTextEntry && stateRef.current.fileBytes) {
+      if (ctrl && key === "a" && !inTextField && stateRef.current.fileBytes) {
         event.preventDefault();
         const { measurements, rectangles, notes, shapes } = stateRef.current;
+        // The current sheet's markups; the calibration line is reference, not a markup.
+        const ids = [...measurements.filter((m) => !m.isCalibration), ...rectangles, ...notes, ...shapes].map((m) => m.id);
+        // With nothing to select, stay in the tool in hand.
+        if (ids.length === 0) return;
         dispatch({ type: "SET_TOOL", tool: "select" });
-        dispatch({
-          type: "SET_SELECTION",
-          // The current sheet's markups; the calibration line is reference, not a markup.
-          ids: [...measurements.filter((m) => !m.isCalibration), ...rectangles, ...notes, ...shapes].map((m) => m.id),
-        });
+        dispatch({ type: "SET_SELECTION", ids });
         return;
       }
 
-      if (ctrl && key === "d" && !isTextEntry) {
+      if (ctrl && key === "d" && !inTextField) {
         // Always ours: the browser's bookmark dialog is never what's wanted here.
         event.preventDefault();
         const current = stateRef.current;
@@ -161,7 +157,7 @@ function MarkupShell() {
         return;
       }
 
-      if (ctrl && (key === "c" || key === "x") && !isTextEntry) {
+      if (ctrl && (key === "c" || key === "x") && !inTextField) {
         const current = stateRef.current;
         if (current.selectedIds.length === 0 || !current.documentViewport) return;
         // Markups are selected, so a stray page text highlight is accidental.
@@ -174,7 +170,7 @@ function MarkupShell() {
         return;
       }
 
-      if (ctrl && key === "v" && !isTextEntry) {
+      if (ctrl && key === "v" && !inTextField) {
         const current = stateRef.current;
         if (!hasClipboardContent() || !current.documentViewport || !current.fileType) return;
         const targetScreen = viewerBridge.cursor ?? viewerBridge.getVisibleCenter?.();

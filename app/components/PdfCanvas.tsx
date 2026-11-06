@@ -12,6 +12,7 @@ import { PdfDetailLayer } from "@/app/components/PdfDetailLayer";
 import { Minimap } from "@/app/components/Minimap";
 import { getTabScroll, saveTabScroll, tabScrollKey } from "@/app/utils/tabScroll";
 import { viewportZoom } from "@/app/utils/documentViewport";
+import { isLeftoverFocus } from "@/app/utils/keyboardFocus";
 import { takePendingReveal, viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/zoomAnchor";
 import { clampZoom, fitZoom } from "@/app/utils/zoomLevels";
@@ -469,14 +470,11 @@ export function PdfViewer() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== "Space") return;
       const target = event.target as HTMLElement;
-      if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
-      if (target.tagName === "BUTTON") {
-        // Someone tabbing around presses Space to use the button; after a mouse click it is only left focused.
-        if (target.matches(":focus-visible")) return;
-        target.blur();
-      }
+      if (!isLeftoverFocus(target)) return;
+      // Off a clicked button before the key comes up, or that would press it again.
+      target.blur();
       event.preventDefault();
-      if (!event.repeat) setHeld(true);
+      setHeld(true);
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.code === "Space") setHeld(false);

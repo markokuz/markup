@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAppState } from "@/app/context/AppContext";
 import { HOTKEY_TOOLS } from "@/app/components/SettingsDialog";
+import { isTextEntry } from "@/app/utils/keyboardFocus";
 
 const ACTIONS: { keys: string; label: string }[] = [
   { keys: "Ctrl+S", label: "Save" },
@@ -41,11 +42,9 @@ export function ShortcutsButton() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
       if (event.key !== "?" || event.ctrlKey || event.metaKey || event.altKey) return;
-      const target = event.target as HTMLElement;
-      if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
-      setOpen((was) => !was);
+      if (isTextEntry(event.target as HTMLElement) || document.querySelector('[aria-modal="true"]')) return;
+      setOpen(true);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -83,7 +82,13 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcuts-title"
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface shadow-xl"
+        // Focusable so a click inside keeps focus here, where this stops keys acting on the app behind.
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" || event.key === "?") onClose();
+        }}
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-surface shadow-xl outline-none"
       >
         <div className="flex items-center justify-between px-6 pb-3 pt-5">
           <h2 id="shortcuts-title" className="text-lg font-semibold text-text-primary">

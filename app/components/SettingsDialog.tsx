@@ -221,6 +221,8 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
+        // Focusable so a click on its background keeps focus inside, where the handler below can see keys.
+        tabIndex={-1}
         // Keys typed in here must not switch tools or trigger the app's other shortcuts.
         onKeyDown={(event) => {
           event.stopPropagation();
@@ -228,7 +230,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
           if (confirmingReset) closeResetConfirm();
           else onClose();
         }}
-        className="flex h-[min(38rem,90vh)] w-full max-w-3xl flex-col gap-3 sm:flex-row"
+        className="flex h-[min(38rem,90vh)] w-full max-w-3xl flex-col gap-3 outline-none sm:flex-row"
       >
         <aside className="shrink-0 rounded-2xl border border-border bg-surface p-3 shadow-xl sm:w-52 sm:self-start">
           <h2 id="settings-title" className="mb-3 px-2 pt-1 text-lg font-semibold text-text-primary">

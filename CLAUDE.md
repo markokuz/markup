@@ -52,5 +52,5 @@ Try to break the change, learn from what fails, and fix it. Test the edge cases 
 - Right-click an item at the edge of the canvas and check whether the menu appears in front of or behind the canvas.
 
 ## Notes
-
+- Unless I specifically ask to commit to a new branch. Use the main branch
 <!-- Anything else worth remembering. -->

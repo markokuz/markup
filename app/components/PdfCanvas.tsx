@@ -15,7 +15,7 @@ import { viewportZoom } from "@/app/utils/documentViewport";
 import { isLeftoverFocus } from "@/app/utils/keyboardFocus";
 import { takePendingReveal, viewerBridge } from "@/app/utils/viewerBridge";
 import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/zoomAnchor";
-import { clampZoom, fitZoom } from "@/app/utils/zoomLevels";
+import { clampZoom, fitZoom, openingImageZoom } from "@/app/utils/zoomLevels";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
 import { openInputFiles, pickAndOpenFile } from "@/app/utils/openFile";
@@ -88,7 +88,9 @@ export function PdfViewer() {
   }, [dispatch, viewport]);
 
   // Once the page size is known, keep the PDF's own /Rotate and, if that is
-  // still portrait, turn it a further 270° so drawings open landscape.
+  // still portrait, turn it a further 270° so drawings open landscape. Images only get
+  // here when newly opened (saved projects skip it), so they're fitted here too, before
+  // the first draw, so they never show at 100% first.
   useEffect(() => {
     if (!autoOrientPending || !naturalSize || !activeTabId || sheets === null) return;
     const own = naturalSize.pageRotation;
@@ -96,12 +98,21 @@ export function PdfViewer() {
     const portrait = sideways
       ? naturalSize.width > naturalSize.height
       : naturalSize.height > naturalSize.width;
+    const rotation = (portrait && autoOrientPortrait ? (own + 270) % 360 : own) as DocumentRotation;
+    const scrollEl = scrollRef.current;
     dispatch({
       type: "APPLY_AUTO_ORIENT",
       tabId: activeTabId,
-      rotation: (portrait && autoOrientPortrait ? (own + 270) % 360 : own) as DocumentRotation,
+      rotation,
+      zoom:
+        fileType === "image" && scrollEl
+          ? openingImageZoom(naturalSize, rotation, {
+              width: scrollEl.offsetWidth - CANVAS_PADDING_TOTAL_PX,
+              height: scrollEl.offsetHeight - CANVAS_PADDING_TOTAL_PX,
+            })
+          : undefined,
     });
-  }, [activeTabId, autoOrientPending, autoOrientPortrait, dispatch, naturalSize, sheets]);
+  }, [activeTabId, autoOrientPending, autoOrientPortrait, dispatch, fileType, naturalSize, sheets]);
 
   // Old projects saved with a rotated image used a mapping offset by the page
   // aspect; shift their coordinates once the image size is known.

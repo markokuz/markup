@@ -422,6 +422,8 @@ export function useDocument(
     if (!context) return;
 
     context.setTransform(backing, 0, 0, backing, 0, 0);
+    // A fitted big scan shrinks a lot: the default smoothing drops thin lines.
+    context.imageSmoothingQuality = "high";
     context.clearRect(0, 0, nextViewport.width, nextViewport.height);
     context.save();
     context.translate(nextViewport.width / 2, nextViewport.height / 2);

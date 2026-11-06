@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DropIcon } from "@/app/components/DropIcon";
 import { MarkupsPanel } from "@/app/components/MarkupsPanel";
-import { SaveToast } from "@/app/components/SaveToast";
 import { AppProvider, useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { DocumentTabs } from "@/app/components/DocumentTabs";
 import { CalibrateDialog } from "@/app/components/CalibrateDialog";
@@ -336,7 +335,6 @@ function MarkupShell() {
       <StatusBar />
       <CalibrateDialog />
       <ImportPagesDialog />
-      <SaveToast />
       <UnsavedChangesDialog />
     </div>
   );

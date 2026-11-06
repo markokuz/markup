@@ -787,6 +787,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return updateTabById(state, action.tabId, (tab) => ({
         ...tab,
         rotations: { ...tab.rotations, [tab.page]: action.rotation },
+        zoom: action.zoom ?? tab.zoom,
         autoOrientPending: false,
       }));
     case "SET_PROJECT_HANDLE":

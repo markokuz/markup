@@ -7,6 +7,7 @@ import { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
 import { ColorWheel } from "@/app/components/ColorWheel";
 import { ScalePresetMenu } from "@/app/components/ScalePresetMenu";
 import { SettingsButton } from "@/app/components/SettingsDialog";
+import { SaveToast } from "@/app/components/SaveToast";
 import { ShortcutsButton } from "@/app/components/ShortcutsDialog";
 import { describeScale } from "@/app/utils/scalePresets";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
@@ -164,7 +165,10 @@ export function Toolbar() {
                 if (tool.id === "calibrate") clearCalibrationPrompt();
                 dispatch({ type: "SET_TOOL", tool: tool.id });
               }}
-              className={`rounded-[7px] px-3 text-sm font-medium transition disabled:opacity-40 ${
+              className={`px-3 text-sm font-medium transition disabled:opacity-40 ${
+                // Flat where it meets the scale menu's button on a PDF.
+                state.fileType === "pdf" ? "rounded-l-[7px]" : "rounded-[7px]"
+              } ${
                 state.tool === tool.id
                   ? "bg-accent text-white shadow-sm"
                   : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
@@ -211,6 +215,8 @@ export function Toolbar() {
             <HistoryArrow direction="forward" />
           </button>
         </div>
+
+        <SaveToast />
 
         <div className="ml-auto flex items-center gap-2">
           <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">

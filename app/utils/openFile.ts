@@ -89,7 +89,10 @@ export async function openDocumentFile(
     }
 
     const fileType = detectDocumentType(file);
-    if (!fileType) return;
+    if (!fileType) {
+      showSaveStatus("info", `${file.name} can't be opened`);
+      return;
+    }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     // A PDF saved from here carries its markups: reopen them as editable markups.
@@ -121,6 +124,27 @@ export async function openDocumentFile(
   }
 }
 
+type OpenEntry = {
+  file: File;
+  handle: FileSystemFileHandle | null | Promise<FileSystemFileHandle | null>;
+};
+
+/**
+ * Read every file, then open their tabs in one go and in order. Tabs opened one by one would
+ * pull the user off the tab they moved to, and make every file load instead of just the last.
+ */
+async function openTogether(
+  entries: OpenEntry[],
+  dispatch: Dispatch<AppAction>,
+  tabs: OpenTab[] = [],
+): Promise<void> {
+  const actions: AppAction[] = [];
+  for (const { file, handle } of entries) {
+    await openDocumentFile(file, (action) => actions.push(action), await handle, tabs);
+  }
+  for (const action of actions) dispatch(action);
+}
+
 /**
  * Show the browser's open picker (which yields a file handle for Ctrl+S), or
  * fall back to the hidden `<input type="file">` where the API is unavailable.
@@ -138,42 +162,59 @@ export async function pickAndOpenFile(
 
   let handles: FileSystemFileHandle[];
   try {
-    handles = await showOpenFilePicker({ types: OPEN_PICKER_TYPES });
+    handles = await showOpenFilePicker({ multiple: true, types: OPEN_PICKER_TYPES });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
     fallbackInput?.click();
     return;
   }
 
-  const handle = handles[0];
-  if (!handle) return;
-  const file = await handle.getFile();
-  await openDocumentFile(file, dispatch, keepsHandle(file) ? handle : null, tabs);
+  const entries: OpenEntry[] = [];
+  for (const handle of handles) {
+    // One unreadable file doesn't stop the rest.
+    try {
+      const file = await handle.getFile();
+      entries.push({ file, handle: keepsHandle(file) ? handle : null });
+    } catch {
+      window.alert(`Could not open ${handle.name}.`);
+    }
+  }
+  await openTogether(entries, dispatch, tabs);
 }
 
-/** Open the first dropped file, keeping a handle for dropped .mkup projects and PDFs. */
-export async function openDroppedFile(
+/** Open everything picked through the fallback `<input type="file">`, one tab each. */
+export async function openInputFiles(
+  input: HTMLInputElement,
+  dispatch: Dispatch<AppAction>,
+): Promise<void> {
+  // Copied first: clearing the input, so the same files can be picked again, empties its live list.
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  await openTogether(files.map((file) => ({ file, handle: null })), dispatch);
+}
+
+/** Open each dropped file in its own tab, keeping a handle for dropped .mkup projects and PDFs. */
+export async function openDroppedFiles(
   dataTransfer: DataTransfer,
   dispatch: Dispatch<AppAction>,
   tabs: OpenTab[],
 ): Promise<void> {
-  const file = dataTransfer.files[0];
-  if (!file) return;
-
-  // getAsFileSystemHandle must be called synchronously inside the drop event.
-  const item = dataTransfer.items[0] as DataTransferItemWithHandle | undefined;
-  const handlePromise =
-    keepsHandle(file) && item?.kind === "file" && item.getAsFileSystemHandle
-      ? item.getAsFileSystemHandle().catch(() => null)
-      : null;
-
-  const handle = handlePromise ? await handlePromise : null;
-  await openDocumentFile(
-    file,
-    dispatch,
-    handle && handle.kind === "file" ? (handle as FileSystemFileHandle) : null,
-    tabs,
-  );
+  // The drop's items are only readable synchronously inside the drop event, so collect them all first.
+  const entries = Array.from(dataTransfer.items as ArrayLike<DataTransferItemWithHandle>)
+    .filter((item) => item.kind === "file")
+    .flatMap((item): OpenEntry[] => {
+      const file = item.getAsFile();
+      if (!file) return [];
+      const handle =
+        keepsHandle(file) && item.getAsFileSystemHandle
+          ? item
+              .getAsFileSystemHandle()
+              .then((found) => (found?.kind === "file" ? (found as FileSystemFileHandle) : null))
+              .catch(() => null)
+          : null;
+      return [{ file, handle }];
+    });
+  await openTogether(entries, dispatch, tabs);
 }
 
 /** Reopen a browser backup in its original tab id, with its linked file handle. */

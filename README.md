@@ -15,7 +15,7 @@ Everything runs in the browser — no account, no server upload.
 - **Editable dimensions** — click a label to type a new value; the annotation resizes to match
 - **Multiple units** — feet, inches, meters, and millimeters (with live conversion in the display unit)
 - **Export** — save annotated PDFs or PNGs with measurements burned in
-- **Drag-and-drop** — drop a file onto the canvas to open it
+- **Drag-and-drop** — drop one or more files onto the canvas to open each in its own tab
 
 ## Supported files
 
@@ -41,7 +41,7 @@ Run the tests with `npm test` (needs Node 22.18 or newer).
 
 ### 1. Open a document
 
-Click **Upload File** in the toolbar, or drag and drop a file onto the canvas.
+Click **Upload File** in the toolbar, or drag and drop files onto the canvas. Open several at once and each gets its own tab.
 
 A PDF with more than one page asks which pages to import: **All pages**, or a list like `1-10` or `1,2,3 5-8`. Page numbers are positions in the file, like a printer dialog. Every page stays in the file, so saving never removes the ones you left out; change your choice any time with **Pages…** in the status bar. Sheets with markups always stay included.
 

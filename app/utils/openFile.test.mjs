@@ -5,7 +5,8 @@ import { createJiti } from "jiti";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
-const { openDocumentFile, restoreSession } = await jiti.import("./openFile.ts");
+const { openDocumentFile, openDroppedFiles, openInputFiles, pickAndOpenFile, restoreSession } =
+  await jiti.import("./openFile.ts");
 const { buildProjectBlob } = await jiti.import("./projectFile.ts");
 const { sessionsToDrop } = await jiti.import("./sessionStore.ts");
 
@@ -75,6 +76,77 @@ const handle = (name) => ({ name, isSameEntry: async (other) => other.name === n
   assert.equal(actions[0].type, "LOAD_FILE");
 }
 
+// Dropped files each open in order; text items and unsupported files are skipped, and an open file switches.
+{
+  const { actions, dispatch } = recorder();
+  const fileItem = (name, itemHandle) => ({
+    kind: "file",
+    getAsFile: () => new File(["x"], name),
+    getAsFileSystemHandle: async () => itemHandle,
+  });
+  const items = [
+    { kind: "string", getAsFile: () => null },
+    fileItem("a.png"),
+    fileItem("notes.txt"),
+    fileItem("b.pdf", { ...handle("b.pdf"), kind: "file" }),
+    fileItem("open.pdf", { ...handle("open.pdf"), kind: "file" }),
+    fileItem("c.png"),
+  ];
+  await openDroppedFiles({ items }, dispatch, [{ id: "open", projectHandle: handle("open.pdf") }]);
+  assert.deepEqual(
+    actions.map((action) => action.fileName ?? action.tabId),
+    ["a.png", "b.pdf", "open", "c.png"],
+  );
+  assert.equal(actions[0].handle, null);
+  assert.equal(actions[1].handle.name, "b.pdf");
+}
+
+// The picker offers multi-select and opens each pick in order; an unreadable file doesn't stop the rest.
+{
+  const { actions, dispatch } = recorder();
+  const alerts = [];
+  const picked = (name) => ({ ...handle(name), getFile: async () => new File(["x"], name) });
+  const unreadable = {
+    name: "gone.pdf",
+    getFile: async () => {
+      throw new Error("not readable");
+    },
+  };
+  let options;
+  globalThis.window = {
+    alert: (message) => alerts.push(message),
+    showOpenFilePicker: async (given) => {
+      options = given;
+      return [picked("a.png"), unreadable, picked("b.pdf"), picked("open.pdf")];
+    },
+  };
+  await pickAndOpenFile(dispatch, null, [{ id: "open", projectHandle: handle("open.pdf") }]);
+  delete globalThis.window;
+  assert.equal(options.multiple, true);
+  assert.deepEqual(
+    actions.map((action) => action.fileName ?? action.tabId),
+    ["a.png", "b.pdf", "open"],
+  );
+  assert.equal(actions[0].handle, null);
+  assert.equal(actions[1].handle.name, "b.pdf");
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0], /gone\.pdf/);
+}
+
+// The fallback input opens every file, even though clearing it empties its live list.
+{
+  const { actions, dispatch } = recorder();
+  const live = [new File(["x"], "a.png"), new File(["x"], "b.png")];
+  const input = {
+    files: live,
+    set value(_) {
+      live.length = 0;
+    },
+  };
+  await openInputFiles(input, dispatch);
+  assert.deepEqual(actions.map((action) => action.fileName), ["a.png", "b.png"]);
+}
+
 // A backup whose file is open switches too.
 {
   const { actions, dispatch } = recorder();
@@ -93,5 +165,28 @@ const backups = Array.from({ length: 23 }, (_, i) => ({ id: `s${i}`, savedAt: (i
 const newestFirst = [...backups].sort((a, b) => b.savedAt - a.savedAt);
 assert.deepEqual(new Set(sessionsToDrop(backups)), new Set(newestFirst.slice(20).map((b) => b.id)));
 assert.deepEqual(sessionsToDrop(backups.slice(0, 20)), []);
+
+// Opening many .mkups pushes out their own copies before an older backup from a save.
+{
+  const saved = { id: "saved", savedAt: 0, bytes: new Blob(["x"]) };
+  const opened = Array.from({ length: 22 }, (_, i) => ({ id: `o${i}`, savedAt: i + 1 }));
+  assert.deepEqual(new Set(sessionsToDrop([saved, ...opened])), new Set(["o0", "o1", "o2"]));
+}
+
+// Every file is read before any tab opens, so a batch opens in one go.
+{
+  const { actions, dispatch } = recorder();
+  const seen = [];
+  class WatchedFile extends File {
+    arrayBuffer() {
+      seen.push(actions.length);
+      return super.arrayBuffer();
+    }
+  }
+  const input = { files: [new WatchedFile(["x"], "a.png"), new WatchedFile(["x"], "b.png")], value: "" };
+  await openInputFiles(input, dispatch);
+  assert.deepEqual(seen, [0, 0]);
+  assert.equal(actions.length, 2);
+}
 
 console.log("openFile: all checks passed");

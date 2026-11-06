@@ -18,7 +18,7 @@ import { pendingZoomAnchor, previewOrigin, scrollAfterZoom } from "@/app/utils/z
 import { clampZoom, fitZoom } from "@/app/utils/zoomLevels";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
-import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
+import { openInputFiles, pickAndOpenFile } from "@/app/utils/openFile";
 
 /** Each wheel notch zooms by this factor, so steps feel the same at 25% and 1600%. */
 const ZOOM_WHEEL_FACTOR = 1.1;
@@ -528,7 +528,7 @@ export function PdfViewer() {
           <p className="text-lg font-medium text-text-primary">No file loaded</p>
           <p className="mt-2 max-w-sm text-sm text-text-secondary">
             Upload a PDF, TIF, or photo (PNG, JPG, etc.) to calibrate scale and
-            add measurements, or drag and drop a file anywhere on the page.
+            add measurements, or drag and drop one or more files anywhere on the page.
           </p>
           <button
             type="button"
@@ -542,13 +542,10 @@ export function PdfViewer() {
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept={`${ACCEPTED_FILE_TYPES},${PROJECT_ACCEPT}`}
             className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void openDocumentFile(file, dispatch);
-            }}
+            onChange={(event) => void openInputFiles(event.target, dispatch)}
           />
         </div>
         <RestoreSessions />

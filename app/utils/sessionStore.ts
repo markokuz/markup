@@ -27,10 +27,13 @@ const openDb = createDbOpener(DB_NAME, (db) => {
   db.createObjectStore(STORE, { keyPath: "id" });
 });
 
-/** Ids of the backups past the newest MAX_SESSIONS. */
-export function sessionsToDrop(entries: Pick<SessionEntry, "id" | "savedAt">[]): string[] {
+/**
+ * Ids of the backups past the newest MAX_SESSIONS. Those with `bytes` go last: they come from
+ * a save and may be the only copy, while the rest are mostly .mkups as opened, still on disk.
+ */
+export function sessionsToDrop(entries: Pick<SessionEntry, "id" | "savedAt" | "bytes">[]): string[] {
   return [...entries]
-    .sort((a, b) => b.savedAt - a.savedAt)
+    .sort((a, b) => Number(!!b.bytes) - Number(!!a.bytes) || b.savedAt - a.savedAt)
     .slice(MAX_SESSIONS)
     .map((entry) => entry.id);
 }

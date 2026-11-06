@@ -13,7 +13,7 @@ import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
 import { buildPaste, copySelection, duplicateSelection, hasClipboardContent } from "@/app/utils/clipboard";
-import { openDroppedFile } from "@/app/utils/openFile";
+import { openDroppedFiles } from "@/app/utils/openFile";
 import { saveTabWithFeedback } from "@/app/utils/projectSave";
 import { showSaveStatus } from "@/app/utils/saveStatus";
 import { toolForHotkey } from "@/app/utils/settings";
@@ -314,7 +314,7 @@ function MarkupShell() {
       onDrop={(e) => {
         e.preventDefault();
         setDraggingFile(false);
-        void openDroppedFile(e.dataTransfer, dispatch, state.tabs);
+        void openDroppedFiles(e.dataTransfer, dispatch, state.tabs);
       }}
     >
       {draggingFile && (

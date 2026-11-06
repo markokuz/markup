@@ -11,7 +11,7 @@ import { ShortcutsButton } from "@/app/components/ShortcutsDialog";
 import { describeScale } from "@/app/utils/scalePresets";
 import { ACCEPTED_FILE_TYPES } from "@/app/utils/fileTypes";
 import { PROJECT_ACCEPT } from "@/app/utils/projectFile";
-import { openDocumentFile, pickAndOpenFile } from "@/app/utils/openFile";
+import { openInputFiles, pickAndOpenFile } from "@/app/utils/openFile";
 import { saveTabWithFeedback, type SaveMode } from "@/app/utils/projectSave";
 import { getActiveTabFromAppState } from "@/app/utils/tabState";
 import { convertUnits, formatDistance, UNIT_LABELS } from "@/app/utils/units";
@@ -84,12 +84,6 @@ export function Toolbar() {
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [saveMenuOpen]);
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (file) await openDocumentFile(file, dispatch);
-  };
-
   const handleSaveTab = async (saveMode: SaveMode) => {
     setSaveMenuOpen(false);
     const tab = getActiveTabFromAppState(state);
@@ -146,9 +140,10 @@ export function Toolbar() {
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept={`${ACCEPTED_FILE_TYPES},${PROJECT_ACCEPT}`}
           className="hidden"
-          onChange={handleFileChange}
+          onChange={(event) => void openInputFiles(event.target, dispatch)}
         />
         <button
           type="button"

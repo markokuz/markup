@@ -97,7 +97,7 @@ function normalizeMarqueeRect(rect: ScreenRect, minSize = 4): ScreenRect {
   };
 }
 
-function pointInRect(point: Point2D, rect: ScreenRect): boolean {
+export function pointInRect(point: Point2D, rect: ScreenRect): boolean {
   return (
     point.x >= rect.x &&
     point.x <= rect.x + rect.width &&
@@ -232,6 +232,36 @@ function shapeScreenSegments(
     segments.push([pts[i], pts[(i + 1) % pts.length]]);
   }
   return segments;
+}
+
+/** A markup's upright box on screen, turned edges included. A callout's is just its card. */
+// shortcut: note and callout cards keep their screen size at any zoom, so centre/right/bottom alignment holds only at the zoom it was done at; needs cards sized in document units to fix.
+export function markupScreenBox(
+  markup: Measurement | RectMeasurement | NoteAnnotation | ShapeAnnotation,
+  viewport: DocumentViewport,
+): ScreenRect | null {
+  let points: Point2D[];
+  if ("start" in markup) {
+    points = [markup.start, markup.end].map((p) => toScreenPoint(viewport, p.x, p.y));
+  } else if ("topLeft" in markup) {
+    points = rectScreenCorners(markup, viewport);
+  } else if ("position" in markup) {
+    points = noteScreenCorners(markup, viewport);
+  } else if (markup.points.length === 0) {
+    return null;
+  } else if (markup.kind === "callout") {
+    if (markup.points.length < 2) return null;
+    const card = calloutCardBox(markup, viewport);
+    points = [card, { x: card.x + card.width, y: card.y + card.height }];
+  } else {
+    points = shapeScreenSegments(markup, viewport).flat();
+  }
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 function calloutTextRect(shape: ShapeAnnotation, viewport: DocumentViewport): ScreenRect | null {

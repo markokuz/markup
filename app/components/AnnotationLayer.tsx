@@ -21,8 +21,12 @@ import {
   calloutTipIndexAt,
   findAnnotationsInMarquee,
   hitTestAnnotations,
+  markupScreenBox,
+  pointInRect,
   screenRectFromPoints,
 } from "@/app/utils/selection";
+import { alignMoves, moveMarkupAction, type AlignDot, type AlignItem, type AlignableMarkup } from "@/app/utils/align";
+import { AlignHandles } from "@/app/components/AlignHandles";
 import {
   applyLineLength,
   applyRectHorizontalEdgeLength,
@@ -938,7 +942,8 @@ export function AnnotationLayer({
               state.measurements.find((m) => m.id === hitId) ??
               state.rectangles.find((r) => r.id === hitId) ??
               state.notes.find((n) => n.id === hitId);
-            next = hit?.locked ? "pointer" : "move";
+            // While aligning, a press on a selected item picks it rather than moving it.
+            next = hit?.locked || (state.aligning && state.selectedIds.includes(hitId)) ? "pointer" : "move";
           }
         }
         if (next !== selectCursor) setSelectCursor(next);
@@ -1114,8 +1119,42 @@ export function AnnotationLayer({
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.aligning, state.selectedIds, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
   );
+
+  const aligning = state.tool === "select" && state.selectedIds.length >= 2 ? state.aligning : null;
+  const isAligning = aligning !== null;
+  const alignItems = useMemo(() => {
+    if (!isAligning) return [];
+    const selected = new Set(state.selectedIds);
+    const items: (AlignItem & { markup: AlignableMarkup })[] = [];
+    for (const markup of [
+      ...state.measurements.filter((m) => !m.isCalibration),
+      ...state.rectangles,
+      ...state.notes,
+      ...state.shapes,
+    ]) {
+      if (!selected.has(markup.id)) continue;
+      const box = markupScreenBox(markup, viewport);
+      if (box) items.push({ id: markup.id, box, locked: markup.locked, markup });
+    }
+    return items;
+  }, [isAligning, state.measurements, state.notes, state.rectangles, state.selectedIds, state.shapes, viewport]);
+
+  const applyAlign = (dot: AlignDot) => {
+    if (alignItems.every((item) => item.locked)) {
+      showSaveStatus("info", "These items are locked, so they can't move");
+      return;
+    }
+    const moves = alignMoves(alignItems, aligning?.anchorId ?? null, dot);
+    if (moves.length === 0) return;
+    const origin = toDocPoint(viewport, 0, 0);
+    dispatch({ type: "RECORD_UNDO" });
+    for (const { item, shift } of moves) {
+      const to = toDocPoint(viewport, shift.x, shift.y);
+      dispatch(moveMarkupAction(item.markup, to.x - origin.x, to.y - origin.y));
+    }
+  };
 
   /**
    * Runs before any markup's own handler: a plain press on a member of a multi-selection
@@ -1139,6 +1178,12 @@ export function AnnotationLayer({
         setPlacingArrow(null);
         return;
       }
+      // The right-click menu is a portal: its presses still pass through here first.
+      if (contextMenuRef.current?.contains(event.target as Node)) return;
+      // Presses below never reach the window listener that closes the menu.
+      if (aligning && contextMenu) setContextMenu(null);
+      // A dot may sit over a selected markup; the press is the dot's.
+      if ((event.target as Element).closest("[data-align-dot]")) return;
       if (state.tool !== "select" || (event.button !== 0 && event.button !== 2)) return;
       if (event.shiftKey || event.ctrlKey || event.metaKey) return;
       if (!overlay) return;
@@ -1153,6 +1198,27 @@ export function AnnotationLayer({
         state.scale,
         state.displayUnit,
       );
+      if (aligning && event.button === 0) {
+        // Inside a rectangle or cloud isn't a hit on it, but here it's the obvious way to pick one.
+        // Other boxes stay out: a diagonal line's box is mostly blank paper.
+        const picked = hitId
+          ? alignItems.find((item) => item.id === hitId)
+          : alignItems
+              .filter(
+                ({ box, markup }) =>
+                  ("topLeft" in markup || ("kind" in markup && markup.kind === "cloud")) && pointInRect(local, box),
+              )
+              .sort((a, b) => a.box.width * a.box.height - b.box.width * b.box.height)[0];
+        if (picked) {
+          event.stopPropagation();
+          event.preventDefault();
+          dispatch({
+            type: "SET_ALIGNING",
+            aligning: { anchorId: aligning.anchorId === picked.id ? null : picked.id },
+          });
+          return;
+        }
+      }
       if (!hitId) return;
       if (event.button === 2) {
         // Right-pressing a selected markup keeps the selection for the right-click menu.
@@ -1170,7 +1236,7 @@ export function AnnotationLayer({
         moved: false,
       };
     },
-    [cancelPlacingArrow, moveShapePoint, overlayRef, placingArrow, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
+    [aligning, alignItems, cancelPlacingArrow, contextMenu, dispatch, moveShapePoint, overlayRef, placingArrow, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -1375,6 +1441,12 @@ export function AnnotationLayer({
       const markups = selection.filter((selected) => byId.has(selected));
       return [
         ...removeCutout,
+        {
+          label: state.aligning ? "Stop aligning" : "Align",
+          run: close(() =>
+            dispatch({ type: "SET_ALIGNING", aligning: state.aligning ? null : { anchorId: null } }),
+          ),
+        },
         ...editItems(markups),
         {
           // A new Markups-panel group; it doesn't change what's selected or drawn.
@@ -2232,6 +2304,15 @@ export function AnnotationLayer({
         {callouts.map(renderCalloutCard)}
         {editingText && renderTextEditor(editingText)}
         {transformFrame && renderTransformHandles(transformFrame)}
+        {aligning && (
+          <AlignHandles
+            items={alignItems}
+            anchorId={aligning.anchorId}
+            pageWidth={viewport.width}
+            pageHeight={viewport.height}
+            onAlign={applyAlign}
+          />
+        )}
         {snapMark &&
           (() => {
             const at = toScreenPoint(viewport, snapMark.point.x, snapMark.point.y);

@@ -216,6 +216,27 @@ export function Toolbar() {
           </button>
         </div>
 
+        {state.tool === "select" && state.selectedIds.length >= 2 && (
+          <button
+            type="button"
+            title="Line up the selected items"
+            aria-pressed={!!state.aligning}
+            onClick={() =>
+              dispatch({ type: "SET_ALIGNING", aligning: state.aligning ? null : { anchorId: null } })
+            }
+            className={`flex h-9 items-center gap-1.5 rounded-lg border bg-surface px-2.5 text-xs transition hover:bg-surface-muted ${
+              state.aligning ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+              <path d="M8 1.5v13" />
+              <rect x="3.5" y="3.5" width="9" height="3" rx="0.75" />
+              <rect x="5" y="9.5" width="6" height="3" rx="0.75" />
+            </svg>
+            Align
+          </button>
+        )}
+
         <SaveToast />
 
         <div className="ml-auto flex items-center gap-2">
@@ -908,6 +929,12 @@ export function StatusBar() {
         {state.tool === "select" && state.selectedIds.length === 0 && (
           <span className="text-text-muted">
             Drag to select · Ctrl+click to toggle · click a label to edit dimensions
+          </span>
+        )}
+
+        {state.tool === "select" && state.selectedIds.length >= 2 && state.aligning && (
+          <span className="text-text-muted">
+            Click a dot to line up · click an item to hold it still · Esc to finish
           </span>
         )}
       </div>

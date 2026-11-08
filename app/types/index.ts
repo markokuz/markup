@@ -190,6 +190,8 @@ export interface DocumentTab {
   /** The area that the area being drawn gets cut out of when it finishes. */
   cutoutTargetId: string | null;
   selectedIds: string[];
+  /** Align mode, with the selected item the others line up to, if one was picked. */
+  aligning: { anchorId: string | null } | null;
   pendingPoint: Point2D | null;
   pendingMarquee: PendingMarquee | null;
   editingDimension: EditingDimension | null;
@@ -347,6 +349,7 @@ export type AppAction =
   | { type: "UPDATE_SHAPE"; id: string; updates: Partial<ShapeAnnotation> }
   | { type: "DELETE_SHAPE"; id: string }
   | { type: "SET_SELECTION"; ids: string[] }
+  | { type: "SET_ALIGNING"; aligning: { anchorId: string | null } | null }
   | { type: "NUDGE_SELECTED"; dx: number; dy: number; recordUndo: boolean }
   | { type: "DELETE_SELECTED" }
   /** Delete these markups (e.g. from the Markups panel), whatever is selected. */

@@ -105,6 +105,7 @@ function showPage(tab: DocumentTab, page: number): DocumentTab {
     ...finishDrawingShape(tab),
     page,
     selectedIds: [],
+    aligning: null,
     pendingPoint: null,
     pendingMarquee: null,
     editingDimension: null,
@@ -153,6 +154,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           editingDimension: null,
           editingNoteId: null,
           selectedIds: action.tool === "select" ? tab.selectedIds : [],
+          aligning: null,
         })),
         tool: action.tool,
         countStart: action.tool === "count" ? 1 : state.countStart,
@@ -605,10 +607,13 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
         return {
           ...tab,
           selectedIds: tab.pageCount > 1 ? action.ids.filter(visible) : action.ids,
+          aligning: null,
           editingDimension: null,
           editingNoteId: null,
         };
       });
+    case "SET_ALIGNING":
+      return updateActiveTab(state, (tab) => ({ ...tab, aligning: action.aligning }));
     case "NUDGE_SELECTED":
       return updateActiveTab(state, (tab) => {
         if (tab.selectedIds.length === 0) return tab;
@@ -841,6 +846,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           notes: [...tab.notes, ...action.notes.map((n) => onCurrentPage(tab, n))],
           shapes: [...tab.shapes, ...action.shapes.map((s) => onCurrentPage(tab, s))],
           selectedIds: pastedIds,
+          aligning: null,
           pendingPoint: null,
           pendingMarquee: null,
           editingDimension: null,

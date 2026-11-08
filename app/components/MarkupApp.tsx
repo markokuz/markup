@@ -197,6 +197,12 @@ function MarkupShell() {
       }
 
       if (event.key === "Escape") {
+        // Esc leaves align mode first, so the selection survives for whatever comes next.
+        const { aligning, tool, selectedIds } = stateRef.current;
+        if (aligning && tool === "select" && selectedIds.length >= 2) {
+          dispatch({ type: "SET_ALIGNING", aligning: null });
+          return;
+        }
         dispatch({ type: "FINISH_SHAPE" });
         dispatch({ type: "SET_PENDING_POINT", point: null });
         dispatch({ type: "SET_PENDING_MARQUEE", marquee: null });

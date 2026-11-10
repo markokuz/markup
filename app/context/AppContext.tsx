@@ -4,9 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
-  useLayoutEffect,
   useReducer,
-  useRef,
   type Dispatch,
   type ReactNode,
 } from "react";
@@ -32,7 +30,6 @@ import { eraseFromStrokes, joinStrokes, splitStrokes } from "@/app/utils/geometr
 import { markupsOnPage, pageOf, pagesWithMarkups } from "@/app/utils/pages";
 import { drawPieces, drawWidth } from "@/app/utils/shapeMetrics";
 import { markupIds, nextGroupName, wouldNestInItself } from "@/app/utils/groups";
-import { deleteSession } from "@/app/utils/sessionStore";
 import {
   loadAutoOrientPortrait,
   loadConfirmCloseUnsaved,
@@ -359,19 +356,13 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       };
     }
     case "LOAD_PROJECT": {
-      // A double-clicked restore must not open two tabs sharing one id.
-      if (state.tabs.some((tab) => tab.id === action.tabId)) {
-        return { ...state, activeTabId: action.tabId! };
-      }
       const base = createDocumentTab(
         {
           bytes: action.bytes,
           fileName: action.fileName,
           fileType: action.fileType,
           mimeType: action.mimeType,
-        },
-        action.tabId,
-      );
+      });
       const tab = {
         ...base,
         page: action.page,
@@ -1022,16 +1013,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = tabsState.settings.darkMode ? "dark" : "light";
   }, [tabsState.settings.darkMode]);
 
-  // A closed tab's browser backup is no longer wanted. Layout effect so the delete
-  // is queued before the start screen (a child, whose effects run first) lists backups.
-  const openTabIdsRef = useRef<string[]>([]);
-  useLayoutEffect(() => {
-    const ids = tabsState.tabs.map((tab) => tab.id);
-    for (const id of openTabIdsRef.current) {
-      if (!ids.includes(id)) void deleteSession(id);
+  // Work is only ever saved to files now: clear the browser backups earlier versions kept.
+  useEffect(() => {
+    try {
+      indexedDB.deleteDatabase("markup-session");
+    } catch {
+      // No storage: nothing to clear.
     }
-    openTabIdsRef.current = ids;
-  }, [tabsState.tabs]);
+  }, []);
 
   useEffect(() => {
     saveAutoOrientPortrait(tabsState.autoOrientPortrait);

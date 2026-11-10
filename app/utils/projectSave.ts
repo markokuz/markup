@@ -9,7 +9,6 @@ import {
 } from "@/app/utils/saveFilePicker";
 import { describeWriteFailure } from "@/app/utils/saveError";
 import { showSaveStatus } from "@/app/utils/saveStatus";
-import { putSession } from "@/app/utils/sessionStore";
 import { buildMarkedUpImageBlob, getScreenUpDocDirection } from "@/app/utils/exportDocument";
 import { buildPdfWithMarkups } from "@/app/utils/pdfSave";
 
@@ -53,11 +52,7 @@ function markedUpPngName(fileName: string): string {
   return `${fileName.replace(/\.[^.]+$/, "")}-markup.png`;
 }
 
-/**
- * Save a tab. Returns the written file's name, or null when the user cancelled. Always
- * refreshes the browser backup first, so declining Chrome's file-permission prompt
- * (SavePermissionError) still keeps the work.
- */
+/** Save a tab to a file. Returns the written file's name, or null when the user cancelled. */
 async function saveTab(
   tab: SavableTab,
   displayUnit: Unit,
@@ -93,23 +88,8 @@ async function saveTab(
       fileBytes: bytes,
     });
 
-  // The document goes beside the markups as raw bytes: only a real .mkup needs it as
-  // base64, and converting a big PDF on every save would freeze the page.
-  const backupProject = projectBlob(new Uint8Array());
-  const backupBytes = new Blob([fileBytes as Uint8Array<ArrayBuffer>]);
-  const backup = (handle: FileSystemFileHandle | null) =>
-    putSession({
-      id: tab.id,
-      fileName: handle?.name ?? getProjectFileName(fileName),
-      project: backupProject,
-      bytes: backupBytes,
-      handle,
-      savedAt: Date.now(),
-    });
-  const backedUp = await backup(tab.projectHandle);
-
   // The saved file becomes the one this tab edits: later Ctrl+S saves go to it.
-  const adopt = async (handle: FileSystemFileHandle) => {
+  const adopt = (handle: FileSystemFileHandle) =>
     dispatch({
       type: "SET_PROJECT_HANDLE",
       tabId: tab.id,
@@ -117,19 +97,9 @@ async function saveTab(
       // An image keeps its own name: decoding TIFF/HEIC sources goes by it.
       ...(fileType === "pdf" && !isProjectHandle(handle) ? { fileName: handle.name } : {}),
     });
-    await backup(handle);
-  };
 
   const writeToLinkedFile = async (handle: FileSystemFileHandle, blob: Blob) => {
-    try {
-      await writeBlobToHandle(handle, blob);
-    } catch (error) {
-      // SavePermissionError's message promises a browser copy; only let it through if there is one.
-      if (error instanceof SavePermissionError && !backedUp) {
-        throw new Error("File access was declined and the browser backup failed, so nothing was saved.");
-      }
-      throw error;
-    }
+    await writeBlobToHandle(handle, blob);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
     return handle.name;
   };
@@ -137,7 +107,7 @@ async function saveTab(
   const saveAs = async (blob: Blob, suggestedName: string) => {
     const result = await saveBlobAs(blob, suggestedName);
     if (!result) return null;
-    if (result.handle) await adopt(result.handle);
+    if (result.handle) adopt(result.handle);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
     return result.handle?.name ?? suggestedName;
   };
@@ -193,8 +163,9 @@ export async function saveTabWithFeedback(
   } catch (error) {
     if (error instanceof SavePermissionError) {
       showSaveStatus(
-        "warning",
-        `Saved in this browser. Allow file access to also update ${error.fileName}.`,
+        "error",
+        `${error.fileName} wasn't saved`,
+        "Allow file access when the browser asks, or use Save As.",
       );
     } else if (error instanceof SaveWriteError) {
       // The toast drops the browser's wording, so keep it here for debugging.

@@ -76,7 +76,7 @@ interface SavedPageFields {
 }
 
 /**
- * Per-page state from any saved form (.mkup, PDF, browser backup). Files saved before
+ * Per-page state from any saved form (.mkup, PDF). Files saved before
  * multi-page PDFs only have one `scale` and `rotation`, which belong to page 1. `sheets`
  * stays null for them, so a multi-page PDF asks which pages to show.
  */

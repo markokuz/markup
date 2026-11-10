@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DropIcon } from "@/app/components/DropIcon";
-import { RestoreSessions } from "@/app/components/RestoreSessions";
 import type { DocumentRotation, Point2D } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { useDocument } from "@/app/hooks/useDocument";
@@ -559,7 +558,6 @@ export function PdfViewer() {
             onChange={(event) => void openInputFiles(event.target, dispatch)}
           />
         </div>
-        <RestoreSessions />
       </div>
     );
   }

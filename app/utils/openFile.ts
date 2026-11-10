@@ -3,7 +3,6 @@ import type { AppAction, DocumentTab } from "@/app/types";
 import { detectDocumentType } from "@/app/utils/fileTypes";
 import { isProjectFile, readProjectFile } from "@/app/utils/projectFile";
 import { showSaveStatus } from "@/app/utils/saveStatus";
-import { putSession, type SessionEntry } from "@/app/utils/sessionStore";
 import { readPdfWithMarkups } from "@/app/utils/pdfSave";
 import { withGroups } from "@/app/utils/groups";
 import { withPages } from "@/app/utils/pages";
@@ -81,10 +80,7 @@ export async function openDocumentFile(
 
     if (isProjectFile(file)) {
       const project = await readProjectFile(file);
-      const tabId = crypto.randomUUID();
-      // Keep the file handle so Ctrl+S after a reload still targets this .mkup.
-      void putSession({ id: tabId, fileName: file.name, project: file, handle, savedAt: Date.now() });
-      dispatch({ type: "LOAD_PROJECT", ...project, tabId, handle });
+      dispatch({ type: "LOAD_PROJECT", ...project, handle });
       return;
     }
 
@@ -215,27 +211,4 @@ export async function openDroppedFiles(
       return [{ file, handle }];
     });
   await openTogether(entries, dispatch, tabs);
-}
-
-/** Reopen a browser backup in its original tab id, with its linked file handle. */
-export async function restoreSession(
-  entry: SessionEntry,
-  dispatch: Dispatch<AppAction>,
-  tabs: OpenTab[],
-): Promise<void> {
-  try {
-    if (await switchIfAlreadyOpen(entry.handle, tabs, dispatch)) return;
-
-    const project = await readProjectFile(new File([entry.project], entry.fileName));
-    dispatch({
-      type: "LOAD_PROJECT",
-      ...project,
-      bytes: entry.bytes ? new Uint8Array(await entry.bytes.arrayBuffer()) : project.bytes,
-      tabId: entry.id,
-      handle: entry.handle,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not restore this file.";
-    window.alert(message);
-  }
 }

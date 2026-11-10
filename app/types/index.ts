@@ -304,8 +304,6 @@ export type AppAction =
       zoom: number;
       handle?: FileSystemFileHandle | null;
       legacyRotatedImage?: boolean;
-      /** Reuse this tab id (restoring a browser backup keeps its session entry). */
-      tabId?: string;
       toolColors?: Partial<Record<ColorTool, string>>;
     }
   | { type: "SWITCH_TAB"; tabId: string }

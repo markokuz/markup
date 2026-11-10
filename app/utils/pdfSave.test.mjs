@@ -44,6 +44,8 @@ const data = {
   toolColors: { count: "#ef4444" },
 };
 const bytesOf = async (blob) => new Uint8Array(await blob.arrayBuffer());
+// Markups come back marked with the page they are on.
+const onPage = (list, page) => list.map((markup) => ({ ...markup, page }));
 
 // Runs and cutouts survive a save, and a cutout is drawn as a second ring of the same path.
 const takeoffData = {
@@ -62,7 +64,7 @@ const takeoffData = {
   ],
 };
 const savedTakeoff = await readPdfWithMarkups(await bytesOf(await buildPdfWithMarkups(original, takeoffData)));
-assert.deepEqual(savedTakeoff.data.shapes, takeoffData.shapes);
+assert.deepEqual(savedTakeoff.data.shapes, onPage(takeoffData.shapes, 0));
 const takeoffPage = await PDFDocument.load(await bytesOf(await buildPdfWithMarkups(original, takeoffData)));
 const takeoffOps = (() => {
   const contents = takeoffPage.getPage(0).node.Contents();
@@ -102,7 +104,7 @@ const multiPage = {
   notes: [],
   shapes: [
     { id: "p2", kind: "polyline", page: 1, color: "#2563eb", points: [{ x: 111, y: 222 }, { x: 333, y: 222 }] },
-    // On a page past the end, as a damaged file might say: it stays in the data but mustn't stop the save.
+    // On a page past the end, as a damaged file might say: it mustn't stop the save, and has no page to come back on.
     { id: "gone", kind: "polyline", page: 9, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] },
   ],
 };
@@ -111,11 +113,9 @@ assert.ok((await pageOps(savedMulti, 1)).includes("111 -222 m"), "page 2 has its
 assert.ok(!(await pageOps(savedMulti, 0)).includes("111 -222 m"), "page 1 doesn't have page 2's markup");
 assert.equal((await PDFDocument.load(savedMulti)).getPageCount(), 2);
 const readMulti = await readPdfWithMarkups(savedMulti);
-assert.deepEqual(readMulti.data.shapes, multiPage.shapes);
+assert.deepEqual(readMulti.data.shapes, multiPage.shapes.slice(0, 1));
 assert.deepEqual(readMulti.data.scales, { 1: sheetScale });
 assert.deepEqual(readMulti.data.rotations, { 0: 0, 1: 90 });
-assert.equal(readMulti.data.page, 1);
-assert.deepEqual(readMulti.data.sheets, [1]);
 
 // Reopening strips page 2's drawing as well as page 1's, and saving again doesn't grow the file.
 const pristineMulti = new TextDecoder("latin1").decode(readMulti.pristine);
@@ -184,7 +184,12 @@ assert.equal(await readPdfWithMarkups(original), null);
 const saved1 = await bytesOf(await buildPdfWithMarkups(original, data));
 const read1 = await readPdfWithMarkups(saved1);
 assert.ok(read1, "markups found in the saved PDF");
-assert.deepEqual({ ...read1.data, version: undefined }, { ...data, version: undefined });
+for (const key of ["measurements", "rectangles", "notes", "shapes"]) {
+  assert.deepEqual(read1.data[key], onPage(data[key], 0), key);
+}
+for (const key of ["scale", "displayUnit", "zoom", "rotation", "toolColors"]) {
+  assert.deepEqual(read1.data[key], data[key], key);
+}
 
 // Markups are drawn on page 1 (other viewers see them); page 2 is untouched.
 const savedDoc = await PDFDocument.load(saved1);
@@ -233,7 +238,7 @@ assert.equal(readAwkward.data.shapes[2].points.length, 4);
 assert.equal(readAwkward.data.shapes[2].width, 150);
 
 // Damaged markup data opens as a plain PDF instead of reaching the app.
-const damaged = await PDFDocument.load(saved1);
+const damaged = await PDFDocument.load(original);
 damaged.catalog.set(
   PDFName.of("MarkupAppData"),
   damaged.context.register(damaged.context.flateStream(JSON.stringify({ ...data, version: 1, measurements: null }))),
@@ -255,5 +260,86 @@ const drawing = async (zoom) => {
     .replace(/\/[\w+-]*-\d+/g, "/name");
 };
 assert.equal(await drawing(0.25), await drawing(16));
+
+// Another tool removes or reorders pages and drops the catalog (iLovePDF does both): each
+// page's markups stay with that page.
+const fourDoc = await PDFDocument.create();
+for (const n of [1, 2, 3, 4]) fourDoc.addPage([792, 612]).drawText(`Plan ${n}`, { x: 72, y: 540, size: 24, font: await fourDoc.embedFont(StandardFonts.Helvetica) });
+const fourPages = await fourDoc.save();
+const line = (id, page, y) => ({ id, kind: "polyline", page, points: [{ x: 10, y }, { x: 20, y }] });
+const fourData = {
+  ...data,
+  scale: null,
+  scales: { 3: sheetScale },
+  rotations: { 0: 0, 1: 0, 3: 90 },
+  page: 3,
+  sheets: [0, 1, 2, 3],
+  measurements: [],
+  rectangles: [],
+  notes: [],
+  shapes: [line("on1", 0, 101), line("on2", 1, 202), line("on4", 3, 404)],
+  groups: [{ id: "g", name: "Group 1", memberIds: ["on2", "on4"] }],
+};
+const savedFour = await bytesOf(await buildPdfWithMarkups(fourPages, fourData));
+const edited = await PDFDocument.load(savedFour);
+edited.removePage(1);
+edited.catalog.delete(PDFName.of("MarkupAppData"));
+const readEdited = await readPdfWithMarkups(await edited.save());
+assert.deepEqual(readEdited.data.shapes, [line("on1", 0, 101), line("on4", 2, 404)], "markups follow their pages");
+assert.deepEqual(readEdited.data.scales, { 2: sheetScale });
+assert.deepEqual(readEdited.data.rotations, { 0: 0, 2: 90 });
+assert.deepEqual(readEdited.data.groups, fourData.groups);
+assert.ok(!(await pageOps(readEdited.pristine, 2)).includes("10 -404 m"), "moved page's drawing stripped");
+// The open pages and the page on screen aren't kept: opening always asks which pages to show.
+assert.equal(readEdited.data.page, undefined);
+assert.equal(readEdited.data.sheets, undefined);
+
+// Pages copied into a new file in another order, the way such tools rebuild a PDF.
+const savedFourDoc = await PDFDocument.load(savedFour);
+const reordered = await PDFDocument.create();
+for (const page of await reordered.copyPages(savedFourDoc, [3, 0, 1, 2])) reordered.addPage(page);
+const readReordered = await readPdfWithMarkups(await reordered.save({ useObjectStreams: false }));
+assert.deepEqual(
+  readReordered.data.shapes,
+  [line("on4", 0, 404), line("on1", 1, 101), line("on2", 2, 202)],
+  "markups follow reordered pages",
+);
+
+// The same page copied twice: only one copy's markups come back editable, or ids would clash.
+const doubled = await PDFDocument.create();
+for (const page of await doubled.copyPages(savedFourDoc, [0, 0])) doubled.addPage(page);
+const readDoubled = await readPdfWithMarkups(await doubled.save({ useObjectStreams: false }));
+assert.deepEqual(readDoubled.data.shapes, [line("on1", 0, 101)]);
+assert.ok((await pageOps(readDoubled.pristine, 1)).includes("10 -101 m"), "the other copy stays drawn");
+
+// An older file whose data lists no markups for drawings still on its pages (a save after a
+// failed read wrote that): the drawings stay instead of vanishing.
+const legacyBroken = await PDFDocument.load(savedFour);
+for (const [, object] of legacyBroken.context.enumerateIndirectObjects()) object.dict?.delete(PDFName.of("MarkupAppPage"));
+legacyBroken.catalog.set(
+  PDFName.of("MarkupAppData"),
+  legacyBroken.context.register(
+    legacyBroken.context.flateStream(
+      new TextEncoder().encode(JSON.stringify({ ...fourData, version: 2, shapes: [line("on1", 0, 101)] })),
+    ),
+  ),
+);
+const readBroken = await readPdfWithMarkups(await legacyBroken.save({ useObjectStreams: false }));
+assert.deepEqual(readBroken.data.shapes, [line("on1", 0, 101)]);
+assert.equal(readBroken.data.sheets, undefined, "an older file's saved sheets are dropped too");
+assert.ok(!(await pageOps(readBroken.pristine, 0)).includes("10 -101 m"), "page with data stripped");
+assert.ok((await pageOps(readBroken.pristine, 3)).includes("10 -404 m"), "page without data keeps its drawing");
+
+// No data left at all: a plain PDF, and a save over it keeps the old drawings for good.
+const noData = await PDFDocument.load(savedFour);
+for (const [, object] of noData.context.enumerateIndirectObjects()) object.dict?.delete(PDFName.of("MarkupAppPage"));
+const noDataBytes = await noData.save({ useObjectStreams: false });
+assert.equal(await readPdfWithMarkups(noDataBytes), null);
+const savedOver = await bytesOf(await buildPdfWithMarkups(noDataBytes, { ...fourData, shapes: [], groups: [] }));
+const readOver = await readPdfWithMarkups(savedOver);
+assert.deepEqual(readOver.data.shapes, []);
+for (const [page, y] of [[0, 101], [1, 202], [3, 404]]) {
+  assert.ok((await pageOps(readOver.pristine, page)).includes(`10 -${y} m`), `page ${page + 1} keeps the old drawing`);
+}
 
 console.log("pdfSave: all checks passed");

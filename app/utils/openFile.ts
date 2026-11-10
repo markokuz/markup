@@ -96,7 +96,7 @@ export async function openDocumentFile(
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     // A PDF saved from here carries its markups: reopen them as editable markups.
-    const saved = fileType === "pdf" ? await readPdfWithMarkups(bytes).catch(() => null) : null;
+    const saved = fileType === "pdf" ? await readPdfWithMarkups(bytes) : null;
     if (saved) {
       dispatch({
         type: "LOAD_PROJECT",

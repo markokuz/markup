@@ -21,7 +21,7 @@ export function getAreaMetrics(
   scale: Scale | null,
   unit: Unit,
 ): { area: number; perimeter: number } | null {
-  if (shape.kind !== "area" || !scale || shape.points.length < 3) return null;
+  if (shape.kind !== "area" || shape.plain || !scale || shape.points.length < 3) return null;
   const k = displayPerDoc(scale, unit);
   const [outline, ...holes] = areaRings(shape);
   const net = polygonArea(outline) - holes.reduce((sum, hole) => sum + polygonArea(hole), 0);
@@ -107,9 +107,11 @@ export function countStartAt(shape: ShapeAnnotation): number {
 export const DRAW_DEFAULT_WIDTH = 2;
 export const DRAW_MIN_WIDTH = 1;
 export const DRAW_MAX_WIDTH = 20;
+export const HIGHLIGHT_DEFAULT_WIDTH = 14;
+export const HIGHLIGHT_MAX_WIDTH = 48;
 
 export function drawWidth(shape: ShapeAnnotation): number {
-  return shape.strokeWidth ?? DRAW_DEFAULT_WIDTH;
+  return shape.strokeWidth ?? (shape.highlight ? HIGHLIGHT_DEFAULT_WIDTH : DRAW_DEFAULT_WIDTH);
 }
 
 /** A drawing's separate pieces (more than one once the eraser has cut through it). */

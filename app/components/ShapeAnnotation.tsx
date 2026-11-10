@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Point2D, Scale, ShapeAnnotation as ShapeAnnotationType, Unit } from "@/app/types";
 import { arrowPolygonPoints, toScreenPoint } from "@/app/utils/coordinates";
-import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
+import { dashArray, getAnnotationColor, HIGHLIGHT_OPACITY, SELECTION_ACCENT } from "@/app/utils/colors";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import { viewportZoom } from "@/app/utils/documentViewport";
 import {
@@ -217,7 +217,14 @@ export function ShapeAnnotation({
             )}
           </>
         ) : (
-          <path d={rings} fill={`${color}2e`} stroke={color} strokeWidth={strokeWidth} />
+          <path
+            d={rings}
+            fill={shape.plain ? "none" : `${color}2e`}
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={shape.dashed ? dashArray(strokeWidth) : undefined}
+            strokeLinejoin="round"
+          />
         )}
         {label && !isDrawing && <ShapeLabel at={toScreen(polygonCentroid(areaOutline(shape)))} text={label} color={color} />}
       </g>
@@ -243,8 +250,9 @@ export function ShapeAnnotation({
           fill="none"
           stroke={color}
           strokeWidth={strokeWidth}
+          strokeDasharray={shape.dashed ? dashArray(strokeWidth) : undefined}
           strokeLinejoin="round"
-          strokeLinecap="round"
+          strokeLinecap={shape.dashed ? "butt" : "round"}
         />
         {cursor && last && (
           <line x1={last.x} y1={last.y} x2={cursor.x} y2={cursor.y} stroke={color} strokeWidth={1.5} strokeDasharray="6 4" />
@@ -301,7 +309,15 @@ export function ShapeAnnotation({
     return (
       <g pointerEvents="none" fill="none" strokeLinecap="round" strokeLinejoin="round">
         {isSelected && <path d={d} stroke={SELECTION_ACCENT} strokeWidth={Math.max(8, width + 6)} opacity={0.3} />}
-        <path d={d} stroke={color} strokeWidth={isSelected ? width + 0.5 : width} />
+        <path
+          d={d}
+          stroke={color}
+          strokeWidth={isSelected && !shape.highlight ? width + 0.5 : width}
+          strokeDasharray={shape.dashed ? dashArray(width) : undefined}
+          // Multiply keeps the drawing under a highlight readable, like a real highlighter.
+          opacity={shape.highlight ? HIGHLIGHT_OPACITY : undefined}
+          style={shape.highlight ? { mixBlendMode: "multiply" } : undefined}
+        />
       </g>
     );
   }

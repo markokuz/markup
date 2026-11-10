@@ -279,12 +279,12 @@ export function pointInRings(point: Point2D, rings: Point2D[][]): boolean {
   return !!outline && pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole));
 }
 
-/** The topmost unlocked area `point` is inside, for starting a cutout there. */
-export function areaToCutAt<T extends { kind: string; locked?: boolean; points: Point2D[]; breaks?: number[] }>(
+/** The topmost unlocked area (not a plain polygon) `point` is inside, for starting a cutout there. */
+export function areaToCutAt<T extends { kind: string; locked?: boolean; plain?: boolean; points: Point2D[]; breaks?: number[] }>(
   shapes: T[],
   point: Point2D,
 ): T | undefined {
-  return shapes.findLast((s) => s.kind === "area" && !s.locked && pointInRings(point, areaRings(s)));
+  return shapes.findLast((s) => s.kind === "area" && !s.plain && !s.locked && pointInRings(point, areaRings(s)));
 }
 
 /** SVG path of straight segments through `points`, left open. */

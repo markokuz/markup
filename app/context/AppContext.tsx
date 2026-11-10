@@ -198,6 +198,11 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, rectMode: action.mode };
     case "SET_AREA_MODE":
       return { ...updateActiveTab(state, finishDrawingShape), areaMode: action.mode };
+    case "SET_SHAPE_MODE":
+      return {
+        ...updateActiveTab(state, (tab) => ({ ...finishDrawingShape(tab), pendingPoint: null })),
+        shapeMode: action.mode,
+      };
     case "UPDATE_SETTINGS":
       return { ...state, settings: { ...state.settings, ...action.patch } };
     case "SET_TOOL_COLOR":
@@ -332,6 +337,19 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
           measurements: tab.measurements.map((m) => (m.isCalibration ? m : set(m))),
           rectangles: tab.rectangles.map(set),
           notes: tab.notes.map(set),
+          shapes: tab.shapes.map(set),
+        };
+      });
+    case "SET_DASHED":
+      return updateActiveTab(state, (tab) => {
+        const ids = new Set(action.ids);
+        const dashed = action.dashed || undefined;
+        const set = <T extends { id: string }>(a: T): T => (ids.has(a.id) ? { ...a, dashed } : a);
+        return {
+          ...tab,
+          history: appendHistory(tab),
+          measurements: tab.measurements.map((m) => (m.isCalibration ? m : set(m))),
+          rectangles: tab.rectangles.map(set),
           shapes: tab.shapes.map(set),
         };
       });
@@ -984,6 +1002,7 @@ function mergeActiveTabView(state: TabsState): AppState {
     lineMode: state.lineMode,
     rectMode: state.rectMode,
     areaMode: state.areaMode,
+    shapeMode: state.shapeMode,
     settings: state.settings,
   };
 }

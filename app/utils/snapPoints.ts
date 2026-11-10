@@ -373,6 +373,8 @@ export function markupSnapSegments(
     if (!m.isCalibration) addPath(m.id, [m.start, m.end], false);
   }
   for (const r of source.rectangles) {
+    // shortcut: an ellipse gives no snap points; sample its outline if snapping to it is wanted.
+    if (r.ellipse) continue;
     // Through the frame, because a turned rectangle's corners aren't its stored ones.
     const frame = getTransformFrame({ kind: "rect", item: r }, viewport);
     if (frame) addPath(r.id, frame.corners.map((p) => toDocPoint(viewport, p.x, p.y)), true);

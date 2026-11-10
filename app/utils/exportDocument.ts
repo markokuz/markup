@@ -9,6 +9,7 @@ import {
   popGraphicsState,
   pushGraphicsState,
   LineCapStyle,
+  BlendMode,
   setLineCap,
   setLineJoin,
   type PDFFont,
@@ -26,7 +27,9 @@ import type {
 } from "@/app/types";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
 import {
+  dashPattern,
   DEFAULT_ANNOTATION_COLOR,
+  HIGHLIGHT_OPACITY,
   hexToRgb,
 } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
@@ -38,6 +41,8 @@ import {
   midpoint,
   MIDPOINT_TICK_HALF_PX,
   midpointTickEnds,
+  POINTER_ARROW_HALF_WIDTH,
+  POINTER_ARROW_LEN,
   type ArrowSpec,
 } from "@/app/utils/coordinates";
 import {
@@ -100,6 +105,29 @@ function getExportStyle(zoom: number): ExportStyle {
     arrowLen: 9 * scale,
     arrowHalfWidth: 4 * scale,
     midpointTickHalf: MIDPOINT_TICK_HALF_PX * scale,
+  };
+}
+
+/** Dash pattern for a dashed markup with a line `width` thick; none for a solid one. */
+function dashFor(markup: { dashed?: boolean }, width: number): number[] | undefined {
+  return markup.dashed ? dashPattern(width) : undefined;
+}
+
+/** A Shapes tool arrow: its line stops inside the head, sized as on screen. */
+function pointerArrow(measurement: Measurement, style: ExportStyle) {
+  const px = style.arrowLen / 9;
+  const len = POINTER_ARROW_LEN * px;
+  const length = docDistance(measurement.start, measurement.end) || 1;
+  const dir = {
+    x: (measurement.end.x - measurement.start.x) / length,
+    y: (measurement.end.y - measurement.start.y) / length,
+  };
+  const back = Math.min(len * 0.7, length);
+  return {
+    shaftEnd: { x: measurement.end.x - dir.x * back, y: measurement.end.y - dir.y * back },
+    head: { tip: measurement.end, dir },
+    len,
+    half: POINTER_ARROW_HALF_WIDTH * px,
   };
 }
 
@@ -293,15 +321,16 @@ function drawInlineLineOnPdf(
   arrowLen: number,
   arrowHalfWidth: number,
   upDir: Point2D,
+  dashArray?: number[],
 ) {
   const labelWidth = label ? measurePdfLabelWidth(font, label, fontSize) : 0;
   const layout = computeDimensionLayout(start, end, labelWidth, arrowLen, 4, upDir);
 
   if (layout.showGap && label) {
-    page.drawLine({ start: layout.segment1Start, end: layout.segment1End, thickness, color });
-    page.drawLine({ start: layout.segment2Start, end: layout.segment2End, thickness, color });
+    page.drawLine({ start: layout.segment1Start, end: layout.segment1End, thickness, color, dashArray });
+    page.drawLine({ start: layout.segment2Start, end: layout.segment2End, thickness, color, dashArray });
   } else {
-    page.drawLine({ start: layout.fullStart, end: layout.fullEnd, thickness, color });
+    page.drawLine({ start: layout.fullStart, end: layout.fullEnd, thickness, color, dashArray });
   }
 
   fillArrowOnPdf(page, layout.arrowStart, arrowLen, arrowHalfWidth, color);
@@ -388,6 +417,19 @@ function drawMeasurementOnCanvas(
   const label =
     scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
 
+  context.save();
+  const dash = dashFor(measurement, style.lineWidth);
+  if (dash) context.setLineDash(dash);
+  if (measurement.arrow) {
+    const { shaftEnd, head, len, half } = pointerArrow(measurement, style);
+    context.strokeStyle = color;
+    context.lineWidth = style.lineWidth;
+    drawDocLineSegment(context, measurement.start, shaftEnd);
+    fillArrowOnCanvas(context, head, len, half, color);
+    context.restore();
+    return;
+  }
+
   drawInlineLineOnCanvas(
     context,
     measurement.start,
@@ -406,6 +448,7 @@ function drawMeasurementOnCanvas(
       ? midpointTickEnds(measurement.start, measurement.end, style.midpointTickHalf)
       : null;
   if (tick) drawDocLineSegment(context, tick[0], tick[1]);
+  context.restore();
 }
 
 function drawRectangleOnCanvas(
@@ -428,6 +471,15 @@ function drawRectangleOnCanvas(
 
   context.strokeStyle = color;
   context.lineWidth = style.borderWidth;
+  // The caller saves and restores the context around each rectangle.
+  const dash = dashFor(rectangle, style.borderWidth);
+  if (dash) context.setLineDash(dash);
+  if (rectangle.ellipse) {
+    context.beginPath();
+    context.ellipse(x + width / 2, y + height / 2, Math.abs(width) / 2, Math.abs(height) / 2, 0, 0, Math.PI * 2);
+    context.stroke();
+    return;
+  }
 
   const docWidth = getRectDocWidth(rectangle);
   const docHeightValue = getRectDocHeight(rectangle);
@@ -848,11 +900,14 @@ function drawShapesOnCanvas(
     const label = getShapeLabel(shape, scale, displayUnit);
     context.strokeStyle = color;
     context.lineWidth = style.borderWidth;
+    context.setLineDash(shape.kind === "draw" ? [] : (dashFor(shape, style.borderWidth) ?? []));
 
     if (shape.kind === "area" && shape.points.length >= 3) {
       const path = new Path2D(ringsPath(areaRings(shape)));
-      context.fillStyle = `${color}2e`;
-      context.fill(path);
+      if (!shape.plain) {
+        context.fillStyle = `${color}2e`;
+        context.fill(path);
+      }
       context.stroke(path);
       if (label) {
         drawPillLabelOnCanvas(context, polygonCentroid(areaOutline(shape)), label, textAngle, style.fontSize, color);
@@ -891,6 +946,12 @@ function drawShapesOnCanvas(
       context.lineCap = "round";
       context.lineJoin = "round";
       context.lineWidth = style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH);
+      const dash = dashFor(shape, context.lineWidth);
+      if (dash) context.setLineDash(dash);
+      if (shape.highlight) {
+        context.globalAlpha = HIGHLIGHT_OPACITY;
+        context.globalCompositeOperation = "multiply";
+      }
       context.stroke(new Path2D(strokesPath(splitStrokes(shape.points, shape.breaks))));
       context.restore();
     } else if (shape.kind === "callout" && shape.points.length >= 2) {
@@ -916,6 +977,7 @@ function drawShapesOnCanvas(
       context.restore();
     }
   }
+  context.setLineDash([]);
 }
 
 /** Helvetica faces for free text, keyed "" | "b" | "i" | "bi". */
@@ -956,11 +1018,12 @@ function drawShapesOnPdf(
       page.drawSvgPath(ringsPath(areaRings(shape).map((ring) => ring.map(flip))), {
         x: 0,
         y: 0,
-        color,
-        opacity: 0.18,
+        // A plain polygon is outline only.
+        ...(shape.plain ? {} : { color, opacity: 0.18 }),
         borderColor: color,
         borderWidth: style.borderWidth,
         borderOpacity: 1,
+        borderDashArray: dashFor(shape, style.borderWidth),
       });
       if (label) {
         drawPillLabelOnPdf(page, polygonCentroid(areaOutline(shape)), label, upDir, style.fontSize, font, color);
@@ -972,6 +1035,7 @@ function drawShapesOnPdf(
         y: 0,
         borderColor: color,
         borderWidth: style.borderWidth,
+        borderDashArray: dashFor(shape, style.borderWidth),
       });
       if (label) {
         drawPillLabelOnPdf(page, polylineMidpoint(shape.points), label, upDir, style.fontSize, font, color);
@@ -1002,7 +1066,9 @@ function drawShapesOnPdf(
         y: 0,
         borderColor: color,
         borderWidth: style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH),
-        borderOpacity: 1,
+        borderOpacity: shape.highlight ? HIGHLIGHT_OPACITY : 1,
+        borderDashArray: dashFor(shape, style.borderWidth * (drawWidth(shape) / DRAW_DEFAULT_WIDTH)),
+        ...(shape.highlight ? { blendMode: BlendMode.Multiply } : {}),
       });
       page.pushOperators(popGraphicsState());
     } else if (shape.kind === "callout" && shape.points.length >= 2) {
@@ -1080,6 +1146,14 @@ async function drawPageMarkupsOnPdf(
     const color = rgb(r, g, b);
     const label =
       scale && !measurement.plain ? getMeasurementLabel(measurement, scale, displayUnit) : null;
+    const dashArray = dashFor(measurement, style.lineWidth);
+
+    if (measurement.arrow) {
+      const { shaftEnd, head, len, half } = pointerArrow(measurement, style);
+      page.drawLine({ start: measurement.start, end: shaftEnd, thickness: style.lineWidth, color, dashArray });
+      fillArrowOnPdf(page, head, len, half, color);
+      continue;
+    }
 
     drawInlineLineOnPdf(
       page,
@@ -1093,13 +1167,14 @@ async function drawPageMarkupsOnPdf(
       measurement.plain ? 0 : style.arrowLen,
       style.arrowHalfWidth,
       screenUpDoc,
+      dashArray,
     );
 
     const tick =
       measurement.plain && measurement.midpointTick
         ? midpointTickEnds(measurement.start, measurement.end, style.midpointTickHalf)
         : null;
-    if (tick) page.drawLine({ start: tick[0], end: tick[1], thickness: style.lineWidth, color });
+    if (tick) page.drawLine({ start: tick[0], end: tick[1], thickness: style.lineWidth, color, dashArray });
   }
 
   for (const rectangle of rectangles) {
@@ -1120,6 +1195,20 @@ async function drawPageMarkupsOnPdf(
     const rectHeight = rectangle.bottomRight.y - rectangle.topLeft.y;
     const { r, g, b } = hexToRgb(getRectangleColor(rectangle));
     const color = rgb(r, g, b);
+    const dashArray = dashFor(rectangle, style.borderWidth);
+    if (rectangle.ellipse) {
+      page.drawEllipse({
+        x: x + rectWidth / 2,
+        y: y + rectHeight / 2,
+        xScale: Math.abs(rectWidth) / 2,
+        yScale: Math.abs(rectHeight) / 2,
+        borderColor: color,
+        borderWidth: style.borderWidth,
+        borderDashArray: dashArray,
+      });
+      if (rectangle.rotation) page.pushOperators(popGraphicsState());
+      continue;
+    }
 
     const topLeft = { x, y: y + rectHeight };
     const topRight = { x: x + rectWidth, y: y + rectHeight };
@@ -1146,15 +1235,17 @@ async function drawPageMarkupsOnPdf(
           end: topEdge.segment1End,
           thickness: style.borderWidth,
           color,
+          dashArray,
         });
         page.drawLine({
           start: topEdge.segment2Start,
           end: topEdge.segment2End,
           thickness: style.borderWidth,
           color,
+          dashArray,
         });
       } else {
-        page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color });
+        page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color, dashArray });
       }
       drawRotatedLabelOnPdf(
         page,
@@ -1166,11 +1257,11 @@ async function drawPageMarkupsOnPdf(
         color,
       );
     } else {
-      page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color });
+      page.drawLine({ start: topLeft, end: topRight, thickness: style.borderWidth, color, dashArray });
     }
 
-    page.drawLine({ start: topRight, end: bottomRight, thickness: style.borderWidth, color });
-    page.drawLine({ start: bottomRight, end: bottomLeft, thickness: style.borderWidth, color });
+    page.drawLine({ start: topRight, end: bottomRight, thickness: style.borderWidth, color, dashArray });
+    page.drawLine({ start: bottomRight, end: bottomLeft, thickness: style.borderWidth, color, dashArray });
 
     if (heightLabel) {
       const labelWidth = measurePdfLabelWidth(font, heightLabel, style.fontSize);
@@ -1181,15 +1272,17 @@ async function drawPageMarkupsOnPdf(
           end: leftEdge.segment1End,
           thickness: style.borderWidth,
           color,
+          dashArray,
         });
         page.drawLine({
           start: leftEdge.segment2Start,
           end: leftEdge.segment2End,
           thickness: style.borderWidth,
           color,
+          dashArray,
         });
       } else {
-        page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color });
+        page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color, dashArray });
       }
       drawRotatedLabelOnPdf(
         page,
@@ -1201,7 +1294,7 @@ async function drawPageMarkupsOnPdf(
         color,
       );
     } else {
-      page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color });
+      page.drawLine({ start: topLeft, end: bottomLeft, thickness: style.borderWidth, color, dashArray });
     }
     if (rectangle.rotation) page.pushOperators(popGraphicsState());
   }

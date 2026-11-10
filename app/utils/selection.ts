@@ -42,6 +42,18 @@ export function noteScreenCorners(note: NoteAnnotation, viewport: DocumentViewpo
   return rotatedBoxCorners(pos, width, height, note.rotation ?? 0);
 }
 
+/** `p` is within `slop` px of the outline of the ellipse inside `bounds` (measured along the ray from its centre). */
+export function nearEllipseOutline(p: Point2D, bounds: ScreenRect, slop: number): boolean {
+  const rx = Math.abs(bounds.width) / 2;
+  const ry = Math.abs(bounds.height) / 2;
+  const dx = p.x - (bounds.x + bounds.width / 2);
+  const dy = p.y - (bounds.y + bounds.height / 2);
+  const d = Math.hypot(dx, dy);
+  if (rx < 1e-9 || ry < 1e-9 || d < 1e-9) return Math.max(rx, ry) <= slop;
+  const r = Math.hypot(dx / rx, dy / ry);
+  return Math.abs(d - d / r) <= slop;
+}
+
 /** Screen corners of a rectangle, turned about its centre. */
 export function rectScreenCorners(rectangle: RectMeasurement, viewport: DocumentViewport): Point2D[] {
   const r = toScreenRect(viewport, rectangle.topLeft, rectangle.bottomRight);
@@ -423,8 +435,9 @@ export function hitTestAnnotations(
     const centreOf = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
     // Test in the rectangle's own (unturned) frame.
     const p = rectangle.rotation ? rotateAround(point, centreOf, -rectangle.rotation) : point;
-    const onStroke =
-      (p.x >= bounds.x - LINE_HIT_SLOP &&
+    const onStroke = rectangle.ellipse
+      ? nearEllipseOutline(p, bounds, LINE_HIT_SLOP)
+      : (p.x >= bounds.x - LINE_HIT_SLOP &&
         p.x <= bounds.x + bounds.width + LINE_HIT_SLOP &&
         p.y >= bounds.y - LINE_HIT_SLOP &&
         p.y <= bounds.y + bounds.height + LINE_HIT_SLOP) &&

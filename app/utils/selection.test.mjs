@@ -8,7 +8,7 @@ globalThis.document = { createElement: () => ({ getContext: () => null }) };
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const jiti = createJiti(import.meta.url, { alias: { "@/": root } });
-const { markupScreenBox } = await jiti.import("./selection.ts");
+const { markupScreenBox, nearEllipseOutline } = await jiti.import("./selection.ts");
 const { noteCardSize } = await jiti.import("./noteLayout.ts");
 
 // Zoom 2, page offset by (10, 5).
@@ -82,3 +82,10 @@ assertBox(
 // Nothing to line up: no box, so the item is left out instead of breaking the rest.
 assert.equal(markupScreenBox({ id: "p", kind: "polyline", points: [] }, viewport), null, "shape with no points");
 assert.equal(markupScreenBox({ id: "d", kind: "draw", points: [{ x: 1, y: 1 }] }, viewport), null, "single-point drawing");
+
+// Ellipse 100 × 40 at (0, 0): hits along its outline, not at the box corners or centre.
+const ellipseBox = { x: 0, y: 0, width: 100, height: 40 };
+assert.ok(nearEllipseOutline({ x: 100, y: 20 }, ellipseBox, 6), "ellipse right end");
+assert.ok(nearEllipseOutline({ x: 50, y: 3 }, ellipseBox, 6), "ellipse near top");
+assert.ok(!nearEllipseOutline({ x: 2, y: 2 }, ellipseBox, 6), "box corner is off the ellipse");
+assert.ok(!nearEllipseOutline({ x: 50, y: 20 }, ellipseBox, 6), "ellipse centre");

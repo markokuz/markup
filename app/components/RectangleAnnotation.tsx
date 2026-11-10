@@ -8,7 +8,7 @@ import {
   midpoint,
   toScreenRect,
 } from "@/app/utils/coordinates";
-import { getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
+import { dashArray, getAnnotationColor, SELECTION_ACCENT } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { DimensionLabel } from "@/app/components/DimensionLabel";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -79,6 +79,7 @@ interface EdgeLineProps {
   isSelectMode: boolean;
   showHandles: boolean;
   onEdgePointerDown: (event: React.PointerEvent) => void;
+  dash?: string;
 }
 
 function EdgeLine({
@@ -91,6 +92,7 @@ function EdgeLine({
   isSelectMode,
   showHandles,
   onEdgePointerDown,
+  dash,
 }: EdgeLineProps) {
   const interactive = isSelectMode || showHandles;
 
@@ -103,6 +105,7 @@ function EdgeLine({
         y2={y2}
         stroke={color}
         strokeWidth={strokeWidth}
+        strokeDasharray={dash}
         style={{
           pointerEvents: interactive ? "stroke" : "none",
           cursor: showHandles ? "move" : isSelectMode ? "pointer" : "default",
@@ -133,6 +136,7 @@ function renderEdgeSegment(
   showHandles: boolean,
   onEdgePointerDown: (event: React.PointerEvent) => void,
   key: string,
+  dash?: string,
 ) {
   if (!layout.showGap) {
     return (
@@ -147,6 +151,7 @@ function renderEdgeSegment(
         isSelectMode={isSelectMode}
         showHandles={showHandles}
         onEdgePointerDown={onEdgePointerDown}
+        dash={dash}
       />
     );
   }
@@ -162,6 +167,7 @@ function renderEdgeSegment(
         isSelectMode={isSelectMode}
         showHandles={showHandles}
         onEdgePointerDown={onEdgePointerDown}
+        dash={dash}
       />
       <EdgeLine
         x1={layout.segment2Start.x}
@@ -173,6 +179,7 @@ function renderEdgeSegment(
         isSelectMode={isSelectMode}
         showHandles={showHandles}
         onEdgePointerDown={onEdgePointerDown}
+        dash={dash}
       />
     </g>
   );
@@ -205,6 +212,7 @@ export function RectangleAnnotation({
 
   const color = getAnnotationColor(rectangle);
   const strokeWidth = isSelected ? 2.5 : 2;
+  const dash = rectangle.dashed ? dashArray(2) : undefined;
 
   const { horizontal: horizontalDocLength, vertical: verticalDocLength } =
     getScreenRectEdgeDocLengths(viewport, rectangle.topLeft, rectangle.bottomRight);
@@ -294,122 +302,170 @@ export function RectangleAnnotation({
           : undefined
       }
     >
-      {isSelected && (
-        <rect
-          x={Math.min(x, x + width) - 4}
-          y={Math.min(y, y + height) - 4}
-          width={Math.abs(width) + 8}
-          height={Math.abs(height) + 8}
-          fill="none"
-          stroke={SELECTION_ACCENT}
-          strokeWidth={strokeWidth + 6}
-          opacity={0.3}
-          style={{ pointerEvents: "none" }}
-        />
-      )}
-      {topEdge
-        ? renderEdgeSegment(
-            topEdge,
-            color,
-            strokeWidth,
-            isSelectMode,
-            grabbable,
-            handleEdgePointerDown,
-            "top",
-          )
-        : renderEdgeSegment(
-            fullEdge(topLeft, topRight),
-            color,
-            strokeWidth,
-            isSelectMode,
-            grabbable,
-            handleEdgePointerDown,
-            "top-full",
+      {rectangle.ellipse ? (
+        <>
+          {isSelected && (
+            <ellipse
+              cx={x + width / 2}
+              cy={y + height / 2}
+              rx={Math.abs(width) / 2}
+              ry={Math.abs(height) / 2}
+              fill="none"
+              stroke={SELECTION_ACCENT}
+              strokeWidth={strokeWidth + 6}
+              opacity={0.3}
+              style={{ pointerEvents: "none" }}
+            />
           )}
-      <EdgeLine
-        x1={topRight.x}
-        y1={topRight.y}
-        x2={bottomRight.x}
-        y2={bottomRight.y}
-        color={color}
-        strokeWidth={strokeWidth}
-        isSelectMode={isSelectMode}
-        showHandles={grabbable}
-        onEdgePointerDown={handleEdgePointerDown}
-      />
-      <EdgeLine
-        x1={bottomRight.x}
-        y1={bottomRight.y}
-        x2={bottomLeft.x}
-        y2={bottomLeft.y}
-        color={color}
-        strokeWidth={strokeWidth}
-        isSelectMode={isSelectMode}
-        showHandles={grabbable}
-        onEdgePointerDown={handleEdgePointerDown}
-      />
-      {leftEdge
-        ? renderEdgeSegment(
-            leftEdge,
-            color,
-            strokeWidth,
-            isSelectMode,
-            grabbable,
-            handleEdgePointerDown,
-            "left",
-          )
-        : renderEdgeSegment(
-            fullEdge(topLeft, bottomLeft),
-            color,
-            strokeWidth,
-            isSelectMode,
-            grabbable,
-            handleEdgePointerDown,
-            "left-full",
+          {/* The outline, then a wider see-through band that is easier to grab. */}
+          {[
+            { stroke: color, w: strokeWidth, d: dash },
+            ...(grabbable ? [{ stroke: "transparent", w: 12, d: undefined }] : []),
+          ].map((layer, i) => (
+            <ellipse
+              key={i}
+              cx={x + width / 2}
+              cy={y + height / 2}
+              rx={Math.abs(width) / 2}
+              ry={Math.abs(height) / 2}
+              fill="none"
+              stroke={layer.stroke}
+              strokeWidth={layer.w}
+              strokeDasharray={layer.d}
+              style={{
+                pointerEvents: isSelectMode || grabbable ? "stroke" : "none",
+                cursor: grabbable ? "move" : isSelectMode ? "pointer" : "default",
+              }}
+              onPointerDown={handleEdgePointerDown}
+            />
+          ))}
+        </>
+      ) : (
+        <>
+          {isSelected && (
+            <rect
+              x={Math.min(x, x + width) - 4}
+              y={Math.min(y, y + height) - 4}
+              width={Math.abs(width) + 8}
+              height={Math.abs(height) + 8}
+              fill="none"
+              stroke={SELECTION_ACCENT}
+              strokeWidth={strokeWidth + 6}
+              opacity={0.3}
+              style={{ pointerEvents: "none" }}
+            />
           )}
-      {widthLabel !== "—" && topEdge && (
-        <g
-          transform={`rotate(${topEdge.angleDeg}, ${topEdge.labelCenter.x}, ${topEdge.labelCenter.y})`}
-        >
-          <DimensionLabel
-            x={topEdge.labelCenter.x}
-            y={topEdge.labelCenter.y}
-            label={widthLabel}
-            valueInDisplayUnit={widthValueInDisplayUnit}
+          {topEdge
+            ? renderEdgeSegment(
+                topEdge,
+                color,
+                strokeWidth,
+                isSelectMode,
+                grabbable,
+                handleEdgePointerDown,
+                "top",
+                dash,
+              )
+            : renderEdgeSegment(
+                fullEdge(topLeft, topRight),
+                color,
+                strokeWidth,
+                isSelectMode,
+                grabbable,
+                handleEdgePointerDown,
+                "top-full",
+                dash,
+              )}
+          <EdgeLine
+            x1={topRight.x}
+            y1={topRight.y}
+            x2={bottomRight.x}
+            y2={bottomRight.y}
             color={color}
-            displayUnit={displayUnit}
-            isSelected={isSelected}
-            showHandles={showHandles && !!scale}
-            isEditing={editingField === "width"}
-            clickable={isSelectMode && !showHandles}
-            onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
-            onStartEdit={() => onStartEditWidth(rectangle.id)}
-            onCommit={(value) => onCommitWidth(rectangle.id, value)}
-            onCancel={onCancelEdit}
+            strokeWidth={strokeWidth}
+            isSelectMode={isSelectMode}
+            showHandles={grabbable}
+            onEdgePointerDown={handleEdgePointerDown}
+            dash={dash}
           />
-        </g>
-      )}
-      {heightLabel !== "—" && leftEdge && (
-        <g
-          transform={`rotate(${leftEdge.angleDeg}, ${leftEdge.labelCenter.x}, ${leftEdge.labelCenter.y})`}
-        >
-          <DimensionLabel
-            x={leftEdge.labelCenter.x}
-            y={leftEdge.labelCenter.y}
-            label={heightLabel}
-            valueInDisplayUnit={heightValueInDisplayUnit}
+          <EdgeLine
+            x1={bottomRight.x}
+            y1={bottomRight.y}
+            x2={bottomLeft.x}
+            y2={bottomLeft.y}
             color={color}
-            displayUnit={displayUnit}
-            isSelected={isSelected}
-            showHandles={showHandles && !!scale}
-            isEditing={editingField === "height"}
-            clickable={isSelectMode && !showHandles}
-            onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
-            onStartEdit={() => onStartEditHeight(rectangle.id)}
-            onCommit={(value) => onCommitHeight(rectangle.id, value)}
-            onCancel={onCancelEdit}
+            strokeWidth={strokeWidth}
+            isSelectMode={isSelectMode}
+            showHandles={grabbable}
+            onEdgePointerDown={handleEdgePointerDown}
+            dash={dash}
           />
-        </g>
+          {leftEdge
+            ? renderEdgeSegment(
+                leftEdge,
+                color,
+                strokeWidth,
+                isSelectMode,
+                grabbable,
+                handleEdgePointerDown,
+                "left",
+                dash,
+              )
+            : renderEdgeSegment(
+                fullEdge(topLeft, bottomLeft),
+                color,
+                strokeWidth,
+                isSelectMode,
+                grabbable,
+                handleEdgePointerDown,
+                "left-full",
+                dash,
+              )}
+          {widthLabel !== "—" && topEdge && (
+            <g
+              transform={`rotate(${topEdge.angleDeg}, ${topEdge.labelCenter.x}, ${topEdge.labelCenter.y})`}
+            >
+              <DimensionLabel
+                x={topEdge.labelCenter.x}
+                y={topEdge.labelCenter.y}
+                label={widthLabel}
+                valueInDisplayUnit={widthValueInDisplayUnit}
+                color={color}
+                displayUnit={displayUnit}
+                isSelected={isSelected}
+                showHandles={showHandles && !!scale}
+                isEditing={editingField === "width"}
+                clickable={isSelectMode && !showHandles}
+                onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
+                onStartEdit={() => onStartEditWidth(rectangle.id)}
+                onCommit={(value) => onCommitWidth(rectangle.id, value)}
+                onCancel={onCancelEdit}
+              />
+            </g>
+          )}
+          {heightLabel !== "—" && leftEdge && (
+            <g
+              transform={`rotate(${leftEdge.angleDeg}, ${leftEdge.labelCenter.x}, ${leftEdge.labelCenter.y})`}
+            >
+              <DimensionLabel
+                x={leftEdge.labelCenter.x}
+                y={leftEdge.labelCenter.y}
+                label={heightLabel}
+                valueInDisplayUnit={heightValueInDisplayUnit}
+                color={color}
+                displayUnit={displayUnit}
+                isSelected={isSelected}
+                showHandles={showHandles && !!scale}
+                isEditing={editingField === "height"}
+                clickable={isSelectMode && !showHandles}
+                onSelect={(additive) => onSelect(rectangle.id, additive ?? false)}
+                onStartEdit={() => onStartEditHeight(rectangle.id)}
+                onCommit={(value) => onCommitHeight(rectangle.id, value)}
+                onCancel={onCancelEdit}
+              />
+            </g>
+          )}
+        </>
       )}
       {/* A locked rectangle shows no resize handles. */}
       {showHandles && isSelected && !rectangle.locked && (

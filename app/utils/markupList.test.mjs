@@ -110,3 +110,26 @@ assert.ok(csv[1].endsWith(",1"));
 assert.ok(csv[2].endsWith(",3"));
 
 console.log("markupList: all checks passed");
+
+// Shapes tool markups are named for what they are, and a polygon never measures as an area.
+{
+  const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const rows = buildMarkupRows({
+    measurements: [{ id: "arrow", start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, plain: true, arrow: true }],
+    rectangles: [{ id: "ellipse", topLeft: { x: 0, y: 0 }, bottomRight: { x: 4, y: 2 }, plain: true, ellipse: true }],
+    notes: [],
+    shapes: [
+      { id: "poly", kind: "area", points: square, plain: true },
+      { id: "hl", kind: "draw", points: square, highlight: true },
+    ],
+    scales: { 0: { unitsPerPdfPoint: 1, calibrationUnit: "ft" } },
+    displayUnit: "ft",
+  });
+  const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+  assert.equal(byId.arrow.type, "Arrow");
+  assert.equal(byId.ellipse.type, "Ellipse");
+  assert.equal(byId.hl.type, "Highlight");
+  assert.equal(byId.poly.type, "Polygon");
+  assert.equal(byId.poly.area, undefined);
+  assert.equal(byId.poly.display, "—");
+}

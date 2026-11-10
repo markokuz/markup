@@ -5,6 +5,8 @@ import {
   arrowPolygonPoints,
   computeDimensionLayout,
   estimateLabelWidth,
+  POINTER_ARROW_HALF_WIDTH,
+  POINTER_ARROW_LEN,
 } from "@/app/utils/coordinates";
 import { SELECTION_ACCENT } from "@/app/utils/colors";
 import { DimensionLabel, DimensionText } from "@/app/components/DimensionLabel";
@@ -38,6 +40,10 @@ interface InlineDimensionLineProps {
   showEndpointHandles?: boolean;
   /** False for plain markup lines: no arrowheads. */
   showArrows?: boolean;
+  /** One bold arrowhead at `end` (Shapes tool arrow); replaces `showArrows`. */
+  endArrow?: boolean;
+  /** SVG dash pattern for the line. */
+  dash?: string;
 }
 
 export function InlineDimensionLine({
@@ -61,9 +67,16 @@ export function InlineDimensionLine({
   onEndpointPointerDown,
   showEndpointHandles = false,
   showArrows = true,
+  endArrow = false,
+  dash,
 }: InlineDimensionLineProps) {
   const labelWidth = estimateLabelWidth(label);
-  const layout = computeDimensionLayout(start, end, labelWidth, showArrows ? ARROW_LEN : 0);
+  const layout = computeDimensionLayout(start, end, labelWidth, showArrows && !endArrow ? ARROW_LEN : 0);
+  const length = Math.hypot(end.x - start.x, end.y - start.y) || 1;
+  const along = { x: (end.x - start.x) / length, y: (end.y - start.y) / length };
+  // The line stops inside the head, so its square end never shows beside the tip.
+  const headBase = Math.min(POINTER_ARROW_LEN * 0.7, length);
+  const shaftEnd = { x: end.x - along.x * headBase, y: end.y - along.y * headBase };
 
   const handleLinePointerDown = (event: React.PointerEvent) => {
     if (!interactive) return;
@@ -75,8 +88,9 @@ export function InlineDimensionLine({
   };
 
   // No label ("—"): draw one unbroken line instead of leaving a gap for text.
-  const lineSegments =
-    layout.showGap && label !== "—"
+  const lineSegments = endArrow
+    ? [[start, shaftEnd] as const]
+    : layout.showGap && label !== "—"
       ? [
           [layout.segment1Start, layout.segment1End] as const,
           [layout.segment2Start, layout.segment2End] as const,
@@ -110,11 +124,19 @@ export function InlineDimensionLine({
           stroke={color}
           strokeWidth={strokeWidth}
           strokeLinecap="butt"
+          strokeDasharray={dash}
           style={{ pointerEvents: interactive ? "stroke" : "none" }}
           onPointerDown={handleLinePointerDown}
         />
       ))}
-      {showArrows && (
+      {endArrow && (
+        <polygon
+          points={arrowPolygonPoints({ tip: end, dir: along }, POINTER_ARROW_LEN, POINTER_ARROW_HALF_WIDTH)}
+          fill={color}
+          style={{ pointerEvents: "none" }}
+        />
+      )}
+      {showArrows && !endArrow && (
         <>
           <polygon
             points={arrowPolygonPoints(layout.arrowStart, ARROW_LEN, ARROW_HALF_WIDTH)}

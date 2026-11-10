@@ -18,6 +18,13 @@ export function toScreenPoint(
   return viewport.convertToViewportPoint(docX, docY);
 }
 
+/** Doc corner that makes a square on screen with `startDoc`, toward the screen point `cursor` (Shift). */
+export function squareCorner(viewport: DocumentViewport, startDoc: Point2D, cursor: Point2D): Point2D {
+  const a = toScreenPoint(viewport, startDoc.x, startDoc.y);
+  const side = Math.max(Math.abs(cursor.x - a.x), Math.abs(cursor.y - a.y));
+  return toDocPoint(viewport, a.x + Math.sign(cursor.x - a.x || 1) * side, a.y + Math.sign(cursor.y - a.y || 1) * side);
+}
+
 export function docDistance(a: Point2D, b: Point2D): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
@@ -415,6 +422,10 @@ export function computeDimensionLayout(
 }
 
 /** Build an SVG/points polygon for a filled triangular arrowhead. */
+/** Shapes tool arrow head, in screen px (a dimension line's is 9 × 4). */
+export const POINTER_ARROW_LEN = 13;
+export const POINTER_ARROW_HALF_WIDTH = 5.5;
+
 export function arrowPolygonPoints(
   arrow: ArrowSpec,
   arrowLen: number,

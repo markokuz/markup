@@ -13,6 +13,7 @@ import {
   getOppositeScreenCorner,
   getScreenCornerPoint,
   snapScreenPointToAxis,
+  squareCorner,
   toDocPoint,
   toScreenPoint,
   toScreenRect,
@@ -66,6 +67,7 @@ import {
   cutoutCount,
   DRAW_DEFAULT_WIDTH,
   drawPieces,
+  HIGHLIGHT_DEFAULT_WIDTH,
   drawWidth,
   ERASER_DEFAULT_SIZE,
   withoutNearestCutout,
@@ -94,11 +96,11 @@ import {
   calloutCardBox,
   TEXT_DEFAULT_SIZE,
   TEXT_LINE_HEIGHT,
+  TEXT_FONT_FAMILY,
   textFirstLineMiddle,
-  textFont,
   textScreenBox,
 } from "@/app/utils/noteLayout";
-import { getAnnotationColor, REDLINE_COLOR, SELECTION_ACCENT } from "@/app/utils/colors";
+import { getAnnotationColor, HIGHLIGHT_OPACITY, REDLINE_COLOR, SELECTION_ACCENT } from "@/app/utils/colors";
 
 interface AnnotationLayerProps {
   viewport: DocumentViewport;
@@ -209,22 +211,40 @@ export function AnnotationLayer({
   onCursorMove,
 }: AnnotationLayerProps) {
   const state = useAppState();
+  const shapeMode = state.tool === "shape" ? state.shapeMode : null;
+  // Shapes draw with the Rect, Line and Area tools' code, always plain; Highlight with Draw's.
+  const tool =
+    shapeMode === "ellipse"
+      ? "rectangle"
+      : shapeMode === "arrow"
+        ? "measure"
+        : shapeMode === "polygon"
+          ? "area"
+          : state.tool === "highlight"
+            ? "draw"
+            : state.tool;
+  const highlighting = state.tool === "highlight";
+  const lineMode = shapeMode ? "plain" : state.lineMode;
+  const rectMode = shapeMode ? "plain" : state.rectMode;
+  const areaMode = shapeMode ? "add" : state.areaMode;
   const toolColors = useMemo(
     () => ({ ...state.settings.toolColors, ...state.toolColors }),
     [state.settings.toolColors, state.toolColors],
   );
   const dispatch = useAppDispatch();
-  const newDrawWidth = state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH;
+  const newDrawWidth = highlighting
+    ? (state.settings.highlightWidth ?? HIGHLIGHT_DEFAULT_WIDTH)
+    : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
   const [previewEnd, setPreviewEnd] = useState<Point2D | null>(null);
   // Length typed after a line's first click; it belongs to that start point only.
   const [typed, setTyped] = useState<{ start: Point2D; text: string } | null>(null);
   const typedLength =
-    typed && state.tool === "measure" && typed.start === state.pendingPoint ? typed.text : "";
+    typed && tool === "measure" && typed.start === state.pendingPoint ? typed.text : "";
   /** Screen points of the freehand cloud being drawn. */
   const [freehandStroke, setFreehandStroke] = useState<Point2D[] | null>(null);
   /** Screen point under the eraser, for its outline. */
   const [eraserAt, setEraserAt] = useState<Point2D | null>(null);
-  const erasing = state.tool === "draw" && state.drawEraser;
+  const erasing = tool === "draw" && state.drawEraser;
   /** Select tool cursor from what is under (or being dragged by) the pointer. */
   const [selectCursor, setSelectCursor] = useState<string | null>(null);
   const eraserRadius = (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE) / 2;
@@ -444,12 +464,13 @@ export function AnnotationLayer({
           id: createId(),
           start,
           end,
-          color: toolColors.measure,
-          ...(state.lineMode === "plain" ? { plain: true } : {}),
+          color: shapeMode ? toolColors.shape : toolColors.measure,
+          ...(lineMode === "plain" ? { plain: true } : {}),
+          ...(shapeMode === "arrow" ? { arrow: true } : {}),
         },
       });
     },
-    [dispatch, state.lineMode, toolColors.measure],
+    [dispatch, lineMode, shapeMode, toolColors.measure, toolColors.shape],
   );
 
   /** End of a line `text` long (display units) from `start` toward `toward`; null if unreadable. */
@@ -475,7 +496,7 @@ export function AnnotationLayer({
 
   // After a line's first click, typing a length and pressing Enter places it at that length.
   useEffect(() => {
-    if (state.tool !== "measure" || !state.pendingPoint) return;
+    if (tool !== "measure" || !state.pendingPoint) return;
     const start = state.pendingPoint;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -511,7 +532,7 @@ export function AnnotationLayer({
     };
     window.addEventListener("keydown", onKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [placeLine, previewEnd, state.pendingPoint, state.scale, state.tool, typedLength, typedLineEnd]);
+  }, [placeLine, previewEnd, state.pendingPoint, state.scale, tool, typedLength, typedLineEnd]);
 
   /** Rub out drawings at these screen points (one undo step per eraser drag). */
   const eraseAlong = useCallback(
@@ -544,7 +565,7 @@ export function AnnotationLayer({
 
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<SVGSVGElement>) => {
-      if (state.tool === "pan") return;
+      if (tool === "pan") return;
       // A click outside a note/text being typed only finishes it (its blur saves it).
       if (state.editingNoteId) return;
       // The click that closes the line menu does nothing else.
@@ -553,19 +574,19 @@ export function AnnotationLayer({
         return;
       }
       // Right-click opens the menu instead of placing a point.
-      if (state.tool !== "select" && event.button !== 0) return;
+      if (tool !== "select" && event.button !== 0) return;
 
       const overlay = overlayRef.current;
       if (!overlay) return;
 
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
       const pdfPoint = toDocPoint(viewport, local.x, local.y);
-      const snapHit = POINT_SNAP_TOOLS.has(state.tool)
+      const snapHit = POINT_SNAP_TOOLS.has(tool)
         ? findPointSnap(local, event.altKey, state.drawingShapeId)
         : null;
       const placed = snapHit?.point ?? pdfPoint;
 
-      if (state.tool === "select") {
+      if (tool === "select") {
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
         // Right-clicking a selected markup keeps the selection, for the menu's group actions.
         if (event.button !== 0) return;
@@ -607,7 +628,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "note") {
+      if (tool === "note") {
         event.preventDefault();
         event.stopPropagation();
         dispatch({
@@ -622,7 +643,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "text") {
+      if (tool === "text") {
         event.preventDefault();
         event.stopPropagation();
         const hitId = hitTestAnnotations(
@@ -653,18 +674,20 @@ export function AnnotationLayer({
             points: [toDocPoint(viewport, local.x + TEXT_CURSOR_GAP_PX, local.y - firstLineMiddle)],
             text: "",
             fontSize,
+            ...(state.settings.textBold ? { bold: true } : {}),
+            ...(state.settings.textItalic ? { italic: true } : {}),
             color: toolColors.text,
           },
         });
         return;
       }
 
-      if (state.tool === "area" || state.tool === "polyline" || state.tool === "count") {
+      if (tool === "area" || tool === "polyline" || tool === "count") {
         const drawing = state.shapes.find(
-          (s) => s.id === state.drawingShapeId && s.kind === state.tool,
+          (s) => s.id === state.drawingShapeId && s.kind === tool,
         );
         // A shape in progress stays what it started as; only a new one follows the mode.
-        const startingCut = state.tool === "area" && !drawing && state.areaMode === "cut";
+        const startingCut = tool === "area" && !drawing && areaMode === "cut";
         const cutoutTarget = startingCut
           ? areaToCutAt(state.shapes, pdfPoint)
           : drawing && state.shapes.find((s) => s.id === state.cutoutTargetId);
@@ -676,8 +699,8 @@ export function AnnotationLayer({
         // outline or another cutout; clip the polygons if that shows up in real use.
         // A cutout can't sit on its area's own edge, so a snap there gives way to the click itself.
         const vertex =
-          state.tool === "area" && cutoutTarget && !pointInRings(placed, areaRings(cutoutTarget)) ? pdfPoint : placed;
-        if (state.tool === "area" && cutoutTarget && !pointInRings(vertex, areaRings(cutoutTarget))) {
+          tool === "area" && cutoutTarget && !pointInRings(placed, areaRings(cutoutTarget)) ? pdfPoint : placed;
+        if (tool === "area" && cutoutTarget && !pointInRings(vertex, areaRings(cutoutTarget))) {
           showSaveStatus("warning", "A cutout has to stay inside the area, clear of other cutouts.");
           return;
         }
@@ -689,16 +712,17 @@ export function AnnotationLayer({
           Math.hypot(local.x - previous.x, local.y - previous.y) <= DOUBLE_CLICK_PX;
         if (!drawing) {
           // Areas and runs still draw unscaled, just without their label.
-          if (state.tool === "area" && !state.scale) promptCalibration(CALIBRATE_FOR_AREA);
-          if (state.tool === "polyline" && !state.scale) promptCalibration(CALIBRATE_FOR_RUN);
+          if (tool === "area" && !shapeMode && !state.scale) promptCalibration(CALIBRATE_FOR_AREA);
+          if (tool === "polyline" && !state.scale) promptCalibration(CALIBRATE_FOR_RUN);
           dispatch({
             type: "ADD_SHAPE",
             shape: {
               id: createId(),
-              kind: state.tool,
+              kind: tool,
               points: [vertex],
-              color: toolColors[state.tool],
-              ...(state.tool === "count" && state.countStart !== 1
+              color: shapeMode ? toolColors.shape : toolColors[tool],
+              ...(shapeMode ? { plain: true } : {}),
+              ...(tool === "count" && state.countStart !== 1
                 ? { startAt: state.countStart }
                 : {}),
             },
@@ -735,7 +759,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "draw" && state.drawEraser) {
+      if (tool === "draw" && state.drawEraser) {
         event.preventDefault();
         window.getSelection()?.removeAllRanges();
         (document.activeElement as HTMLElement | null)?.blur();
@@ -746,7 +770,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "draw" || (state.tool === "cloud" && state.cloudMode === "freehand")) {
+      if (tool === "draw" || (tool === "cloud" && state.cloudMode === "freehand")) {
         // Without this the drag also selects markup text, and the next press on that
         // selection starts a native drag that cancels the stroke after a few points.
         event.preventDefault();
@@ -755,12 +779,12 @@ export function AnnotationLayer({
         // swallow tool hotkeys; pressing the drawing should take focus off it as usual.
         (document.activeElement as HTMLElement | null)?.blur();
         event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = { type: "freehand", kind: state.tool, points: [local] };
+        dragRef.current = { type: "freehand", kind: tool, points: [local] };
         setFreehandStroke([local]);
         return;
       }
 
-      if (state.tool === "snapshot") {
+      if (tool === "snapshot") {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
           setPreviewEnd(pdfPoint);
@@ -773,7 +797,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "cloud" || state.tool === "callout") {
+      if (tool === "cloud" || tool === "callout") {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
           setPreviewEnd(pdfPoint);
@@ -789,10 +813,10 @@ export function AnnotationLayer({
             type: "ADD_SHAPE",
             shape: {
               id: createId(),
-              kind: state.tool,
+              kind: tool,
               points: [start, pdfPoint],
-              color: toolColors[state.tool],
-              ...(state.tool === "callout" ? { text: "" } : {}),
+              color: toolColors[tool],
+              ...(tool === "callout" ? { text: "" } : {}),
             },
           });
         }
@@ -803,21 +827,21 @@ export function AnnotationLayer({
       // Measured lines and rects need a scale; point the user at Calibrate instead of doing nothing.
       if (
         !state.scale &&
-        ((state.tool === "rectangle" && state.rectMode !== "plain") ||
-          (state.tool === "measure" && state.lineMode !== "plain"))
+        ((tool === "rectangle" && rectMode !== "plain") ||
+          (tool === "measure" && lineMode !== "plain"))
       ) {
         promptCalibration(CALIBRATE_TO_MEASURE);
         return;
       }
 
-      const plainRect = state.rectMode === "plain";
-      if (state.tool === "rectangle" && (state.scale || plainRect)) {
+      const plainRect = rectMode === "plain";
+      if (tool === "rectangle" && (state.scale || plainRect)) {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: placed });
           setPreviewEnd(placed);
         } else {
           const start = state.pendingPoint;
-          const end = placed;
+          const end = event.shiftKey ? squareCorner(viewport, start, local) : placed;
           const normalized = normalizeRect(start, end);
           const width = Math.abs(normalized.bottomRight.x - normalized.topLeft.x);
           const height = Math.abs(normalized.bottomRight.y - normalized.topLeft.y);
@@ -828,8 +852,9 @@ export function AnnotationLayer({
               rectangle: {
                 id: createId(),
                 ...normalized,
-                color: toolColors.rectangle,
+                color: shapeMode ? toolColors.shape : toolColors.rectangle,
                 ...(plainRect ? { plain: true } : {}),
+                ...(shapeMode === "ellipse" ? { ellipse: true } : {}),
               },
             });
           } else {
@@ -840,7 +865,7 @@ export function AnnotationLayer({
         return;
       }
 
-      if (state.tool === "calibrate" || state.tool === "measure") {
+      if (tool === "calibrate" || tool === "measure") {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: placed });
           setPreviewEnd(placed);
@@ -848,12 +873,12 @@ export function AnnotationLayer({
           const start = state.pendingPoint;
           const end = snapHit?.point ?? snapToLine(start, local);
 
-          if (state.tool === "calibrate") {
+          if (tool === "calibrate") {
             dispatch({
               type: "OPEN_CALIBRATE_DIALOG",
               line: { start, end },
             });
-          } else if (state.scale || state.lineMode === "plain") {
+          } else if (state.scale || lineMode === "plain") {
             placeLine(start, end);
           } else {
             dispatch({ type: "SET_PENDING_POINT", point: null });
@@ -881,17 +906,20 @@ export function AnnotationLayer({
       state.rectangles,
       state.scale,
       state.settings.textSize,
+      state.settings.textBold,
+      state.settings.textItalic,
       state.shapes,
       state.drawingShapeId,
       state.cutoutTargetId,
-      state.areaMode,
+      areaMode,
       state.cloudMode,
       state.drawEraser,
       state.countStart,
-      state.lineMode,
-      state.rectMode,
+      lineMode,
+      rectMode,
+      shapeMode,
       toolColors,
-      state.tool,
+      tool,
       viewport,
     ],
   );
@@ -909,7 +937,7 @@ export function AnnotationLayer({
 
       const moving = dragRef.current;
       const snapHit =
-        (moving ? POINT_SNAP_DRAGS.has(moving.type) : POINT_SNAP_TOOLS.has(state.tool) && !placingArrow)
+        (moving ? POINT_SNAP_DRAGS.has(moving.type) : POINT_SNAP_TOOLS.has(tool) && !placingArrow)
           ? findPointSnap(local, event.altKey, moving && "id" in moving ? moving.id : state.drawingShapeId)
           : null;
       // Most moves land on the same point, or none, and needn't redraw every markup.
@@ -919,7 +947,7 @@ export function AnnotationLayer({
           : snapHit,
       );
 
-      if (state.tool === "select") {
+      if (tool === "select") {
         // Four-way arrows over anything a press would pick up and move, and while moving it.
         let next: string | null = null;
         const drag = dragRef.current;
@@ -976,6 +1004,12 @@ export function AnnotationLayer({
         }
 
         if (drag.type === "freehand") {
+          // Shift: a straight highlight from where the drag started.
+          if (highlighting && event.shiftKey) {
+            drag.points = [drag.points[0], local];
+            setFreehandStroke([...drag.points]);
+            return;
+          }
           const last = drag.points[drag.points.length - 1];
           if (Math.hypot(local.x - last.x, local.y - last.y) >= FREEHAND_STEP_PX) {
             drag.points.push(local);
@@ -1104,10 +1138,12 @@ export function AnnotationLayer({
 
       if (state.pendingPoint) {
         setPreviewEnd(
-          snapHit?.point ??
-            (state.tool === "measure" || state.tool === "calibrate"
-              ? snapToLine(state.pendingPoint, local)
-              : pdfPoint),
+          tool === "rectangle" && event.shiftKey
+            ? squareCorner(viewport, state.pendingPoint, local)
+            : (snapHit?.point ??
+                (tool === "measure" || tool === "calibrate"
+                  ? snapToLine(state.pendingPoint, local)
+                  : pdfPoint)),
         );
       } else if (state.drawingShapeId) {
         const drawing = state.shapes.find((s) => s.id === state.drawingShapeId);
@@ -1119,10 +1155,10 @@ export function AnnotationLayer({
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.aligning, state.selectedIds, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, state.tool, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.aligning, state.selectedIds, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, tool, highlighting, viewport],
   );
 
-  const aligning = state.tool === "select" && state.selectedIds.length >= 2 ? state.aligning : null;
+  const aligning = tool === "select" && state.selectedIds.length >= 2 ? state.aligning : null;
   const isAligning = aligning !== null;
   const alignItems = useMemo(() => {
     if (!isAligning) return [];
@@ -1184,7 +1220,7 @@ export function AnnotationLayer({
       if (aligning && contextMenu) setContextMenu(null);
       // A dot may sit over a selected markup; the press is the dot's.
       if ((event.target as Element).closest("[data-align-dot]")) return;
-      if (state.tool !== "select" || (event.button !== 0 && event.button !== 2)) return;
+      if (tool !== "select" || (event.button !== 0 && event.button !== 2)) return;
       if (event.shiftKey || event.ctrlKey || event.metaKey) return;
       if (!overlay) return;
       const local = getLocalCoords(overlay, event.clientX, event.clientY);
@@ -1236,7 +1272,7 @@ export function AnnotationLayer({
         moved: false,
       };
     },
-    [aligning, alignItems, cancelPlacingArrow, contextMenu, dispatch, moveShapePoint, overlayRef, placingArrow, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, state.tool, viewport],
+    [aligning, alignItems, cancelPlacingArrow, contextMenu, dispatch, moveShapePoint, overlayRef, placingArrow, state.displayUnit, state.measurements, state.notes, state.rectangles, state.scale, state.selectedIds, state.shapes, tool, viewport],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -1254,8 +1290,9 @@ export function AnnotationLayer({
             id: createId(),
             kind: "draw",
             points: stroke.map((p) => toDocPoint(viewport, p.x, p.y)),
-            color: toolColors.draw,
+            color: highlighting ? toolColors.highlight : toolColors.draw,
             strokeWidth: newDrawWidth,
+            ...(highlighting ? { highlight: true } : {}),
           },
         });
       }
@@ -1318,11 +1355,11 @@ export function AnnotationLayer({
 
     dragRef.current = null;
     moveUndoPendingRef.current = false;
-  }, [dispatch, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, state.shapes, viewport]);
+  }, [dispatch, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, toolColors.highlight, highlighting, state.shapes, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
-  const showEditHandles = state.tool === "select" && state.selectedIds.length === 1;
+  const showEditHandles = tool === "select" && state.selectedIds.length === 1;
 
   const onEndpointPointerDown = (
     id: string,
@@ -1413,6 +1450,23 @@ export function AnnotationLayer({
         run: close(() => dispatch({ type: "SET_LOCKED", ids, locked: !allLocked })),
       };
     };
+    /** Dashed/Solid for the outlined markups in `ids`: lines, rects, ellipses, areas, runs, drawings. */
+    const dashItems = (ids: string[]): ContextMenuItem[] => {
+      const targets = ids.filter((dashId) => {
+        const m = byId.get(dashId);
+        if (!m) return false;
+        if ("start" in m || "topLeft" in m) return true;
+        return "kind" in m && (m.kind === "area" || m.kind === "polyline" || m.kind === "draw") && !m.highlight;
+      });
+      if (targets.length === 0) return [];
+      const allDashed = targets.every((dashId) => byId.get(dashId)?.dashed);
+      return [
+        {
+          label: allDashed ? "Solid line" : "Dashed line",
+          run: close(() => dispatch({ type: "SET_DASHED", ids: targets, dashed: !allDashed })),
+        },
+      ];
+    };
     /** Copy, Duplicate and Delete for `ids`. */
     const editItems = (ids: string[]): ContextMenuItem[] => [
       {
@@ -1437,7 +1491,7 @@ export function AnnotationLayer({
         run: close(() => dispatch({ type: "DELETE_ANNOTATIONS", ids })),
       },
     ];
-    if (state.tool === "select" && selection.length >= 2 && selection.includes(id)) {
+    if (tool === "select" && selection.length >= 2 && selection.includes(id)) {
       const markups = selection.filter((selected) => byId.has(selected));
       return [
         ...removeCutout,
@@ -1448,6 +1502,7 @@ export function AnnotationLayer({
           ),
         },
         ...editItems(markups),
+        ...dashItems(markups),
         {
           // A new Markups-panel group; it doesn't change what's selected or drawn.
           label: "Create group",
@@ -1524,6 +1579,7 @@ export function AnnotationLayer({
             },
           ]
         : []),
+      ...dashItems([id]),
       lockItem([id]),
     ];
   };
@@ -1543,9 +1599,9 @@ export function AnnotationLayer({
     const docPoint = toDocPoint(viewport, local.x, local.y);
     const lines = state.measurements.filter((m) => !m.isCalibration);
     const areas = state.shapes.filter((s) => s.kind === "area");
-    // The Line and Area tools' menus are for their own markups; Select offers it for anything.
+    // The Line and Area tools' menus are for their own markups; Select and Shapes offer it for anything.
     const hitId =
-      state.tool === "select"
+      tool === "select" || state.tool === "shape"
         ? hitTestAnnotations(
             local,
             lines,
@@ -1556,13 +1612,13 @@ export function AnnotationLayer({
             state.scale,
             state.displayUnit,
           )
-        : state.tool === "measure" || state.tool === "area"
+        : tool === "measure" || tool === "area"
           ? hitTestAnnotations(
               local,
-              state.tool === "measure" ? lines : [],
+              tool === "measure" ? lines : [],
               [],
               [],
-              state.tool === "area" ? areas : [],
+              tool === "area" ? areas : [],
               viewport,
               state.scale,
               state.displayUnit,
@@ -1570,13 +1626,13 @@ export function AnnotationLayer({
           : null;
     // Hit testing sees through a cutout, but right-clicking inside one is how you reach it.
     const holedArea =
-      !hitId && (state.tool === "select" || state.tool === "area")
+      !hitId && (tool === "select" || tool === "area")
         ? areas.findLast((s) => cutoutCount(s) > 0 && pointInPolygon(docPoint, areaOutline(s)))?.id
         : undefined;
     const targetId = hitId ?? holedArea ?? null;
     let selection = state.selectedIds;
     // Right-clicking outside the selection selects what was clicked first.
-    if (targetId && state.tool === "select" && !selection.includes(targetId)) {
+    if (targetId && tool === "select" && !selection.includes(targetId)) {
       selection = [targetId];
       dispatch({ type: "SET_SELECTION", ids: [targetId] });
     }
@@ -1793,7 +1849,7 @@ export function AnnotationLayer({
       scale={measurement.plain ? null : state.scale}
       displayUnit={state.displayUnit}
       isSelected={state.selectedIds.includes(measurement.id)}
-      isSelectMode={state.tool === "select"}
+      isSelectMode={tool === "select"}
       showHandles={
         showEditHandles &&
         singleSelectedId === measurement.id &&
@@ -1821,7 +1877,7 @@ export function AnnotationLayer({
       scale={rectangle.plain ? null : state.scale}
       displayUnit={state.displayUnit}
       isSelected={state.selectedIds.includes(rectangle.id)}
-      isSelectMode={state.tool === "select"}
+      isSelectMode={tool === "select"}
       showHandles={showEditHandles && singleSelectedId === rectangle.id}
       editingField={
         state.editingDimension?.target === "rectangle" &&
@@ -1851,7 +1907,7 @@ export function AnnotationLayer({
       note={note}
       viewport={viewport}
       isSelected={state.selectedIds.includes(note.id)}
-      isSelectMode={state.tool === "select"}
+      isSelectMode={tool === "select"}
       showHandles={showEditHandles && singleSelectedId === note.id}
       isEditing={state.editingNoteId === note.id}
       onSelect={(id, additive) => handleSelect(id, additive)}
@@ -1892,7 +1948,7 @@ export function AnnotationLayer({
         placeholder="Callout"
         viewport={viewport}
         isSelected={state.selectedIds.includes(shape.id)}
-        isSelectMode={state.tool === "select"}
+        isSelectMode={tool === "select"}
         showHandles={showEditHandles && singleSelectedId === shape.id}
         isEditing={state.editingNoteId === shape.id}
         onSelect={(id, additive) => handleSelect(id, additive)}
@@ -1949,7 +2005,12 @@ export function AnnotationLayer({
           }}
           onBlur={(event) => endTextEdit(shape, event.target.value)}
           style={{
-            font: textFont(px, shape.bold, shape.italic),
+            // Longhands only: the size changes while typing, and React warns when a shorthand
+            // and a longhand of it (font + lineHeight) update together.
+            fontStyle: shape.italic ? "italic" : "normal",
+            fontWeight: shape.bold ? "bold" : "normal",
+            fontSize: px,
+            fontFamily: TEXT_FONT_FAMILY,
             lineHeight: TEXT_LINE_HEIGHT,
             color: getAnnotationColor(shape),
             background: "rgba(255, 255, 255, 0.85)",
@@ -2200,16 +2261,16 @@ export function AnnotationLayer({
   // A typed length pins the line preview's end along the cursor's direction.
   const typedEnd =
     typedLength && state.pendingPoint ? typedLineEnd(state.pendingPoint, previewEnd, typedLength) : null;
-  const lineEnd = state.tool === "measure" && typedEnd ? typedEnd : previewEnd;
+  const lineEnd = tool === "measure" && typedEnd ? typedEnd : previewEnd;
   const previewEndScreen = lineEnd ? toScreenPoint(viewport, lineEnd.x, lineEnd.y) : null;
 
   const rectPreview =
-    (state.tool === "rectangle" || state.tool === "snapshot") && state.pendingPoint && previewEnd
+    (tool === "rectangle" || tool === "snapshot") && state.pendingPoint && previewEnd
       ? toScreenRect(viewport, state.pendingPoint, previewEnd)
       : null;
 
   const cloudPreview =
-    state.tool === "cloud" && state.pendingPoint && previewEnd
+    tool === "cloud" && state.pendingPoint && previewEnd
       ? cloudPath(
           boxCorners(state.pendingPoint, previewEnd).map((p) => toScreenPoint(viewport, p.x, p.y)),
           14,
@@ -2217,11 +2278,11 @@ export function AnnotationLayer({
       : null;
 
   const freehandPreview =
-    freehandStroke && freehandStroke.length > 1 && state.tool === "cloud"
+    freehandStroke && freehandStroke.length > 1 && tool === "cloud"
       ? freehandStroke.map((p) => `${p.x},${p.y}`).join(" ")
       : null;
   const drawPreview =
-    freehandStroke && freehandStroke.length > 1 && state.tool === "draw"
+    freehandStroke && freehandStroke.length > 1 && tool === "draw"
       ? strokePath(freehandStroke)
       : null;
 
@@ -2239,20 +2300,20 @@ export function AnnotationLayer({
           ? "none"
           : placingArrow
             ? "crosshair"
-          : state.tool === "select" && selectCursor
+          : tool === "select" && selectCursor
             ? selectCursor
-            : state.tool === "pan"
+            : tool === "pan"
             ? "grab"
-            : state.tool === "text"
+            : tool === "text"
               ? TEXT_TOOL_CURSOR
-              : state.tool === "note"
+              : tool === "note"
                 ? "text"
                 : "crosshair",
       }}
       onPointerDownCapture={handlePointerDownCapture}
       onContextMenu={handleContextMenu}
       onDoubleClick={(event) => {
-        if (state.tool !== "select") return;
+        if (tool !== "select") return;
         const overlay = overlayRef.current;
         if (!overlay) return;
         const local = getLocalCoords(overlay, event.clientX, event.clientY);
@@ -2387,8 +2448,8 @@ export function AnnotationLayer({
         )}
         {previewStart &&
           previewEndScreen &&
-          state.tool === "measure" &&
-          state.lineMode === "measure" &&
+          tool === "measure" &&
+          lineMode === "measure" &&
           state.scale &&
           state.pendingPoint &&
           lineEnd && (
@@ -2408,8 +2469,8 @@ export function AnnotationLayer({
           )}
         {previewStart &&
           previewEndScreen &&
-          (state.tool === "calibrate" ||
-            (state.tool === "measure" && (!state.scale || state.lineMode === "plain"))) && (
+          (tool === "calibrate" ||
+            (tool === "measure" && (!state.scale || lineMode === "plain"))) && (
             <line
               x1={previewStart.x}
               y1={previewStart.y}
@@ -2425,8 +2486,10 @@ export function AnnotationLayer({
           <path
             d={drawPreview}
             fill="none"
-            stroke={toolColors.draw}
+            stroke={highlighting ? toolColors.highlight : toolColors.draw}
             strokeWidth={newDrawWidth}
+            opacity={highlighting ? HIGHLIGHT_OPACITY : undefined}
+            style={highlighting ? { mixBlendMode: "multiply" } : undefined}
             strokeLinecap="round"
             strokeLinejoin="round"
             pointerEvents="none"
@@ -2480,7 +2543,7 @@ export function AnnotationLayer({
             pointerEvents="none"
           />
         )}
-        {previewStart && previewEndScreen && state.tool === "callout" && (
+        {previewStart && previewEndScreen && tool === "callout" && (
           <line
             x1={previewStart.x}
             y1={previewStart.y}
@@ -2492,7 +2555,20 @@ export function AnnotationLayer({
             pointerEvents="none"
           />
         )}
-        {rectPreview && (
+        {rectPreview && shapeMode === "ellipse" && (
+          <ellipse
+            cx={rectPreview.x + rectPreview.width / 2}
+            cy={rectPreview.y + rectPreview.height / 2}
+            rx={rectPreview.width / 2}
+            ry={rectPreview.height / 2}
+            fill="none"
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        )}
+        {rectPreview && shapeMode !== "ellipse" && (
           <rect
             x={rectPreview.x}
             y={rectPreview.y}

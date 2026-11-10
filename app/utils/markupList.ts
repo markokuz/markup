@@ -77,7 +77,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
   for (const m of source.measurements) {
     if (m.isCalibration) continue;
     if (m.plain) {
-      rows.push({ id: m.id, type: "Line", name: m.label ?? "", color: colorOf(m), text: "", display: "—" });
+      rows.push({ id: m.id, type: m.arrow ? "Arrow" : "Line", name: m.label ?? "", color: colorOf(m), text: "", display: "—" });
       continue;
     }
     const k = unitsPerDoc(m);
@@ -95,7 +95,7 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
 
   for (const r of source.rectangles) {
     if (r.plain) {
-      rows.push({ id: r.id, type: "Box", name: r.label ?? "", color: colorOf(r), text: "", display: "—" });
+      rows.push({ id: r.id, type: r.ellipse ? "Ellipse" : "Box", name: r.label ?? "", color: colorOf(r), text: "", display: "—" });
       continue;
     }
     const k = unitsPerDoc(r);
@@ -117,12 +117,14 @@ export function buildMarkupRows(source: MarkupSource): MarkupRow[] {
   for (const s of source.shapes) {
     const base = {
       id: s.id,
-      type: SHAPE_KIND_LABELS[s.kind],
+      type: s.kind === "area" && s.plain ? "Polygon" : s.highlight ? "Highlight" : SHAPE_KIND_LABELS[s.kind],
       name: s.label ?? "",
       color: colorOf(s),
       text: s.text ?? "",
     };
-    if (s.kind === "area") {
+    if (s.kind === "area" && s.plain) {
+      rows.push({ ...base, display: "—" });
+    } else if (s.kind === "area") {
       const metrics = getAreaMetrics(s, scaleOf(s), unit);
       const cutouts = cutoutCount(s);
       rows.push({

@@ -24,6 +24,8 @@ interface MarkupClipboard {
     label?: string;
     plain?: boolean;
     midpointTick?: boolean;
+    arrow?: boolean;
+    dashed?: boolean;
     locked?: boolean;
   }[];
   rects: {
@@ -33,6 +35,8 @@ interface MarkupClipboard {
     label?: string;
     rotation?: number;
     plain?: boolean;
+    ellipse?: boolean;
+    dashed?: boolean;
     locked?: boolean;
   }[];
   notes: Omit<NoteAnnotation, "id">[];
@@ -84,6 +88,8 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       label: m.label,
       plain: m.plain,
       midpointTick: m.midpointTick,
+      arrow: m.arrow,
+      dashed: m.dashed,
       locked: m.locked,
     }));
   const rects = source.rectangles
@@ -95,6 +101,8 @@ export function copySelection(source: CopySource, viewport: DocumentViewport): n
       label: r.label,
       rotation: r.rotation,
       plain: r.plain,
+      ellipse: r.ellipse,
+      dashed: r.dashed,
       locked: r.locked,
     }));
   const notes = source.notes
@@ -211,6 +219,8 @@ export function buildPaste(target: PasteTarget): {
     ...(line.label ? { label: line.label } : {}),
     ...(line.plain ? { plain: true } : {}),
     ...(line.midpointTick ? { midpointTick: true } : {}),
+    ...(line.arrow ? { arrow: true } : {}),
+    ...(line.dashed ? { dashed: true } : {}),
     ...(line.locked ? { locked: true } : {}),
   }));
 
@@ -221,6 +231,8 @@ export function buildPaste(target: PasteTarget): {
     ...(rect.label ? { label: rect.label } : {}),
     ...(rect.rotation ? { rotation: rect.rotation } : {}),
     ...(rect.plain ? { plain: true } : {}),
+    ...(rect.ellipse ? { ellipse: true } : {}),
+    ...(rect.dashed ? { dashed: true } : {}),
     ...(rect.locked ? { locked: true } : {}),
   }));
 

@@ -15,7 +15,9 @@ export type ToolMode =
   | "draw"
   | "callout"
   | "text"
-  | "snapshot";
+  | "snapshot"
+  | "shape"
+  | "highlight";
 
 export type Unit = "ft" | "in" | "m" | "mm";
 
@@ -34,6 +36,8 @@ interface MarkupFlags {
   locked?: boolean;
   /** Zero-based page of the PDF it is on. Absent: page 1. */
   page?: number;
+  /** Outline drawn as a dashed line (plain lines, rects, ellipses, areas, polygons, drawings). */
+  dashed?: boolean;
 }
 
 /**
@@ -60,6 +64,8 @@ export interface Measurement extends MarkupFlags {
   plain?: boolean;
   /** Plain lines only: a short perpendicular tick marks the line's centre. */
   midpointTick?: boolean;
+  /** Plain lines only: an arrowhead at `end` (Shapes tool arrow). */
+  arrow?: boolean;
 }
 
 export interface RectMeasurement extends MarkupFlags {
@@ -72,6 +78,8 @@ export interface RectMeasurement extends MarkupFlags {
   plain?: boolean;
   /** Degrees clockwise on screen, about the rectangle's centre. */
   rotation?: number;
+  /** Drawn as the ellipse inside the box (Shapes tool); always plain. */
+  ellipse?: boolean;
 }
 
 export interface NoteAnnotation extends MarkupFlags {
@@ -113,6 +121,10 @@ export interface ShapeAnnotation extends MarkupFlags {
   startAt?: number;
   /** Draw only: line thickness in screen px (defaults to 2). */
   strokeWidth?: number;
+  /** Draw only: a see-through highlighter stroke. */
+  highlight?: boolean;
+  /** Area only: a plain polygon (Shapes tool), with no measurements or fill. */
+  plain?: boolean;
   /**
    * Draw only: indexes in `points` where a new piece starts, left by the eraser
    * cutting a stroke in two. The pieces stay one markup.
@@ -127,6 +139,8 @@ export type CloudMode = "rect" | "freehand";
 export type DrawMode = "measure" | "plain";
 /** Area tool: draw a new area, or cut an opening out of an existing one. */
 export type AreaMode = "add" | "cut";
+/** Shapes tool: what it draws. */
+export type ShapeMode = "ellipse" | "arrow" | "polygon";
 
 export interface Scale {
   unitsPerPdfPoint: number;
@@ -244,6 +258,7 @@ export interface TabsState {
   lineMode: DrawMode;
   rectMode: DrawMode;
   areaMode: AreaMode;
+  shapeMode: ShapeMode;
   settings: AppSettings;
 }
 
@@ -269,6 +284,7 @@ export type AppState = Omit<DocumentTab, "id"> & {
   lineMode: DrawMode;
   rectMode: DrawMode;
   areaMode: AreaMode;
+  shapeMode: ShapeMode;
   settings: AppSettings;
 };
 
@@ -365,6 +381,7 @@ export type AppAction =
   | { type: "REMOVE_FROM_GROUP"; groupId: string; ids: string[] }
   | { type: "MOVE_TO_GROUP"; fromGroupId: string; toGroupId: string; ids: string[] }
   | { type: "SET_LOCKED"; ids: string[]; locked: boolean }
+  | { type: "SET_DASHED"; ids: string[]; dashed: boolean }
   | { type: "SET_CLOUD_MODE"; mode: CloudMode }
   | { type: "SET_DRAW_ERASER"; on: boolean }
   /**
@@ -381,6 +398,7 @@ export type AppAction =
   | { type: "SET_LINE_MODE"; mode: DrawMode }
   | { type: "SET_RECT_MODE"; mode: DrawMode }
   | { type: "SET_AREA_MODE"; mode: AreaMode }
+  | { type: "SET_SHAPE_MODE"; mode: ShapeMode }
   | { type: "UPDATE_SETTINGS"; patch: Partial<AppSettings> }
   | { type: "SET_TOOL_COLOR"; tool: ColorTool; color: string }
   | { type: "SET_HOTKEY"; tool: ToolMode; key: string }
@@ -433,5 +451,6 @@ export const initialTabsState: TabsState = {
   lineMode: "measure",
   rectMode: "measure",
   areaMode: "add",
+  shapeMode: "ellipse",
   settings: DEFAULT_SETTINGS,
 };

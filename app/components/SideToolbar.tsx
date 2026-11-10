@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { AreaMode, CloudMode, DrawMode, ToolMode } from "@/app/types";
+import type { AreaMode, CloudMode, DrawMode, ShapeMode, ToolMode } from "@/app/types";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
@@ -25,9 +25,11 @@ export const SIDE_TOOLS: { id: ToolMode; label: string; hint: string }[] = [
     label: "Count",
     hint: "Click each item to count it. Press Enter or Esc to start a new count",
   },
-  { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle" },
+  { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle. Hold Shift for a square" },
+  { id: "shape", label: "Shapes", hint: "Ellipse, arrow or polygon. Right-click one to make it dashed" },
   { id: "cloud", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
   { id: "draw", label: "Draw", hint: "Drag to draw freehand" },
+  { id: "highlight", label: "Highlight", hint: "Drag to highlight. Hold Shift for a straight line" },
   { id: "callout", label: "Callout", hint: "Click the point to call out, then where the text goes" },
   { id: "text", label: "Text", hint: "Free text or a note card. Double-click text to edit it" },
   {
@@ -60,6 +62,16 @@ const AREA_MODES: ModeOption<AreaMode>[] = [
 const CLOUD_MODES: ModeOption<CloudMode>[] = [
   { id: "rect", label: "Box", hint: "Click two corners for a rectangular cloud" },
   { id: "freehand", label: "Draw", hint: "Drag to draw any outline; it is smoothed into a cloud" },
+];
+
+const SHAPE_MODES: ModeOption<ShapeMode>[] = [
+  { id: "ellipse", label: "Ellipse", hint: "Click two corners. Hold Shift for a circle" },
+  { id: "arrow", label: "Arrow", hint: "Click the start, then where the arrow points" },
+  {
+    id: "polygon",
+    label: "Polygon",
+    hint: "Click corners. Double-click, Enter, or click the first point to finish",
+  },
 ];
 
 /** The Text button holds both text tools. */
@@ -136,14 +148,17 @@ function ModeToggle<T extends string>({
 }) {
   return (
     <div className="col-span-2 grid grid-cols-2 gap-0.5 rounded-lg bg-surface-muted p-0.5">
-      {options.map((mode) => (
+      {options.map((mode, i) => (
         <button
           key={mode.id}
           type="button"
           title={mode.hint}
           aria-pressed={value === mode.id}
           onClick={() => onChange(mode.id)}
+          // An odd last option takes the whole row.
           className={`rounded-md py-1 text-[9px] font-medium transition ${
+            i === options.length - 1 && i % 2 === 0 ? "col-span-2 " : ""
+          }${
             value === mode.id
               ? "bg-surface text-accent shadow-sm"
               : "text-text-secondary hover:text-text-primary"
@@ -253,6 +268,14 @@ export function SideToolbar() {
             options={RECT_MODES}
             value={state.rectMode}
             onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
+          />
+        );
+      case "shape":
+        return (
+          <ModeToggle
+            options={SHAPE_MODES}
+            value={state.shapeMode}
+            onChange={(mode) => dispatch({ type: "SET_SHAPE_MODE", mode })}
           />
         );
       case "cloud":
@@ -497,6 +520,20 @@ export function ToolIcon({ tool }: { tool: ToolMode }) {
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case "shape":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <ellipse cx="7.5" cy="7.5" rx="5" ry="4" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M11 17.5 L18 17.5 L14.5 11 Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        </svg>
+      );
+    case "highlight":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path d="M3 14.5h14" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.35" />
+          <path d="M8 13l-1.5 1.5h-2l1-3L12.5 4.5a1.4 1.4 0 012 0l1 1a1.4 1.4 0 010 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
         </svg>
       );
     case "callout":

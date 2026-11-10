@@ -5,6 +5,10 @@ export const SELECTION_ACCENT = "#22d3ee";
 export const REDLINE_COLOR = "#dc2626";
 /** The palette's earlier, lighter red; saved tool colours still holding it move to REDLINE_COLOR. */
 export const LEGACY_REDLINE_COLOR = "#ef4444";
+/** Highlighter yellow, drawn see-through. */
+export const HIGHLIGHT_COLOR = "#facc15";
+/** How opaque a highlight stroke is drawn. */
+export const HIGHLIGHT_OPACITY = 0.4;
 
 export const MARKUP_PALETTE = [
   "#06b6d4",
@@ -16,6 +20,16 @@ export const MARKUP_PALETTE = [
   "#ec4899",
   "#94a3b8",
 ] as const;
+
+/** Dash pattern for a dashed outline `width` px thick, so dashes grow with the line. */
+export function dashArray(width: number): string {
+  return dashPattern(width).join(" ");
+}
+
+/** Dash and gap lengths for a dashed line `width` thick (screen px, or doc units in an export). */
+export function dashPattern(width: number): [number, number] {
+  return [width * 4, width * 2.5];
+}
 
 export function getAnnotationColor(annotation: { color?: string }): string {
   return annotation.color ?? DEFAULT_ANNOTATION_COLOR;

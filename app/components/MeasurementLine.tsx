@@ -7,7 +7,7 @@ import {
   MIDPOINT_TICK_HALF_PX,
   midpointTickEnds,
 } from "@/app/utils/coordinates";
-import { CALIBRATION_COLOR, getAnnotationColor } from "@/app/utils/colors";
+import { CALIBRATION_COLOR, dashArray, getAnnotationColor } from "@/app/utils/colors";
 import { convertUnits, formatDistance } from "@/app/utils/units";
 import { InlineDimensionLine } from "@/app/components/InlineDimensionLine";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
@@ -84,7 +84,7 @@ export function MeasurementLine({
     : getAnnotationColor(measurement);
   const strokeWidth = isSelected ? 2.5 : 2;
   const label =
-    scale && !measurement.isCalibration
+    scale && !measurement.isCalibration && !measurement.arrow
       ? getDisplayDistance(measurement, scale, displayUnit)
       : measurement.isCalibration
         ? "Calibration"
@@ -157,6 +157,8 @@ export function MeasurementLine({
         interactive={interactive}
         showEndpointHandles={showHandles && isSelected && !measurement.locked}
         showArrows={!measurement.plain}
+        endArrow={measurement.arrow}
+        dash={measurement.dashed ? dashArray(strokeWidth) : undefined}
         onSelect={(additive) => onSelect(measurement.id, additive ?? false)}
         onBodyPointerDown={(event) => {
           onSelect(measurement.id, event.shiftKey || event.ctrlKey || event.metaKey);

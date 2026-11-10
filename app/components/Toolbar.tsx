@@ -37,6 +37,8 @@ import {
   cutoutCount,
   DRAW_DEFAULT_WIDTH,
   DRAW_MAX_WIDTH,
+  HIGHLIGHT_DEFAULT_WIDTH,
+  HIGHLIGHT_MAX_WIDTH,
   DRAW_MIN_WIDTH,
   drawWidth,
   ERASER_DEFAULT_SIZE,
@@ -563,8 +565,13 @@ export function StatusBar() {
   const selectedTexts = state.shapes.filter(
     (sh) => sh.kind === "text" && state.selectedIds.includes(sh.id),
   );
-  const textSize = Math.round(selectedTexts[0]?.fontSize ?? TEXT_DEFAULT_SIZE);
+  // With the Text tool and nothing selected, these set the style of the next text placed.
+  const showTextStyle = selectedTexts.length > 0 || (state.tool === "text" && colorableIds.length === 0);
+  const textSize = Math.round(selectedTexts[0]?.fontSize ?? state.settings.textSize ?? TEXT_DEFAULT_SIZE);
+  const textBold = selectedTexts.length > 0 ? selectedTexts.every((s) => s.bold) : Boolean(state.settings.textBold);
+  const textItalic = selectedTexts.length > 0 ? selectedTexts.every((s) => s.italic) : Boolean(state.settings.textItalic);
   const updateTexts = (updates: Partial<(typeof selectedTexts)[0]>) => {
+    if (selectedTexts.length === 0) return;
     dispatch({ type: "RECORD_UNDO" });
     for (const shape of selectedTexts) {
       dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates });
@@ -576,13 +583,16 @@ export function StatusBar() {
     updateTexts({ fontSize });
     dispatch({ type: "UPDATE_SETTINGS", patch: { textSize: fontSize } });
   };
+  // Keeps focus in a text box being typed, which would otherwise end the edit (and drop an empty box).
+  const keepTextFocus = (event: React.MouseEvent) => event.preventDefault();
 
   const selectedDrawings = state.shapes.filter(
     (sh) => sh.kind === "draw" && state.selectedIds.includes(sh.id),
   );
-  // Selected strokes, or the Draw tool's width for new strokes when nothing is selected.
+  const drawTool = state.tool === "draw" || state.tool === "highlight";
+  // Selected strokes, or the Draw/Highlight tool's width for new strokes when nothing is selected.
   const showDrawWidth =
-    selectedDrawings.length > 0 || (colorableIds.length === 0 && state.tool === "draw");
+    selectedDrawings.length > 0 || (colorableIds.length === 0 && drawTool);
 
   const sharedColor =
     selectedAnnotations.length > 0 &&
@@ -701,12 +711,17 @@ export function StatusBar() {
           </button>
         )}
 
-        {selectedTexts.length > 0 && (
-          <div className="flex items-center gap-1" aria-label="Text style">
+        {showTextStyle && (
+          <div
+            className="flex items-center gap-1"
+            aria-label="Text style"
+            title={selectedTexts.length === 0 ? "Style for the next text you place" : undefined}
+          >
             <span className="mr-1 text-text-muted">Size</span>
             <button
               type="button"
               title="Smaller text"
+              onMouseDown={keepTextFocus}
               onClick={() => setTextSize(Math.max(1, textSize - (textSize > 20 ? 4 : 1)))}
               className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
             >
@@ -729,6 +744,7 @@ export function StatusBar() {
             <button
               type="button"
               title="Bigger text"
+              onMouseDown={keepTextFocus}
               onClick={() => setTextSize(textSize + (textSize >= 20 ? 4 : 1))}
               className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
             >
@@ -737,13 +753,14 @@ export function StatusBar() {
             <button
               type="button"
               title="Bold"
-              aria-pressed={selectedTexts.every((s) => s.bold)}
+              aria-pressed={textBold}
+              onMouseDown={keepTextFocus}
               onClick={() => {
-                const bold = !selectedTexts.every((s) => s.bold);
-                updateTexts({ bold });
+                updateTexts({ bold: !textBold });
+                dispatch({ type: "UPDATE_SETTINGS", patch: { textBold: !textBold } });
               }}
               className={`ml-1 rounded border px-1.5 py-0.5 text-xs font-bold ${
-                selectedTexts.every((s) => s.bold) ? "border-accent text-accent" : "border-border"
+                textBold ? "border-accent text-accent" : "border-border"
               }`}
             >
               B
@@ -751,13 +768,14 @@ export function StatusBar() {
             <button
               type="button"
               title="Italic"
-              aria-pressed={selectedTexts.every((s) => s.italic)}
+              aria-pressed={textItalic}
+              onMouseDown={keepTextFocus}
               onClick={() => {
-                const italic = !selectedTexts.every((s) => s.italic);
-                updateTexts({ italic });
+                updateTexts({ italic: !textItalic });
+                dispatch({ type: "UPDATE_SETTINGS", patch: { textItalic: !textItalic } });
               }}
               className={`rounded border px-1.5 py-0.5 text-xs italic ${
-                selectedTexts.every((s) => s.italic) ? "border-accent text-accent" : "border-border"
+                textItalic ? "border-accent text-accent" : "border-border"
               }`}
             >
               I
@@ -765,9 +783,9 @@ export function StatusBar() {
           </div>
         )}
 
-        {(state.tool === "draw" || showDrawWidth) && (
+        {(drawTool || showDrawWidth) && (
           <div className="flex items-center gap-3">
-            {state.tool === "draw" && (
+            {drawTool && (
               <button
                 type="button"
                 title={
@@ -791,7 +809,7 @@ export function StatusBar() {
             {showDrawWidth && (
               <DrawWidthSlider
                 drawings={selectedDrawings}
-                eraser={state.tool === "draw" && state.drawEraser}
+                eraser={drawTool && state.drawEraser}
               />
             )}
           </div>
@@ -985,11 +1003,15 @@ function DrawWidthSlider({ drawings, eraser }: { drawings: ShapeAnnotation[]; er
   const state = useAppState();
   const dispatch = useAppDispatch();
   const undoRecorded = useRef(false);
+  // Highlights keep their own, wider width.
+  const highlight = drawings[0] ? Boolean(drawings[0].highlight) : state.tool === "highlight";
   const value = eraser
     ? (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE)
     : drawings[0]
       ? drawWidth(drawings[0])
-      : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
+      : highlight
+        ? (state.settings.highlightWidth ?? HIGHLIGHT_DEFAULT_WIDTH)
+        : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
 
   const setWidth = (width: number) => {
     // With the eraser on, the slider sizes the eraser instead of the line.
@@ -1006,7 +1028,7 @@ function DrawWidthSlider({ drawings, eraser }: { drawings: ShapeAnnotation[]; er
         dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates: { strokeWidth: width } });
       }
     }
-    dispatch({ type: "UPDATE_SETTINGS", patch: { drawWidth: width } });
+    dispatch({ type: "UPDATE_SETTINGS", patch: highlight ? { highlightWidth: width } : { drawWidth: width } });
   };
   const endChange = () => {
     undoRecorded.current = false;
@@ -1018,7 +1040,7 @@ function DrawWidthSlider({ drawings, eraser }: { drawings: ShapeAnnotation[]; er
       <input
         type="range"
         min={eraser ? ERASER_MIN_SIZE : DRAW_MIN_WIDTH}
-        max={eraser ? ERASER_MAX_SIZE : DRAW_MAX_WIDTH}
+        max={eraser ? ERASER_MAX_SIZE : highlight ? HIGHLIGHT_MAX_WIDTH : DRAW_MAX_WIDTH}
         step={1}
         value={value}
         aria-label={eraser ? "Eraser size in pixels" : "Line thickness in pixels"}

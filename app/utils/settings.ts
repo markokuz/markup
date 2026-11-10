@@ -1,5 +1,5 @@
 import type { ToolMode, Unit } from "@/app/types";
-import { DEFAULT_ANNOTATION_COLOR, LEGACY_REDLINE_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
+import { DEFAULT_ANNOTATION_COLOR, HIGHLIGHT_COLOR, LEGACY_REDLINE_COLOR, REDLINE_COLOR } from "@/app/utils/colors";
 import type { FeetPrecision } from "@/app/utils/units";
 
 /** Tools that create a coloured markup. */
@@ -13,7 +13,9 @@ export type ColorTool =
   | "draw"
   | "callout"
   | "text"
-  | "note";
+  | "note"
+  | "shape"
+  | "highlight";
 
 export interface AppSettings {
   toolColors: Record<ColorTool, string>;
@@ -36,8 +38,13 @@ export interface AppSettings {
   darkMode: boolean;
   /** Size of the last text the user sized; new text starts at it. */
   textSize?: number;
+  /** New text starts bold / italic. */
+  textBold?: boolean;
+  textItalic?: boolean;
   /** Draw tool thickness last picked, in screen px; new strokes use it. */
   drawWidth?: number;
+  /** Highlight tool thickness last picked, in screen px. */
+  highlightWidth?: number;
   /** Eraser diameter last picked, in screen px. */
   eraserSize?: number;
   /** How finely feet and inches are shown; unset is the nearest inch. */
@@ -61,6 +68,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     callout: REDLINE_COLOR,
     text: REDLINE_COLOR,
     note: DEFAULT_ANNOTATION_COLOR,
+    shape: REDLINE_COLOR,
+    highlight: HIGHLIGHT_COLOR,
   },
   hotkeys: {
     measure: "m",
@@ -77,6 +86,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     select: "v",
     pan: "h",
     snapshot: "g",
+    shape: "s",
+    highlight: "i",
   },
   defaultUnit: "ft",
   snapStepDeg: 90,

@@ -1,6 +1,6 @@
 import type { Measurement, Point2D, RectMeasurement, ShapeAnnotation } from "@/app/types";
 import type { DocumentViewport } from "@/app/utils/documentViewport";
-import { areaRings } from "@/app/utils/geometry";
+import { areaRings, pointInPolygon } from "@/app/utils/geometry";
 import { getTransformFrame } from "@/app/utils/transform";
 import { toDocPoint } from "@/app/utils/coordinates";
 
@@ -80,7 +80,63 @@ export interface PdfOps {
   endPath: number;
   fill: number;
   eoFill: number;
+  eoClip: number;
 }
+
+/** A ring cut out of an even-odd clip (the Erase tool's): nothing inside it shows. */
+interface ClipHole {
+  ring: Point2D[];
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/** A path's closed rings, through `m`. Curves count by their end points only. */
+function pathRings(data: ArrayLike<number>, m: Matrix): Point2D[][] {
+  const rings: Point2D[][] = [];
+  let ring: Point2D[] = [];
+  const at = (x: number, y: number) => ring.push({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+  for (let p = 0; p < data.length; ) {
+    const code = data[p++];
+    if (code === 0) {
+      if (ring.length >= 3) rings.push(ring);
+      ring = [];
+      at(data[p], data[p + 1]);
+      p += 2;
+    } else if (code === 1) {
+      at(data[p], data[p + 1]);
+      p += 2;
+    } else if (code === 2) {
+      at(data[p + 4], data[p + 5]);
+      p += 6;
+    } else if (code === 3) {
+      at(data[p + 2], data[p + 3]);
+      p += 4;
+    } else if (code !== 4) {
+      break;
+    }
+  }
+  if (ring.length >= 3) rings.push(ring);
+  return rings;
+}
+
+/** Rings of an even-odd clip that sit inside its largest ring: the parts it hides. */
+function clipHoles(rings: Point2D[][]): ClipHole[] {
+  const boxes = rings.map((ring) => {
+    const xs = ring.map((p) => p.x);
+    const ys = ring.map((p) => p.y);
+    return { ring, minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  });
+  const size = (b: ClipHole) => (b.maxX - b.minX) * (b.maxY - b.minY);
+  const outer = boxes.reduce((big, b) => (size(b) > size(big) ? b : big), boxes[0]);
+  return boxes.filter(
+    (b) => b !== outer && b.minX >= outer.minX && b.maxX <= outer.maxX && b.minY >= outer.minY && b.maxY <= outer.maxY,
+  );
+}
+
+const inHole = (hole: ClipHole, x: number, y: number) =>
+  x >= hole.minX && x <= hole.maxX && y >= hole.minY && y <= hole.maxY && pointInPolygon({ x, y }, hole.ring);
 
 /**
  * Every straight segment a PDF page draws, from pdf.js's operator list. Paths in there
@@ -98,6 +154,8 @@ export function extractSegments(
 
   const add = (x1: number, y1: number, x2: number, y2: number, isCurve: boolean) => {
     if ((x2 - x1) ** 2 + (y2 - y1) ** 2 < minSquared || count >= MAX_SEGMENTS) return;
+    // Hidden by an erase: only a line wholly inside counts as gone, so its visible part still snaps.
+    if (holes.some((hole) => inHole(hole, x1, y1) && inHole(hole, x2, y2))) return;
     if (count === capacity) {
       capacity *= 2;
       const moreCoords = new Float32Array(capacity * 4);
@@ -115,14 +173,22 @@ export function extractSegments(
   let ctm: Matrix = [1, 0, 0, 1, 0, 0];
   const saved: Matrix[] = [];
   const forms: Matrix[] = [];
+  let holes: ClipHole[] = [];
+  const savedHoles: ClipHole[][] = [];
+  /** pdf.js puts W* before the path it clips to. */
+  let eoClipNext = false;
 
   for (let i = 0; i < ops.fnArray.length; i++) {
     const fn = ops.fnArray[i];
     const args = ops.argsArray[i] as unknown[] | null;
     if (fn === OPS.save) {
       saved.push(ctm);
+      savedHoles.push(holes);
     } else if (fn === OPS.restore) {
       ctm = saved.pop() ?? ctm;
+      holes = savedHoles.pop() ?? holes;
+    } else if (fn === OPS.eoClip) {
+      eoClipNext = true;
     } else if (fn === OPS.transform && args) {
       ctm = multiply(ctm, args as number[]);
     } else if (fn === OPS.paintFormXObjectBegin && args) {
@@ -133,7 +199,10 @@ export function extractSegments(
     } else if (fn === OPS.constructPath && args) {
       const [paint, paths, box] = args as [number, ArrayLike<number>[] | null, ArrayLike<number> | null];
       const data = paths?.[0];
+      const clipping = eoClipNext;
+      eoClipNext = false;
       // endPath is a clip: nothing was drawn along it.
+      if (data && clipping && paint === OPS.endPath) holes = [...holes, ...clipHoles(pathRings(data, ctm))];
       if (!data || paint === OPS.endPath) continue;
       if ((paint === OPS.fill || paint === OPS.eoFill) && box) {
         const w = box[2] - box[0];

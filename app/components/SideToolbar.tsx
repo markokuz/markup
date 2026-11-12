@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { AreaMode, CloudMode, DrawMode, ShapeMode, ToolMode } from "@/app/types";
+import type { AreaMode, CloudMode, DrawMode, EraseMode, ShapeMode, ToolMode } from "@/app/types";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
@@ -37,6 +37,11 @@ export const SIDE_TOOLS: { id: ToolMode; label: string; hint: string }[] = [
     label: "Snap",
     hint: "Click two corners to copy that part of the drawing, background removed. Paste with Ctrl+V",
   },
+  {
+    id: "erase",
+    label: "Erase",
+    hint: "Remove part of the PDF; it is copied too, so Ctrl+V pastes it. Markups are not erased",
+  },
   { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
 
@@ -62,6 +67,16 @@ const AREA_MODES: ModeOption<AreaMode>[] = [
 const CLOUD_MODES: ModeOption<CloudMode>[] = [
   { id: "rect", label: "Box", hint: "Click two corners for a rectangular cloud" },
   { id: "freehand", label: "Draw", hint: "Drag to draw any outline; it is smoothed into a cloud" },
+];
+
+const ERASE_MODES: ModeOption<EraseMode>[] = [
+  { id: "rect", label: "Box", hint: "Click two corners of the area to erase" },
+  {
+    id: "polygon",
+    label: "Polygon",
+    hint: "Click corners around the area. Double-click, Enter, or click the first point to finish",
+  },
+  { id: "lasso", label: "Lasso", hint: "Drag around the area to erase" },
 ];
 
 const SHAPE_MODES: ModeOption<ShapeMode>[] = [
@@ -217,8 +232,14 @@ export function SideToolbar() {
     state.tool === tool || (tool === "text" && state.tool === "note");
 
   const shownIcon = (tool: ToolMode) => (tool === "text" && state.tool === "note" ? "note" : tool);
+  // Erase rewrites the PDF itself; images have nothing to erase that way.
+  const unavailable = (tool: ToolMode) => tool === "erase" && state.fileType !== "pdf";
   const hintWithKey = (tool: { id: ToolMode; hint: string }) =>
-    state.settings.hotkeys[tool.id] ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})` : tool.hint;
+    unavailable(tool.id)
+      ? "Erase works on PDFs only"
+      : state.settings.hotkeys[tool.id]
+        ? `${tool.hint} (${state.settings.hotkeys[tool.id].toUpperCase()})`
+        : tool.hint;
   const pickTool = (tool: ToolMode) => {
     // Re-clicking Text keeps Note if that is the one picked.
     if (!(tool === "text" && isActive("text"))) dispatch({ type: "SET_TOOL", tool });
@@ -226,7 +247,7 @@ export function SideToolbar() {
   const toolButtonClass = (active: boolean) =>
     `flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-0.5 py-2 text-[10px] font-medium transition ${
       active ? "bg-accent text-white shadow-sm" : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-    }`;
+    } disabled:pointer-events-none disabled:opacity-40`;
 
   /** The picked tool's own options, across both columns of the row under it. */
   const toolOptions = (tool: ToolMode) => {
@@ -278,6 +299,14 @@ export function SideToolbar() {
             onChange={(mode) => dispatch({ type: "SET_SHAPE_MODE", mode })}
           />
         );
+      case "erase":
+        return (
+          <ModeToggle
+            options={ERASE_MODES}
+            value={state.eraseMode}
+            onChange={(mode) => dispatch({ type: "SET_ERASE_MODE", mode })}
+          />
+        );
       case "cloud":
         return (
           <ModeToggle
@@ -324,6 +353,7 @@ export function SideToolbar() {
             <button
               type="button"
               title={hintWithKey(tool)}
+              disabled={unavailable(tool.id)}
               onClick={() => pickTool(tool.id)}
               className={toolButtonClass(isActive(tool.id))}
             >
@@ -365,11 +395,12 @@ export function SideToolbar() {
               type="button"
               role="menuitem"
               title={tool.hint}
+              disabled={unavailable(tool.id)}
               onClick={() => {
                 setMoreMenu(null);
                 pickTool(tool.id);
               }}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-muted ${
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-muted disabled:opacity-40 ${
                 isActive(tool.id) ? "text-accent" : "text-text-primary"
               }`}
             >
@@ -560,6 +591,18 @@ export function ToolIcon({ tool }: { tool: ToolMode }) {
             strokeLinejoin="round"
           />
           <circle cx="10" cy="11" r="3" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      );
+    case "erase":
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M8 16.5l-4-4a1.5 1.5 0 010-2.1L11.4 3a1.5 1.5 0 012.1 0l3.5 3.5a1.5 1.5 0 010 2.1L9.1 16.5zM7.3 7.1l5.6 5.6M8 16.5h9"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       );
     default:

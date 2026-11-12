@@ -83,6 +83,10 @@ import { showSaveStatus } from "@/app/utils/saveStatus";
 import { promptCalibration } from "@/app/utils/calibrationPrompt";
 import { nextGroupName } from "@/app/utils/groups";
 import { captureSnapshot } from "@/app/utils/snapshot";
+import { erasePdfArea } from "@/app/utils/pdfErase";
+import { isTextEntry } from "@/app/utils/keyboardFocus";
+import { closePdfDocument } from "@/app/utils/pdfium";
+import { releaseRenders } from "@/app/hooks/useDocument";
 import {
   getTransformFrame,
   rotateTarget,
@@ -131,8 +135,8 @@ type DragMode =
   | { type: "noteBody"; id: string; originPdf: Point2D; startPdf: Point2D }
   /** `only`: move just this point (a callout's card, leaving its arrow tips where they point). */
   | { type: "shapeBody"; id: string; originPdf: Point2D; points: Point2D[]; only?: number }
-  /** A freehand stroke being dragged out: a cloud outline or a drawing. */
-  | { type: "freehand"; kind: "cloud" | "draw"; points: Point2D[] }
+  /** A freehand stroke being dragged out: a cloud outline, a drawing or an Erase lasso. */
+  | { type: "freehand"; kind: "cloud" | "draw" | "lasso"; points: Point2D[] }
   /** Draw tool eraser being dragged; `last` is the previous screen point it rubbed at. */
   | { type: "erase"; last: Point2D; recorded: boolean }
   /** Moves the whole selection; a press without movement selects just `id`. */
@@ -242,6 +246,12 @@ export function AnnotationLayer({
     typed && tool === "measure" && typed.start === state.pendingPoint ? typed.text : "";
   /** Screen points of the freehand cloud being drawn. */
   const [freehandStroke, setFreehandStroke] = useState<Point2D[] | null>(null);
+  /** Erase tool polygon's corners so far (doc points); dropped when the sheet, tool or mode changes. */
+  const erasePolyKey = `${state.activeTabId}:${state.page}:${state.tool}:${state.eraseMode}`;
+  const [erasePoly, setErasePoly] = useState<{ key: string; points: Point2D[] } | null>(null);
+  const erasePolyPoints = erasePoly?.key === erasePolyKey ? erasePoly.points : null;
+  /** An erase is rewriting the file; another one waits for it. */
+  const erasingContentRef = useRef(false);
   /** Screen point under the eraser, for its outline. */
   const [eraserAt, setEraserAt] = useState<Point2D | null>(null);
   const erasing = tool === "draw" && state.drawEraser;
@@ -454,6 +464,76 @@ export function AnnotationLayer({
     },
     [state.fileBytes, state.fileMimeType, state.fileName, state.fileType, state.page, state.scale, state.zoom, viewport],
   );
+
+  /**
+   * Erase tool (Bluebeam's Erase Content): copy the area so Ctrl+V pastes it, then cut it
+   * out of the PDF itself. Markups stay; undo puts the content back.
+   */
+  const eraseArea = useCallback(
+    async (polygon: Point2D[]) => {
+      const { fileBytes, fileType, activeTabId, page } = state;
+      if (!fileBytes || fileType !== "pdf" || !activeTabId || erasingContentRef.current) return;
+      const screen = polygon.map((p) => toScreenPoint(viewport, p.x, p.y));
+      const xs = screen.map((p) => p.x);
+      const ys = screen.map((p) => p.y);
+      if (Math.max(...xs) - Math.min(...xs) < MIN_RECT_SIZE || Math.max(...ys) - Math.min(...ys) < MIN_RECT_SIZE) return;
+      erasingContentRef.current = true;
+      showSaveStatus("saving", "Erasing…");
+      try {
+        const docXs = polygon.map((p) => p.x);
+        const docYs = polygon.map((p) => p.y);
+        // Copied from the file as it is before the erase; a blank area just isn't copied.
+        const snapshot = await captureSnapshot(
+          {
+            fileType,
+            fileBytes,
+            page,
+            fileName: state.fileName ?? "",
+            mimeType: state.fileMimeType ?? "",
+            docOrigin: viewport.docOrigin,
+          },
+          { x: Math.min(...docXs), y: Math.min(...docYs) },
+          { x: Math.max(...docXs), y: Math.max(...docYs) },
+          state.eraseMode === "rect" ? undefined : polygon,
+        ).catch(() => null);
+        const bytes = await erasePdfArea(fileBytes, page, polygon);        dispatch({ type: "ERASE_CONTENT", tabId: activeTabId, from: fileBytes, bytes, page });
+        releaseRenders(fileBytes);
+        closePdfDocument(fileBytes);
+        if (snapshot) {
+          const shape: ShapeAnnotationType = { id: createId(), kind: "image", ...snapshot };
+          copySelection(
+            { measurements: [], rectangles: [], notes: [], shapes: [shape], selectedIds: [shape.id], scale: state.scale, zoom: state.zoom },
+            viewport,
+          );
+        }
+        showSaveStatus("success", snapshot ? "Erased. Ctrl+V pastes what was removed" : "Erased");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        showSaveStatus("error", `Couldn't erase: ${message}`);
+      } finally {
+        erasingContentRef.current = false;
+      }
+    },
+    [dispatch, state, viewport],
+  );
+
+  // Erase polygon: Enter erases it, Esc drops it.
+  useEffect(() => {
+    if (!erasePolyPoints) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setErasePoly(null);
+        setPreviewEnd(null);
+      } else if (event.key === "Enter" && erasePolyPoints.length >= 3 && !isTextEntry(event.target as HTMLElement)) {
+        event.preventDefault();
+        setErasePoly(null);
+        setPreviewEnd(null);
+        void eraseArea(erasePolyPoints);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [eraseArea, erasePolyPoints]);
 
   /** Add a finished Line-tool line (second click or a typed length). */
   const placeLine = useCallback(
@@ -784,6 +864,50 @@ export function AnnotationLayer({
         return;
       }
 
+      if (tool === "erase") {
+        if (state.fileType !== "pdf") return;
+        if (state.eraseMode === "lasso") {
+          event.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          (document.activeElement as HTMLElement | null)?.blur();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          dragRef.current = { type: "freehand", kind: "lasso", points: [local] };
+          setFreehandStroke([local]);
+          return;
+        }
+        if (state.eraseMode === "polygon") {
+          const previous = lastPressRef.current;
+          lastPressRef.current = { time: event.timeStamp, x: local.x, y: local.y };
+          const secondPress =
+            event.timeStamp - previous.time <= DOUBLE_CLICK_MS &&
+            Math.hypot(local.x - previous.x, local.y - previous.y) <= DOUBLE_CLICK_PX;
+          const points = erasePolyPoints ?? [];
+          const first = points.length > 0 ? toScreenPoint(viewport, points[0].x, points[0].y) : null;
+          const closes = first !== null && Math.hypot(local.x - first.x, local.y - first.y) <= CLOSE_AREA_PX;
+          if (points.length >= 3 && (secondPress || closes)) {
+            setErasePoly(null);
+            setPreviewEnd(null);
+            void eraseArea(points);
+            return;
+          }
+          // The second press of a double-click on too few corners adds nothing.
+          if (secondPress) return;
+          setErasePoly({ key: erasePolyKey, points: [...points, pdfPoint] });
+          setPreviewEnd(pdfPoint);
+          return;
+        }
+        if (!state.pendingPoint) {
+          dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
+          setPreviewEnd(pdfPoint);
+          return;
+        }
+        const start = state.pendingPoint;
+        dispatch({ type: "SET_PENDING_POINT", point: null });
+        setPreviewEnd(null);
+        void eraseArea(boxCorners(start, pdfPoint));
+        return;
+      }
+
       if (tool === "snapshot") {
         if (!state.pendingPoint) {
           dispatch({ type: "SET_PENDING_POINT", point: pdfPoint });
@@ -915,6 +1039,11 @@ export function AnnotationLayer({
       state.cloudMode,
       state.drawEraser,
       state.countStart,
+      state.eraseMode,
+      state.fileType,
+      eraseArea,
+      erasePolyKey,
+      erasePolyPoints,
       lineMode,
       rectMode,
       shapeMode,
@@ -1145,6 +1274,8 @@ export function AnnotationLayer({
                   ? snapToLine(state.pendingPoint, local)
                   : pdfPoint)),
         );
+      } else if (erasePolyPoints) {
+        setPreviewEnd(pdfPoint);
       } else if (state.drawingShapeId) {
         const drawing = state.shapes.find((s) => s.id === state.drawingShapeId);
         setPreviewEnd(
@@ -1155,7 +1286,7 @@ export function AnnotationLayer({
         );
       }
     },
-    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.aligning, state.selectedIds, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, tool, highlighting, viewport],
+    [dispatch, eraseAlong, eraserRadius, erasing, findPointSnap, moveShapePoint, placingArrow, selectCursor, state.aligning, state.selectedIds, state.scale, state.displayUnit, onCursorMove, overlayRef, snapToLine, state.drawingShapeId, state.measurements, state.notes, state.pendingPoint, state.rectangles, state.settings.snapRotation, state.shapes, tool, highlighting, viewport, erasePolyPoints],
   );
 
   const aligning = tool === "select" && state.selectedIds.length >= 2 ? state.aligning : null;
@@ -1296,6 +1427,10 @@ export function AnnotationLayer({
           },
         });
       }
+    } else if (drag?.type === "freehand" && drag.kind === "lasso") {
+      setFreehandStroke(null);
+      const outline = simplifyPath(drag.points, FREEHAND_SIMPLIFY_PX);
+      if (outline.length >= 3) void eraseArea(outline.map((p) => toDocPoint(viewport, p.x, p.y)));
     } else if (drag?.type === "freehand") {
       setFreehandStroke(null);
       const xs = drag.points.map((p) => p.x);
@@ -1355,7 +1490,7 @@ export function AnnotationLayer({
 
     dragRef.current = null;
     moveUndoPendingRef.current = false;
-  }, [dispatch, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, toolColors.highlight, highlighting, state.shapes, viewport]);
+  }, [dispatch, eraseArea, newDrawWidth, state.measurements, state.notes, state.rectangles, state.selectedIds, toolColors.cloud, toolColors.draw, toolColors.highlight, highlighting, state.shapes, viewport]);
 
   const singleSelectedId =
     state.selectedIds.length === 1 ? state.selectedIds[0] : null;
@@ -2277,6 +2412,19 @@ export function AnnotationLayer({
         )
       : null;
 
+  // Erase tool: the area about to be cut out, in screen points.
+  const erasePreview =
+    tool !== "erase"
+      ? null
+      : state.eraseMode === "lasso"
+        ? freehandStroke
+        : state.eraseMode === "polygon"
+          ? erasePolyPoints &&
+            [...erasePolyPoints, ...(previewEnd ? [previewEnd] : [])].map((p) => toScreenPoint(viewport, p.x, p.y))
+          : state.pendingPoint && previewEnd
+            ? boxCorners(state.pendingPoint, previewEnd).map((p) => toScreenPoint(viewport, p.x, p.y))
+            : null;
+
   const freehandPreview =
     freehandStroke && freehandStroke.length > 1 && tool === "cloud"
       ? freehandStroke.map((p) => `${p.x},${p.y}`).join(" ")
@@ -2521,6 +2669,17 @@ export function AnnotationLayer({
               </span>
             </div>
           </foreignObject>
+        )}
+        {erasePreview && erasePreview.length > 1 && (
+          <polygon
+            points={erasePreview.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="rgba(220, 38, 38, 0.08)"
+            stroke="#dc2626"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
         )}
         {freehandPreview && (
           <polyline

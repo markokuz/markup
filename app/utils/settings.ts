@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     snapshot: "g",
     shape: "s",
     highlight: "i",
+    erase: "e",
   },
   defaultUnit: "ft",
   snapStepDeg: 90,

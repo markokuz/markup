@@ -17,7 +17,8 @@ export type ToolMode =
   | "text"
   | "snapshot"
   | "shape"
-  | "highlight";
+  | "highlight"
+  | "erase";
 
 export type Unit = "ft" | "in" | "m" | "mm";
 
@@ -141,6 +142,8 @@ export type DrawMode = "measure" | "plain";
 export type AreaMode = "add" | "cut";
 /** Shapes tool: what it draws. */
 export type ShapeMode = "ellipse" | "arrow" | "polygon";
+/** Erase tool: how the area to erase is picked. */
+export type EraseMode = "rect" | "polygon" | "lasso";
 
 export interface Scale {
   unitsPerPdfPoint: number;
@@ -173,6 +176,8 @@ export interface UndoSnapshot {
   selectedIds: string[];
   /** The page this change was made on: undo and redo go back to it. */
   page: number;
+  /** The file as it was: the Erase tool changes the PDF itself. */
+  fileBytes: Uint8Array | null;
 }
 
 /** Per-document state stored in a tab. */
@@ -259,6 +264,7 @@ export interface TabsState {
   rectMode: DrawMode;
   areaMode: AreaMode;
   shapeMode: ShapeMode;
+  eraseMode: EraseMode;
   settings: AppSettings;
 }
 
@@ -285,6 +291,7 @@ export type AppState = Omit<DocumentTab, "id"> & {
   rectMode: DrawMode;
   areaMode: AreaMode;
   shapeMode: ShapeMode;
+  eraseMode: EraseMode;
   settings: AppSettings;
 };
 
@@ -332,7 +339,7 @@ export type AppAction =
       type: "MARK_TAB_SAVED";
       tabId: string;
       /** What was written; edits made while saving keep the tab dirty. */
-      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets">;
+      saved: Pick<DocumentTab, "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets" | "fileBytes">;
     }
   /** Show another of this tab's sheets. */
   | { type: "SET_PAGE"; page: number }
@@ -399,6 +406,9 @@ export type AppAction =
   | { type: "SET_RECT_MODE"; mode: DrawMode }
   | { type: "SET_AREA_MODE"; mode: AreaMode }
   | { type: "SET_SHAPE_MODE"; mode: ShapeMode }
+  | { type: "SET_ERASE_MODE"; mode: EraseMode }
+  /** The Erase tool rewrote the PDF; only applied if the tab still has the `from` bytes. */
+  | { type: "ERASE_CONTENT"; tabId: string; from: Uint8Array; bytes: Uint8Array; page: number }
   | { type: "UPDATE_SETTINGS"; patch: Partial<AppSettings> }
   | { type: "SET_TOOL_COLOR"; tool: ColorTool; color: string }
   | { type: "SET_HOTKEY"; tool: ToolMode; key: string }
@@ -452,5 +462,6 @@ export const initialTabsState: TabsState = {
   rectMode: "measure",
   areaMode: "add",
   shapeMode: "ellipse",
+  eraseMode: "rect",
   settings: DEFAULT_SETTINGS,
 };

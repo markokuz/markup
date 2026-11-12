@@ -126,6 +126,7 @@ function restoreSnapshot(tab: DocumentTab, snapshot: UndoSnapshot): DocumentTab 
     scales: snapshot.scales,
     selectedIds: snapshot.selectedIds,
     page: snapshot.page,
+    fileBytes: snapshot.fileBytes,
     // Markups never end up on a hidden sheet, even if that sheet was dropped since.
     sheets:
       tab.sheets && !tab.sheets.includes(snapshot.page)
@@ -143,6 +144,10 @@ function restoreSnapshot(tab: DocumentTab, snapshot: UndoSnapshot): DocumentTab 
 function tabsReducer(state: TabsState, action: AppAction): TabsState {
   switch (action.type) {
     case "SET_TOOL":
+      // Erase rewrites the PDF; an image tab has no such content (its button is disabled too).
+      if (action.tool === "erase" && state.tabs.find((t) => t.id === state.activeTabId)?.fileType !== "pdf") {
+        return state;
+      }
       return {
         ...updateActiveTab(state, (tab) => ({
           ...finishDrawingShape(tab),
@@ -198,6 +203,18 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
       return { ...state, rectMode: action.mode };
     case "SET_AREA_MODE":
       return { ...updateActiveTab(state, finishDrawingShape), areaMode: action.mode };
+    case "SET_ERASE_MODE":
+      return { ...updateActiveTab(state, (tab) => ({ ...tab, pendingPoint: null })), eraseMode: action.mode };
+    case "ERASE_CONTENT":
+      return updateTabById(state, action.tabId, (tab) =>
+        tab.fileBytes !== action.from
+          ? tab
+          : {
+              ...tab,
+              history: appendHistory({ ...tab, page: action.page }),
+              fileBytes: action.bytes,
+            },
+      );
     case "SET_SHAPE_MODE":
       return {
         ...updateActiveTab(state, (tab) => ({ ...finishDrawingShape(tab), pendingPoint: null })),
@@ -871,7 +888,7 @@ function tabsReducer(state: TabsState, action: AppAction): TabsState {
 
 type SavedFields = Pick<
   DocumentTab,
-  "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets"
+  "measurements" | "rectangles" | "notes" | "shapes" | "groups" | "scales" | "sheets" | "fileBytes"
 >;
 
 function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
@@ -882,7 +899,8 @@ function annotationsChanged(a: SavedFields, b: SavedFields): boolean {
     a.shapes !== b.shapes ||
     a.groups !== b.groups ||
     a.scales !== b.scales ||
-    a.sheets !== b.sheets
+    a.sheets !== b.sheets ||
+    a.fileBytes !== b.fileBytes
   );
 }
 
@@ -947,7 +965,11 @@ function deleteAnnotations(tab: DocumentTab, ids: string[]): DocumentTab {
 }
 
 function appReducer(state: TabsState, action: AppAction): TabsState {
-  const next = clearStaleRedo(state, tabsReducer(state, action), action);
+  let next = clearStaleRedo(state, tabsReducer(state, action), action);
+  // Erase only works on PDFs: landing on an image tab with it in hand falls back to Select.
+  if (next.tool === "erase" && next.tabs.find((tab) => tab.id === next.activeTabId)?.fileType !== "pdf") {
+    next = { ...next, tool: "select" };
+  }
   // Migrating an old project's coordinates, reading the PDF's page list and answering the
   // import question aren't user edits.
   if (
@@ -1003,6 +1025,7 @@ function mergeActiveTabView(state: TabsState): AppState {
     rectMode: state.rectMode,
     areaMode: state.areaMode,
     shapeMode: state.shapeMode,
+    eraseMode: state.eraseMode,
     settings: state.settings,
   };
 }

@@ -15,6 +15,8 @@ interface DetailRect {
   height: number;
   zoom: number;
   rotation: number;
+  /** The file it was rendered from: an erase swaps the file, and old pixels must not stay on top. */
+  bytes: Uint8Array;
 }
 
 /**
@@ -73,6 +75,7 @@ export function PdfDetailLayer({
       const last = rectRef.current;
       if (
         last &&
+        last.bytes === bytes &&
         last.zoom === zoom &&
         last.rotation === rotation &&
         visLeft >= last.left &&
@@ -112,7 +115,7 @@ export function PdfDetailLayer({
           canvas.height = bitmap.height;
           canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
           bitmap.close();
-          rectRef.current = { left, top, width, height, zoom, rotation };
+          rectRef.current = { left, top, width, height, zoom, rotation, bytes };
           setRect(rectRef.current);
         },
         (err) => {

@@ -71,6 +71,14 @@ function openDocument(bytes: Uint8Array) {
   return docId;
 }
 
+/** Closes a file's PDFium copy now; it reopens if rendered again (undo back to it). */
+export function closePdfDocument(bytes: Uint8Array) {
+  const docId = docIds.get(bytes);
+  if (!docId) return;
+  docIds.delete(bytes);
+  void docId.then((id) => (worker ? call({ type: "close", docId: id }) : undefined)).catch(() => {});
+}
+
 export interface PdfRegion {
   /** Zero-based page. */
   page: number;

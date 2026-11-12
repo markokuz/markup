@@ -102,6 +102,14 @@ function cachedFile(bytes: Uint8Array): CachedFile {
   return file;
 }
 
+/** Drops a file's full-page renders now: the Erase tool replaced it, and undo history still holds it. */
+export function releaseRenders(bytes: Uint8Array) {
+  const file = fileCache.get(bytes);
+  if (!file) return;
+  for (const source of file.sources.values()) source.bitmap = null;
+  file.masters = [];
+}
+
 /** Marks `page`'s master as just used, freeing the oldest beyond the limit. */
 function keepMaster(file: CachedFile, page: number) {
   file.masters = [...file.masters.filter((p) => p !== page), page];

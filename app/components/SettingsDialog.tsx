@@ -28,6 +28,7 @@ const COLOR_TOOLS: { id: ColorTool; label: string }[] = [
 export const HOTKEY_TOOLS: { id: ToolMode; label: string }[] = [
   ...COLOR_TOOLS,
   { id: "snapshot", label: "Snapshot" },
+  { id: "erase", label: "Erase" },
   { id: "calibrate", label: "Calibrate" },
   { id: "select", label: "Select" },
   { id: "pan", label: "Pan" },

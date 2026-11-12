@@ -27,6 +27,8 @@ export async function captureSnapshot(
   source: SnapshotSource,
   cornerA: Point2D,
   cornerB: Point2D,
+  /** PDF only: keep just the inside of this doc-space polygon (Erase tool's polygon and lasso). */
+  mask?: Point2D[],
 ): Promise<{ image: string; points: Point2D[] } | null> {
   const minX = Math.min(cornerA.x, cornerB.x);
   const maxX = Math.max(cornerA.x, cornerB.x);
@@ -60,6 +62,13 @@ export async function captureSnapshot(
     );
     context.drawImage(bitmap, 0, 0);
     bitmap.close();
+    if (mask) {
+      context.globalCompositeOperation = "destination-in";
+      context.beginPath();
+      for (const p of mask) context.lineTo((p.x - minX) * scale, (maxY - p.y) * scale);
+      context.fill();
+      context.globalCompositeOperation = "source-over";
+    }
   } else {
     const image = await loadImageSource(source.fileBytes, source.fileName, source.mimeType);
     const scale = Math.min(1, MAX_SIDE_PX / Math.max(w, h));

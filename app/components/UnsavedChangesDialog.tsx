@@ -60,46 +60,57 @@ export function UnsavedChangesDialog() {
         aria-modal="true"
         aria-labelledby="unsaved-title"
         aria-describedby="unsaved-description"
-        className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl"
+        className="w-full max-w-[400px] overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
       >
-        <h2 id="unsaved-title" className="text-lg font-semibold text-text-primary">
-          Close tab with unsaved changes?
-        </h2>
-        <p id="unsaved-description" className="mt-2 text-sm text-text-secondary">
-          <span className="font-medium text-text-primary">{label}</span>{" "}has markups
-          that haven&apos;t been saved. Closing it will discard them.
-        </p>
+        <div className="flex gap-3 px-5 py-4">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path d="M8 2.5 14 13H2L8 2.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M8 6.5v3M8 11.25v.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </span>
+          <div className="min-w-0">
+            <h2 id="unsaved-title" className="break-words text-[15px] font-semibold leading-6 text-text-primary">
+              Save changes to &ldquo;{label}&rdquo;?
+            </h2>
+            <p id="unsaved-description" className="mt-0.5 text-sm text-text-secondary">
+              Your changes will be lost if you close without saving.
+            </p>
+          </div>
+        </div>
 
-        <label className="mt-4 flex items-center gap-2 text-sm text-text-secondary">
-          <input
-            type="checkbox"
-            checked={dontAskAgain}
-            onChange={(event) => setDontAskAgain(event.target.checked)}
-          />
-          Don&apos;t ask me again
-        </label>
-
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={handleCancel} className="btn-secondary">
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleDiscard}
-            className="rounded-lg border border-red-600/30 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-600/10 dark:border-red-400/50 dark:text-red-400 dark:hover:bg-red-400/10"
-          >
-            Close without saving
-          </button>
-          <button
-            type="button"
-            autoFocus
-            disabled={saving}
-            onClick={handleSaveAndClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-40"
-            style={{ backgroundColor: "var(--save)" }}
-          >
-            {saving ? "Saving…" : "Save project & close"}
-          </button>
+        <div className="border-t border-border bg-surface-muted px-5 py-3">
+          <label className="flex w-fit items-center gap-2 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              checked={dontAskAgain}
+              onChange={(event) => setDontAskAgain(event.target.checked)}
+            />
+            Don&apos;t ask again
+          </label>
+          <div className="mt-2.5 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDiscard}
+              className="btn-secondary text-red-600! hover:bg-red-600/10! dark:text-red-400!"
+            >
+              Don&apos;t save
+            </button>
+            <div className="flex-1" />
+            <button type="button" onClick={handleCancel} className="btn-secondary">
+              Cancel
+            </button>
+            <button
+              type="button"
+              autoFocus
+              disabled={saving}
+              onClick={handleSaveAndClose}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-95 disabled:opacity-40"
+              style={{ backgroundColor: "var(--save)" }}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

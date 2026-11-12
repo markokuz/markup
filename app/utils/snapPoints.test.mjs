@@ -97,6 +97,23 @@ assert.equal(at(505, 95), null);
 assert.deepEqual(at(280, 301), { point: { x: 280, y: 300 }, kind: "end" });
 assert.deepEqual(at(489, 201), { point: { x: 490, y: 200 }, kind: "end" });
 
+// Lines the Erase tool hid don't snap; a line only partly hidden still does.
+{
+  const { erasePdfArea } = await jiti.import("./pdfErase.ts");
+  const sheet = await PDFDocument.create();
+  const p = sheet.addPage([600, 400]);
+  p.drawLine({ start: { x: 100, y: 100 }, end: { x: 150, y: 100 }, thickness: 1 });
+  p.drawLine({ start: { x: 300, y: 100 }, end: { x: 400, y: 100 }, thickness: 1 });
+  const hole = [{ x: 90, y: 90 }, { x: 160, y: 90 }, { x: 350, y: 90 }, { x: 350, y: 110 }, { x: 90, y: 110 }];
+  const erased = await erasePdfArea(await sheet.save(), 0, hole);
+  const t = pdfjs.getDocument({ data: erased, isEvalSupported: false, disableFontFace: true });
+  const ops = await (await (await t.promise).getPage(1)).getOperatorList();
+  const erasedIndex = buildSegmentIndex(extractSegments(ops, pdfjs.OPS));
+  await t.destroy();
+  assert.equal(snap(erasedIndex, 101, 101, 3), null);
+  assert.deepEqual(snap(erasedIndex, 399, 101, 3), { point: { x: 400, y: 100 }, kind: "end" });
+}
+
 // Fast enough to run on every pointer move, on a very dense sheet.
 const dense = [];
 for (let i = 0; i < 500000; i++) {

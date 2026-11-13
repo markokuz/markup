@@ -46,7 +46,7 @@ import { NoteAnnotation } from "@/app/components/NoteAnnotation";
 import { ShapeAnnotation } from "@/app/components/ShapeAnnotation";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { SnapMarker } from "@/app/components/SnapMarker";
-import { sheetLines } from "@/app/utils/pdfLines";
+import { releaseSheetLines, sheetLines } from "@/app/utils/pdfLines";
 import { findSnap, markupSnapSegments, type SegmentIndex, type SnapHit } from "@/app/utils/snapPoints";
 import {
   areaRings,
@@ -252,6 +252,11 @@ export function AnnotationLayer({
   const erasePolyPoints = erasePoly?.key === erasePolyKey ? erasePoly.points : null;
   /** An erase is rewriting the file; another one waits for it. */
   const erasingContentRef = useRef(false);
+  /** The tab's file now, for an erase that finishes after an undo replaced it. */
+  const latestFileRef = useRef({ tabId: state.activeTabId, bytes: state.fileBytes });
+  useEffect(() => {
+    latestFileRef.current = { tabId: state.activeTabId, bytes: state.fileBytes };
+  }, [state.activeTabId, state.fileBytes]);
   /** Screen point under the eraser, for its outline. */
   const [eraserAt, setEraserAt] = useState<Point2D | null>(null);
   const erasing = tool === "draw" && state.drawEraser;
@@ -472,7 +477,11 @@ export function AnnotationLayer({
   const eraseArea = useCallback(
     async (polygon: Point2D[]) => {
       const { fileBytes, fileType, activeTabId, page } = state;
-      if (!fileBytes || fileType !== "pdf" || !activeTabId || erasingContentRef.current) return;
+      if (!fileBytes || fileType !== "pdf" || !activeTabId) return;
+      if (erasingContentRef.current) {
+        showSaveStatus("info", "Still erasing the last area. Try again in a moment.");
+        return;
+      }
       const screen = polygon.map((p) => toScreenPoint(viewport, p.x, p.y));
       const xs = screen.map((p) => p.x);
       const ys = screen.map((p) => p.y);
@@ -496,9 +505,17 @@ export function AnnotationLayer({
           { x: Math.max(...docXs), y: Math.max(...docYs) },
           state.eraseMode === "rect" ? undefined : polygon,
         ).catch(() => null);
-        const bytes = await erasePdfArea(fileBytes, page, polygon);        dispatch({ type: "ERASE_CONTENT", tabId: activeTabId, from: fileBytes, bytes, page });
+        const bytes = await erasePdfArea(fileBytes, page, polygon);
+        // Undo (or another change) swapped the file meanwhile: this erase is stale, so drop it.
+        const latest = latestFileRef.current;
+        if (latest.tabId === activeTabId && latest.bytes !== fileBytes) {
+          showSaveStatus("info", "Erase cancelled: the drawing changed while it was being erased.");
+          return;
+        }
+        dispatch({ type: "ERASE_CONTENT", tabId: activeTabId, from: fileBytes, bytes, page });
         releaseRenders(fileBytes);
         closePdfDocument(fileBytes);
+        releaseSheetLines(fileBytes);
         if (snapshot) {
           const shape: ShapeAnnotationType = { id: createId(), kind: "image", ...snapshot };
           copySelection(

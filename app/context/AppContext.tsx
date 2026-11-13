@@ -964,7 +964,7 @@ function deleteAnnotations(tab: DocumentTab, ids: string[]): DocumentTab {
   };
 }
 
-function appReducer(state: TabsState, action: AppAction): TabsState {
+export function appReducer(state: TabsState, action: AppAction): TabsState {
   let next = clearStaleRedo(state, tabsReducer(state, action), action);
   // Erase only works on PDFs: landing on an image tab with it in hand falls back to Select.
   if (next.tool === "erase" && next.tabs.find((tab) => tab.id === next.activeTabId)?.fileType !== "pdf") {

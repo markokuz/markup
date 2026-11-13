@@ -26,6 +26,11 @@ async function readSheet(bytes: Uint8Array, page: number): Promise<SegmentIndex 
   }
 }
 
+/** Drops a file's line work now: an erase replaced the file, and undo history still holds it. */
+export function releaseSheetLines(bytes: Uint8Array) {
+  cache.delete(bytes);
+}
+
 /** A sheet's line work, read once and in the background. Null if it can't be read. */
 export function sheetLines(bytes: Uint8Array, page: number): Promise<SegmentIndex | null> {
   let sheets = cache.get(bytes);

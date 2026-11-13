@@ -96,21 +96,25 @@ export class SaveWriteError extends Error {
   }
 }
 
+/**
+ * Ask for write access if it isn't granted yet. Chrome only allows the prompt shortly
+ * after a click or key press, so call this before any slow work.
+ */
+export async function requestWritePermission(handle: FileSystemFileHandle): Promise<boolean> {
+  const permissioned = handle as PermissionedFileHandle;
+  if (!permissioned.queryPermission || !permissioned.requestPermission) return true;
+  const descriptor = { mode: "readwrite" } as const;
+  if ((await permissioned.queryPermission(descriptor)) === "granted") return true;
+  return (await permissioned.requestPermission(descriptor)) === "granted";
+}
+
 /** Overwrite an existing file handle, asking for write access only if it isn't granted yet. */
 export async function writeBlobToHandle(
   handle: FileSystemFileHandle,
   blob: Blob,
 ): Promise<void> {
-  const permissioned = handle as PermissionedFileHandle;
-  if (permissioned.queryPermission && permissioned.requestPermission) {
-    const descriptor = { mode: "readwrite" } as const;
-    let permission = await permissioned.queryPermission(descriptor);
-    if (permission !== "granted") {
-      permission = await permissioned.requestPermission(descriptor);
-    }
-    if (permission !== "granted") {
-      throw new SavePermissionError(handle.name);
-    }
+  if (!(await requestWritePermission(handle))) {
+    throw new SavePermissionError(handle.name);
   }
 
   try {

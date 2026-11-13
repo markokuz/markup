@@ -2,6 +2,7 @@ import type { Dispatch } from "react";
 import type { AppAction, DocumentTab, Unit } from "@/app/types";
 import { buildProjectBlob, getProjectFileName } from "@/app/utils/projectFile";
 import {
+  requestWritePermission,
   saveBlobAs,
   SavePermissionError,
   SaveWriteError,
@@ -88,6 +89,11 @@ async function saveTab(
       fileBytes: bytes,
     });
 
+  const linked = tab.projectHandle;
+  // Ask before building the PDF: Chrome refuses the prompt once the key press is a few seconds old.
+  const permission = mode === "save" && linked ? requestWritePermission(linked) : null;
+  permission?.catch(() => {}); // awaited below; this only silences an early unhandled rejection
+
   // The saved file becomes the one this tab edits: later Ctrl+S saves go to it.
   const adopt = (handle: FileSystemFileHandle) =>
     dispatch({
@@ -99,6 +105,7 @@ async function saveTab(
     });
 
   const writeToLinkedFile = async (handle: FileSystemFileHandle, blob: Blob) => {
+    if (permission && !(await permission)) throw new SavePermissionError(handle.name);
     await writeBlobToHandle(handle, blob);
     dispatch({ type: "MARK_TAB_SAVED", tabId: tab.id, saved: tab });
     return handle.name;
@@ -112,7 +119,6 @@ async function saveTab(
     return result.handle?.name ?? suggestedName;
   };
 
-  const linked = tab.projectHandle;
   if (mode === "save-project-as") {
     return saveAs(
       projectBlob(fileBytes),

@@ -10,6 +10,7 @@ import { ImportPagesDialog } from "@/app/components/ImportPagesDialog";
 import { PdfViewer } from "@/app/components/PdfCanvas";
 import { SideToolbar } from "@/app/components/SideToolbar";
 import { StatusBar, Toolbar } from "@/app/components/Toolbar";
+import { ToolOptionsBar } from "@/app/components/ToolOptionsBar";
 import { UnsavedChangesDialog } from "@/app/components/UnsavedChangesDialog";
 import { buildPaste, copySelection, duplicateSelection, hasClipboardContent } from "@/app/utils/clipboard";
 import { openDroppedFiles } from "@/app/utils/openFile";
@@ -332,6 +333,7 @@ function MarkupShell() {
       )}
       <Toolbar />
       <DocumentTabs />
+      <ToolOptionsBar />
       <div className="flex min-h-0 flex-1">
         <SideToolbar />
         {/* A fresh viewer per sheet: nothing about one page's view carries over to the next. */}

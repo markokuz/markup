@@ -50,7 +50,7 @@ export function ScalePresetMenu() {
         aria-label="Set a standard scale"
         title="Set a standard scale, like 1/4&quot; = 1'-0&quot;"
         onClick={() => setOpen((was) => !was)}
-        className="flex w-7 items-center justify-center rounded-r-[7px] border-l border-border text-text-secondary transition hover:bg-surface-muted hover:text-text-primary"
+        className="flex w-7 items-center justify-center rounded-r-[3px] border-l border-border text-text-secondary transition hover:bg-surface-muted hover:text-text-primary"
       >
         <svg aria-hidden viewBox="0 0 12 12" className="h-3.5 w-3.5">
           <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />

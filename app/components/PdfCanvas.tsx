@@ -568,7 +568,7 @@ export function PdfViewer() {
       <div
         ref={scrollRef}
         // The markup layer sets its own cursor, so the pan cursor has to outrank it.
-        className={`h-full w-full overflow-auto bg-canvas-bg p-6 ${
+        className={`h-full w-full canvas-grid overflow-auto bg-canvas-bg p-6 ${
           isPanning ? "[&_*]:cursor-grabbing!" : spaceHeld ? "[&_*]:cursor-grab!" : ""
         }`}
         style={{ cursor: panCursor }}

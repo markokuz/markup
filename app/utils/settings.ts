@@ -95,7 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snapToleranceDeg: 5,
   showCalibrationLine: true,
   snapRotation: true,
-  darkMode: false,
+  darkMode: true,
 };
 
 export function isColorTool(tool: string): tool is ColorTool {

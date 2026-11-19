@@ -1,190 +1,53 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { AreaMode, CloudMode, DrawMode, EraseMode, ShapeMode, ToolMode } from "@/app/types";
+import type { ToolMode } from "@/app/types";
 import { FloatingMenu } from "@/app/components/FloatingMenu";
 import { ScrollHint, useScrollHints } from "@/app/components/ScrollHint";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
-import { showSaveStatus } from "@/app/utils/saveStatus";
 
-export const SIDE_TOOLS: { id: ToolMode; label: string; hint: string }[] = [
-  { id: "select", label: "Select", hint: "Move and edit measurements" },
-  { id: "measure", label: "Line", hint: "Draw dimension lines" },
+export const SIDE_TOOLS: { id: ToolMode; label: string; hint: string; group: string }[] = [
+  { id: "select", group: "Navigate", label: "Select", hint: "Move and edit measurements" },
+  { id: "pan", group: "Navigate", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
+  { id: "measure", group: "Measure", label: "Line", hint: "Draw dimension lines" },
   {
     id: "area",
+    group: "Measure",
     label: "Area",
     hint: "Click corners to measure area and perimeter. Double-click, Enter, or click the first point to finish",
   },
   {
     id: "polyline",
+    group: "Measure",
     label: "Run",
     hint: "Click along a wall, pipe or conduit run to measure its total length. Double-click or Enter to finish",
   },
   {
     id: "count",
+    group: "Measure",
     label: "Count",
     hint: "Click each item to count it. Press Enter or Esc to start a new count",
   },
-  { id: "rectangle", label: "Rect", hint: "Click two corners to draw a rectangle. Hold Shift for a square" },
-  { id: "shape", label: "Shapes", hint: "Ellipse, arrow or polygon. Right-click one to make it dashed" },
-  { id: "cloud", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
-  { id: "draw", label: "Draw", hint: "Drag to draw freehand" },
-  { id: "highlight", label: "Highlight", hint: "Drag to highlight. Hold Shift for a straight line" },
-  { id: "callout", label: "Callout", hint: "Click the point to call out, then where the text goes" },
-  { id: "text", label: "Text", hint: "Free text or a note card. Double-click text to edit it" },
+  { id: "rectangle", group: "Markup", label: "Rect", hint: "Click two corners to draw a rectangle. Hold Shift for a square" },
+  { id: "shape", group: "Markup", label: "Shapes", hint: "Ellipse, arrow or polygon. Right-click one to make it dashed" },
+  { id: "cloud", group: "Markup", label: "Cloud", hint: "Click two corners to draw a revision cloud" },
+  { id: "draw", group: "Markup", label: "Draw", hint: "Drag to draw freehand" },
+  { id: "highlight", group: "Markup", label: "Highlight", hint: "Drag to highlight. Hold Shift for a straight line" },
+  { id: "callout", group: "Markup", label: "Callout", hint: "Click the point to call out, then where the text goes" },
+  { id: "text", group: "Markup", label: "Text", hint: "Free text or a note card. Double-click text to edit it" },
   {
     id: "snapshot",
+    group: "Edit",
     label: "Snap",
     hint: "Click two corners to copy that part of the drawing, background removed. Paste with Ctrl+V",
   },
   {
     id: "erase",
+    group: "Edit",
     label: "Erase",
     hint: "Remove part of the PDF; it is copied too, so Ctrl+V pastes it. Markups are not erased",
   },
-  { id: "pan", label: "Pan", hint: "Drag to move, or hold middle mouse button" },
 ];
-
-interface ModeOption<T extends string> {
-  id: T;
-  label: string;
-  hint: string;
-}
-
-const AREA_MODES: ModeOption<AreaMode>[] = [
-  {
-    id: "add",
-    label: "Add",
-    hint: "Click corners to measure a new area. Double-click, Enter, or click the first point to finish",
-  },
-  {
-    id: "cut",
-    label: "Cut out",
-    hint: "Click inside an area, then around the opening to subtract it. Double-click, Enter, or click the first point to finish",
-  },
-];
-
-const CLOUD_MODES: ModeOption<CloudMode>[] = [
-  { id: "rect", label: "Box", hint: "Click two corners for a rectangular cloud" },
-  { id: "freehand", label: "Draw", hint: "Drag to draw any outline; it is smoothed into a cloud" },
-];
-
-const ERASE_MODES: ModeOption<EraseMode>[] = [
-  { id: "rect", label: "Box", hint: "Click two corners of the area to erase" },
-  {
-    id: "polygon",
-    label: "Polygon",
-    hint: "Click corners around the area. Double-click, Enter, or click the first point to finish",
-  },
-  { id: "lasso", label: "Lasso", hint: "Drag around the area to erase" },
-];
-
-const SHAPE_MODES: ModeOption<ShapeMode>[] = [
-  { id: "ellipse", label: "Ellipse", hint: "Click two corners. Hold Shift for a circle" },
-  { id: "arrow", label: "Arrow", hint: "Click the start, then where the arrow points" },
-  {
-    id: "polygon",
-    label: "Polygon",
-    hint: "Click corners. Double-click, Enter, or click the first point to finish",
-  },
-];
-
-/** The Text button holds both text tools. */
-const TEXT_TOOLS: ModeOption<"text" | "note">[] = [
-  { id: "text", label: "Text", hint: "Click to type free text on the drawing" },
-  { id: "note", label: "Note", hint: "Click to add a note card" },
-];
-
-const LINE_MODES: ModeOption<DrawMode>[] = [
-  { id: "measure", label: "Measure", hint: "Dimension line with its length (needs a scale)" },
-  { id: "plain", label: "Plain", hint: "Plain markup line, no measurement" },
-];
-
-const RECT_MODES: ModeOption<DrawMode>[] = [
-  { id: "measure", label: "Measure", hint: "Rectangle labelled with width and height (needs a scale)" },
-  { id: "plain", label: "Plain", hint: "Plain markup box, no measurements" },
-];
-
-/**
- * Text box for the first count number. A controlled type="number" input keeps a
- * typed leading zero ("055"), so this edits a digits-only draft instead.
- */
-function CountStartInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
-  const [draft, setDraft] = useState(String(value));
-  const [lastValue, setLastValue] = useState(value);
-  // Follow outside changes, e.g. the reset to 1 when the Count tool is reopened.
-  if (value !== lastValue) {
-    setLastValue(value);
-    setDraft(String(value));
-  }
-
-  return (
-    <label
-      className="flex min-w-0 flex-col items-center gap-0.5 text-[9px] font-medium text-text-secondary"
-      title="Number for the first item in a new count. Resets to 1 when you reopen the Count tool."
-    >
-      Start #
-      <input
-        type="text"
-        inputMode="numeric"
-        value={draft}
-        onFocus={(event) => event.target.select()}
-        onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
-          setDraft(digits);
-          if (digits) {
-            const n = parseInt(digits, 10);
-            setLastValue(n);
-            onChange(n);
-          }
-        }}
-        onBlur={() => {
-          if (!draft) {
-            setDraft("1");
-            setLastValue(1);
-            onChange(1);
-          }
-        }}
-        className="w-full rounded border border-border bg-surface px-0.5 py-0.5 text-center text-[11px] text-text-primary"
-      />
-    </label>
-  );
-}
-
-/** Small stacked toggle shown under the active tool for its sub-options. */
-function ModeToggle<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: ModeOption<T>[];
-  value: T;
-  onChange: (mode: T) => void;
-}) {
-  return (
-    <div className="col-span-2 grid grid-cols-2 gap-0.5 rounded-lg bg-surface-muted p-0.5">
-      {options.map((mode, i) => (
-        <button
-          key={mode.id}
-          type="button"
-          title={mode.hint}
-          aria-pressed={value === mode.id}
-          onClick={() => onChange(mode.id)}
-          // An odd last option takes the whole row.
-          className={`rounded-md py-1 text-[9px] font-medium transition ${
-            i === options.length - 1 && i % 2 === 0 ? "col-span-2 " : ""
-          }${
-            value === mode.id
-              ? "bg-surface text-accent shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          {mode.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function SideToolbar() {
   const state = useAppState();
@@ -224,10 +87,6 @@ export function SideToolbar() {
 
   if (!state.fileBytes) return null;
 
-  const countInProgress = state.shapes.some(
-    (s) => s.id === state.drawingShapeId && s.kind === "count",
-  );
-
   const isActive = (tool: ToolMode) =>
     state.tool === tool || (tool === "text" && state.tool === "note");
 
@@ -249,107 +108,27 @@ export function SideToolbar() {
       active ? "bg-accent text-white shadow-sm" : "text-text-secondary hover:bg-surface-muted hover:text-text-primary"
     } disabled:pointer-events-none disabled:opacity-40`;
 
-  /** The picked tool's own options, across both columns of the row under it. */
-  const toolOptions = (tool: ToolMode) => {
-    if (tool === "text" && isActive("text")) {
-      return (
-        <ModeToggle
-          options={TEXT_TOOLS}
-          value={state.tool === "note" ? "note" : "text"}
-          onChange={(mode) => dispatch({ type: "SET_TOOL", tool: mode })}
-        />
-      );
-    }
-    if (tool !== state.tool) return null;
-    switch (tool) {
-      case "measure":
-        return (
-          <ModeToggle
-            options={LINE_MODES}
-            value={state.lineMode}
-            onChange={(mode) => dispatch({ type: "SET_LINE_MODE", mode })}
-          />
-        );
-      case "area":
-        return (
-          <ModeToggle
-            options={AREA_MODES}
-            value={state.areaMode}
-            onChange={(mode) => {
-              dispatch({ type: "SET_AREA_MODE", mode });
-              if (mode === "cut") {
-                showSaveStatus("info", "Click inside an area, then around the opening. Double-click or Enter to finish.");
-              }
-            }}
-          />
-        );
-      case "rectangle":
-        return (
-          <ModeToggle
-            options={RECT_MODES}
-            value={state.rectMode}
-            onChange={(mode) => dispatch({ type: "SET_RECT_MODE", mode })}
-          />
-        );
-      case "shape":
-        return (
-          <ModeToggle
-            options={SHAPE_MODES}
-            value={state.shapeMode}
-            onChange={(mode) => dispatch({ type: "SET_SHAPE_MODE", mode })}
-          />
-        );
-      case "erase":
-        return (
-          <ModeToggle
-            options={ERASE_MODES}
-            value={state.eraseMode}
-            onChange={(mode) => dispatch({ type: "SET_ERASE_MODE", mode })}
-          />
-        );
-      case "cloud":
-        return (
-          <ModeToggle
-            options={CLOUD_MODES}
-            value={state.cloudMode}
-            onChange={(mode) => dispatch({ type: "SET_CLOUD_MODE", mode })}
-          />
-        );
-      case "count":
-        return (
-          <div className="col-span-2 grid grid-cols-2 items-end gap-1 rounded-lg bg-surface-muted p-1">
-            <CountStartInput
-              value={state.countStart}
-              onChange={(start) => dispatch({ type: "SET_COUNT_START", start })}
-            />
-            <button
-              type="button"
-              title="Finish this count and start a new one on your next click (or press Enter)"
-              disabled={!countInProgress}
-              onClick={() => dispatch({ type: "FINISH_SHAPE" })}
-              className="rounded-md bg-surface py-1 text-[9px] font-medium text-accent shadow-sm transition hover:bg-accent hover:text-white disabled:bg-transparent disabled:text-text-muted disabled:shadow-none"
-            >
-              New
-            </button>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
-
   const activeHidden = hiddenTools.find((tool) => isActive(tool.id));
+  const visibleTools = SIDE_TOOLS.filter((tool) => !hidden.has(tool.id));
 
   return (
     <aside className="relative flex w-26 shrink-0 flex-col border-r border-border bg-surface">
       <div
         ref={scrollRef}
         onScroll={updateOverflow}
-        // Dense flow: a tool's options take the next full row, and the tool after it still fills the cell beside it.
-        className="grid min-h-0 flex-1 grid-flow-row-dense grid-cols-2 content-start gap-1 overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="grid min-h-0 flex-1 grid-cols-2 content-start gap-1 overflow-y-auto p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {SIDE_TOOLS.filter((tool) => !hidden.has(tool.id)).map((tool) => (
+        {visibleTools.map((tool, i) => (
           <Fragment key={tool.id}>
+            {tool.group !== visibleTools[i - 1]?.group && (
+              <div
+                className={`col-span-2 px-1 pb-0.5 text-[9px] font-medium uppercase tracking-widest ${
+                  i > 0 ? "mt-2 border-t border-border pt-2" : ""
+                } ${visibleTools.some((t) => t.group === tool.group && isActive(t.id)) ? "text-accent" : "text-text-muted"}`}
+              >
+                {tool.group}
+              </div>
+            )}
             <button
               type="button"
               title={hintWithKey(tool)}
@@ -360,7 +139,6 @@ export function SideToolbar() {
               <ToolIcon tool={shownIcon(tool.id)} />
               <span>{tool.id === "text" && state.tool === "note" ? "Note" : tool.label}</span>
             </button>
-            {toolOptions(tool.id)}
           </Fragment>
         ))}
         {hiddenTools.length > 0 && (
@@ -383,7 +161,6 @@ export function SideToolbar() {
               {activeHidden ? <ToolIcon tool={shownIcon(activeHidden.id)} /> : <MoreIcon />}
               <span>{activeHidden ? (state.tool === "note" ? "Note" : activeHidden.label) : "More"}</span>
             </button>
-            {activeHidden && toolOptions(activeHidden.id)}
           </>
         )}
       </div>

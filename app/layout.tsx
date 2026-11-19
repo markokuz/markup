@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Space_Grotesk } from "next/font/google";
 import { SETTINGS_KEY } from "@/app/utils/settings";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
 });
 
@@ -26,14 +26,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${spaceGrotesk.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
-        {/* Runs before first paint so a dark-mode reload doesn't flash white. */}
+        {/* Runs before first paint so a dark-mode reload doesn't flash white. Dark unless saved as light. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{if(JSON.parse(localStorage.getItem(${JSON.stringify(SETTINGS_KEY)})).darkMode)document.documentElement.dataset.theme="dark"}catch{}`,
+            __html: `var d=true;try{d=JSON.parse(localStorage.getItem(${JSON.stringify(SETTINGS_KEY)}))?.darkMode!==false}catch{}if(d)document.documentElement.dataset.theme="dark"`,
           }}
         />
       </head>

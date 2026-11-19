@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DocumentRotation, ShapeAnnotation, ToolMode, Unit } from "@/app/types";
+import type { DocumentRotation, ToolMode, Unit } from "@/app/types";
 import { useAppDispatch, useAppState } from "@/app/context/AppContext";
 import { supportsSaveFilePicker } from "@/app/utils/saveFilePicker";
-import { ColorWheel } from "@/app/components/ColorWheel";
 import { ScalePresetMenu } from "@/app/components/ScalePresetMenu";
 import { SettingsButton } from "@/app/components/SettingsDialog";
 import { SaveToast } from "@/app/components/SaveToast";
@@ -21,31 +20,12 @@ import {
   getRectHorizontalDocLength,
   getRectVerticalDocLength,
 } from "@/app/utils/dimensions";
-import {
-  DEFAULT_ANNOTATION_COLOR,
-  MARKUP_PALETTE,
-} from "@/app/utils/colors";
 import { viewerBridge } from "@/app/utils/viewerBridge";
 import { setZoomAnchor } from "@/app/utils/zoomAnchor";
 import { stepZoom } from "@/app/utils/zoomLevels";
-import { TEXT_DEFAULT_SIZE } from "@/app/utils/noteLayout";
 import { parsePageRanges } from "@/app/utils/pageRanges";
 import { fileLabel, nearestCalibratedSheet } from "@/app/utils/pages";
 import { showSaveStatus } from "@/app/utils/saveStatus";
-import {
-  areaOutline,
-  cutoutCount,
-  DRAW_DEFAULT_WIDTH,
-  DRAW_MAX_WIDTH,
-  HIGHLIGHT_DEFAULT_WIDTH,
-  HIGHLIGHT_MAX_WIDTH,
-  DRAW_MIN_WIDTH,
-  drawWidth,
-  ERASER_DEFAULT_SIZE,
-  ERASER_MAX_SIZE,
-  ERASER_MIN_SIZE,
-} from "@/app/utils/shapeMetrics";
-import { isColorTool } from "@/app/utils/settings";
 import { clearCalibrationPrompt, useCalibrationPrompt } from "@/app/utils/calibrationPrompt";
 
 /** How long the "set the scale first" popup stays under Calibrate. */
@@ -99,32 +79,6 @@ export function Toolbar() {
 
   const canChooseSaveLocation = supportsSaveFilePicker();
 
-  const zoomIn = () => {
-    setZoomAnchor("center");
-    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, 1) });
-  };
-  const zoomOut = () => {
-    setZoomAnchor("center");
-    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, -1) });
-  };
-
-  const fitView = (mode: "page" | "width") => {
-    const zoom = viewerBridge.getFitZoom?.(mode);
-    if (!zoom) return;
-    setZoomAnchor("center");
-    dispatch({ type: "SET_ZOOM", zoom });
-  };
-
-  const rotateCw = () => {
-    const next = ((state.rotation + 90) % 360) as DocumentRotation;
-    dispatch({ type: "SET_ROTATION", rotation: next });
-  };
-
-  const rotateCcw = () => {
-    const next = ((state.rotation + 270) % 360) as DocumentRotation;
-    dispatch({ type: "SET_ROTATION", rotation: next });
-  };
-
   return (
     <>
     <header className="relative z-30 border-b border-border bg-surface px-4 py-3">
@@ -169,7 +123,7 @@ export function Toolbar() {
               }}
               className={`px-3 text-sm font-medium transition disabled:opacity-40 ${
                 // Flat where it meets the scale menu's button on a PDF.
-                state.fileType === "pdf" ? "rounded-l-[7px]" : "rounded-[7px]"
+                state.fileType === "pdf" ? "rounded-l-[3px]" : "rounded-[3px]"
               } ${
                 state.tool === tool.id
                   ? "bg-accent text-white shadow-sm"
@@ -218,107 +172,9 @@ export function Toolbar() {
           </button>
         </div>
 
-        {state.tool === "select" && state.selectedIds.length >= 2 && (
-          <button
-            type="button"
-            title="Line up the selected items"
-            aria-pressed={!!state.aligning}
-            onClick={() =>
-              dispatch({ type: "SET_ALIGNING", aligning: state.aligning ? null : { anchorId: null } })
-            }
-            className={`flex h-9 items-center gap-1.5 rounded-lg border bg-surface px-2.5 text-xs transition hover:bg-surface-muted ${
-              state.aligning ? "border-accent text-accent" : "border-border text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
-              <path d="M8 1.5v13" />
-              <rect x="3.5" y="3.5" width="9" height="3" rx="0.75" />
-              <rect x="5" y="9.5" width="6" height="3" rx="0.75" />
-            </svg>
-            Align
-          </button>
-        )}
-
         <SaveToast />
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">
-            <button
-              type="button"
-              onClick={zoomOut}
-              disabled={!state.fileBytes}
-              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-              aria-label="Zoom out"
-            >
-              −
-            </button>
-            <span className="min-w-14 self-center text-center font-mono text-xs text-text-secondary">
-              {Math.round(state.zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={zoomIn}
-              disabled={!state.fileBytes}
-              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-              aria-label="Zoom in"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              onClick={() => fitView("page")}
-              disabled={!state.fileBytes}
-              className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-              aria-label="Fit page"
-              title="Fit page (Ctrl+0)"
-            >
-              <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="3.5" width="8" height="9" rx="1" />
-                <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={() => fitView("width")}
-              disabled={!state.fileBytes}
-              className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-              aria-label="Fit width"
-              title="Fit width (Ctrl+2)"
-            >
-              <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1.5 3v10M14.5 3v10M4 8h8M6 6 4 8l2 2M10 6l2 2-2 2" />
-              </svg>
-            </button>
-          </div>
-
-          {state.fileBytes && (
-            <div className="flex h-9 overflow-hidden rounded-lg border border-border bg-surface">
-              <button
-                type="button"
-                onClick={rotateCcw}
-                disabled={!state.fileBytes}
-                className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-                aria-label="Rotate counter-clockwise"
-                title="Rotate view left"
-              >
-                ↺
-              </button>
-              <span className="min-w-10 self-center text-center font-mono text-xs text-text-secondary">
-                {state.rotation}°
-              </span>
-              <button
-                type="button"
-                onClick={rotateCw}
-                disabled={!state.fileBytes}
-                className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
-                aria-label="Rotate clockwise"
-                title="Rotate view right"
-              >
-                ↻
-              </button>
-            </div>
-          )}
-
           <div ref={saveMenuRef} className="relative flex h-9">
             <button
               type="button"
@@ -548,75 +404,30 @@ export function StatusBar() {
       ? state.rectangles.find((r) => r.id === state.selectedIds[0])
       : undefined;
 
-  const colorableIds = state.selectedIds.filter((id) => {
-    const measurement = state.measurements.find((m) => m.id === id);
-    return !measurement?.isCalibration;
-  });
-
-  const selectedAnnotations = [
-    ...state.measurements.filter((m) => colorableIds.includes(m.id)),
-    ...state.rectangles.filter((r) => colorableIds.includes(r.id)),
-    ...state.notes.filter((n) => colorableIds.includes(n.id)),
-    ...state.shapes.filter((sh) => colorableIds.includes(sh.id)),
-  ];
-  const selectedSnapshotIds = state.shapes
-    .filter((sh) => sh.kind === "image" && colorableIds.includes(sh.id))
-    .map((sh) => sh.id);
-  const selectedTexts = state.shapes.filter(
-    (sh) => sh.kind === "text" && state.selectedIds.includes(sh.id),
-  );
-  // With the Text tool and nothing selected, these set the style of the next text placed.
-  const showTextStyle = selectedTexts.length > 0 || (state.tool === "text" && colorableIds.length === 0);
-  const textSize = Math.round(selectedTexts[0]?.fontSize ?? state.settings.textSize ?? TEXT_DEFAULT_SIZE);
-  const textBold = selectedTexts.length > 0 ? selectedTexts.every((s) => s.bold) : Boolean(state.settings.textBold);
-  const textItalic = selectedTexts.length > 0 ? selectedTexts.every((s) => s.italic) : Boolean(state.settings.textItalic);
-  const updateTexts = (updates: Partial<(typeof selectedTexts)[0]>) => {
-    if (selectedTexts.length === 0) return;
-    dispatch({ type: "RECORD_UNDO" });
-    for (const shape of selectedTexts) {
-      dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates });
-    }
+  const zoomIn = () => {
+    setZoomAnchor("center");
+    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, 1) });
   };
-  const setTextSize = (size: number) => {
-    if (!Number.isFinite(size) || size <= 0) return;
-    const fontSize = Math.min(size, 2000);
-    updateTexts({ fontSize });
-    dispatch({ type: "UPDATE_SETTINGS", patch: { textSize: fontSize } });
+  const zoomOut = () => {
+    setZoomAnchor("center");
+    dispatch({ type: "SET_ZOOM", zoom: stepZoom(state.zoom, -1) });
   };
-  // Keeps focus in a text box being typed, which would otherwise end the edit (and drop an empty box).
-  const keepTextFocus = (event: React.MouseEvent) => event.preventDefault();
 
-  const selectedDrawings = state.shapes.filter(
-    (sh) => sh.kind === "draw" && state.selectedIds.includes(sh.id),
-  );
-  const drawTool = state.tool === "draw" || state.tool === "highlight";
-  // Selected strokes, or the Draw/Highlight tool's width for new strokes when nothing is selected.
-  const showDrawWidth =
-    selectedDrawings.length > 0 || (colorableIds.length === 0 && drawTool);
+  const fitView = (mode: "page" | "width") => {
+    const zoom = viewerBridge.getFitZoom?.(mode);
+    if (!zoom) return;
+    setZoomAnchor("center");
+    dispatch({ type: "SET_ZOOM", zoom });
+  };
 
-  const sharedColor =
-    selectedAnnotations.length > 0 &&
-    selectedAnnotations.every(
-      (annotation) =>
-        (annotation.color ?? DEFAULT_ANNOTATION_COLOR) ===
-        (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR),
-    )
-      ? (selectedAnnotations[0].color ?? DEFAULT_ANNOTATION_COLOR)
-      : null;
+  const rotateCw = () => {
+    const next = ((state.rotation + 90) % 360) as DocumentRotation;
+    dispatch({ type: "SET_ROTATION", rotation: next });
+  };
 
-  // With nothing selected, the palette sets the colour of the tool in hand (for this tab).
-  const paletteTool = colorableIds.length === 0 && isColorTool(state.tool) ? state.tool : null;
-  const paletteColor = paletteTool
-    ? (state.toolColors[paletteTool] ?? state.settings.toolColors[paletteTool])
-    : sharedColor;
-
-  const applyColor = (color: string, recordUndo = true) => {
-    if (paletteTool) {
-      dispatch({ type: "SET_TAB_TOOL_COLOR", tool: paletteTool, color });
-      return;
-    }
-    if (colorableIds.length === 0) return;
-    dispatch({ type: "SET_ANNOTATION_COLOR", ids: colorableIds, color, recordUndo });
+  const rotateCcw = () => {
+    const next = ((state.rotation + 270) % 360) as DocumentRotation;
+    dispatch({ type: "SET_ROTATION", rotation: next });
   };
 
   const selectedLineLabel =
@@ -653,19 +464,14 @@ export function StatusBar() {
         )}`
       : null;
 
-  const selectedArea =
-    state.selectedIds.length === 1
-      ? state.shapes.find((s) => s.id === state.selectedIds[0] && s.kind === "area" && !s.locked)
-      : undefined;
-
   const lineCount = state.measurements.filter((m) => !m.isCalibration).length;
   const rectCount = state.rectangles.length;
   const noteCount = state.notes.length;
   const totalCount = lineCount + rectCount + noteCount + state.shapes.length;
 
   return (
-    <footer className="relative z-20 flex flex-wrap items-center gap-4 border-t border-border bg-surface px-4 py-2 text-sm">
-      <div className="text-text-secondary">
+    <footer className="relative z-20 flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-surface px-4 py-1 text-sm">
+      <div className="max-w-80 truncate text-text-secondary" title={state.fileName ?? undefined}>
         {state.fileName}
         {totalCount > 0 && (
           <span className="ml-2 text-text-muted">
@@ -691,167 +497,6 @@ export function StatusBar() {
           <span className="font-mono text-accent">
             Selected: {selectedRectLabel}
           </span>
-        )}
-
-        {selectedArea && cutoutCount(selectedArea) > 0 && (
-          <button
-            type="button"
-            title="Fill this area's cutouts back in"
-            onClick={() => {
-              dispatch({ type: "RECORD_UNDO" });
-              dispatch({
-                type: "UPDATE_SHAPE",
-                id: selectedArea.id,
-                updates: { points: areaOutline(selectedArea), breaks: undefined },
-              });
-            }}
-            className="rounded border border-border px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-          >
-            Remove cutouts
-          </button>
-        )}
-
-        {showTextStyle && (
-          <div
-            className="flex items-center gap-1"
-            aria-label="Text style"
-            title={selectedTexts.length === 0 ? "Style for the next text you place" : undefined}
-          >
-            <span className="mr-1 text-text-muted">Size</span>
-            <button
-              type="button"
-              title="Smaller text"
-              onMouseDown={keepTextFocus}
-              onClick={() => setTextSize(Math.max(1, textSize - (textSize > 20 ? 4 : 1)))}
-              className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
-            >
-              −
-            </button>
-            <input
-              key={textSize}
-              type="number"
-              min={1}
-              defaultValue={textSize}
-              aria-label="Text size"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") setTextSize(Number(event.currentTarget.value));
-              }}
-              onBlur={(event) => {
-                if (Number(event.currentTarget.value) !== textSize) setTextSize(Number(event.currentTarget.value));
-              }}
-              className="input-field w-14 px-1.5 py-0.5 text-center text-xs"
-            />
-            <button
-              type="button"
-              title="Bigger text"
-              onMouseDown={keepTextFocus}
-              onClick={() => setTextSize(textSize + (textSize >= 20 ? 4 : 1))}
-              className="rounded border border-border px-1.5 py-0.5 text-xs hover:bg-surface-muted"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              title="Bold"
-              aria-pressed={textBold}
-              onMouseDown={keepTextFocus}
-              onClick={() => {
-                updateTexts({ bold: !textBold });
-                dispatch({ type: "UPDATE_SETTINGS", patch: { textBold: !textBold } });
-              }}
-              className={`ml-1 rounded border px-1.5 py-0.5 text-xs font-bold ${
-                textBold ? "border-accent text-accent" : "border-border"
-              }`}
-            >
-              B
-            </button>
-            <button
-              type="button"
-              title="Italic"
-              aria-pressed={textItalic}
-              onMouseDown={keepTextFocus}
-              onClick={() => {
-                updateTexts({ italic: !textItalic });
-                dispatch({ type: "UPDATE_SETTINGS", patch: { textItalic: !textItalic } });
-              }}
-              className={`rounded border px-1.5 py-0.5 text-xs italic ${
-                textItalic ? "border-accent text-accent" : "border-border"
-              }`}
-            >
-              I
-            </button>
-          </div>
-        )}
-
-        {(drawTool || showDrawWidth) && (
-          <div className="flex items-center gap-3">
-            {drawTool && (
-              <button
-                type="button"
-                title={
-                  state.drawEraser
-                    ? "Eraser on: drag over drawings to rub them out. Click to draw again"
-                    : "Eraser: drag over drawings to rub out parts of them"
-                }
-                aria-label="Eraser"
-                aria-pressed={state.drawEraser}
-                onClick={() => dispatch({ type: "SET_DRAW_ERASER", on: !state.drawEraser })}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition ${
-                  state.drawEraser
-                    ? "border-accent bg-accent text-white"
-                    : "border-border text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-                }`}
-              >
-                <EraserIcon />
-                Eraser
-              </button>
-            )}
-            {showDrawWidth && (
-              <DrawWidthSlider
-                drawings={selectedDrawings}
-                eraser={drawTool && state.drawEraser}
-              />
-            )}
-          </div>
-        )}
-
-        {(colorableIds.length > 0 || paletteTool) && (
-          <div className="flex items-center gap-2">
-            <span className="text-text-muted">{paletteTool ? "Tool color" : "Color"}</span>
-            <div className="flex items-center gap-1">
-              {MARKUP_PALETTE.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  title={`Set color ${color}`}
-                  onClick={() => applyColor(color)}
-                  className={`h-5 w-5 rounded-full border-2 transition hover:scale-110 ${
-                    paletteColor === color
-                      ? "border-text-primary"
-                      : "border-border"
-                  }`}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
-              <ColorWheel
-                value={paletteColor ?? DEFAULT_ANNOTATION_COLOR}
-                onChange={(color, recordUndo) => applyColor(color, recordUndo)}
-              />
-              {selectedSnapshotIds.length > 0 && (
-                <button
-                  type="button"
-                  title="Show the snapshot in its original colours"
-                  onClick={() =>
-                    // "" clears the tint; only snapshots treat an empty colour as "original".
-                    dispatch({ type: "SET_ANNOTATION_COLOR", ids: selectedSnapshotIds, color: "" })
-                  }
-                  className="ml-1 rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-muted hover:text-text-primary"
-                >
-                  Original
-                </button>
-              )}
-            </div>
-          </div>
         )}
 
         <div className="flex items-center gap-1 text-xs text-text-muted" role="group" aria-label="Snapping">
@@ -924,37 +569,80 @@ export function StatusBar() {
           </select>
         </label>
 
-        {state.selectedIds.length > 0 && (
+        <div className="flex h-7 overflow-hidden rounded-md border border-border bg-surface">
           <button
             type="button"
-            onClick={() => dispatch({ type: "DELETE_SELECTED" })}
-            className="rounded-md border border-red-300 px-2 py-1 text-red-600 transition hover:bg-red-50 dark:border-red-400/50 dark:text-red-400 dark:hover:bg-red-400/10"
+            onClick={zoomOut}
+            disabled={!state.fileBytes}
+            className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+            aria-label="Zoom out"
           >
-            Delete{state.selectedIds.length > 1 ? ` (${state.selectedIds.length})` : ""}
+            −
           </button>
-        )}
-
-        {state.tool === "note" && (
-          <span className="text-text-muted">Click to place a note</span>
-        )}
-
-        {state.tool !== "pan" && state.tool !== "calibrate" && (
-          <span className="text-text-muted">
-            Magnifier {state.loupeEnabled ? "on" : "off"} · press L to toggle
+          <span className="min-w-14 self-center text-center font-mono text-xs text-text-secondary">
+            {Math.round(state.zoom * 100)}%
           </span>
-        )}
+          <button
+            type="button"
+            onClick={zoomIn}
+            disabled={!state.fileBytes}
+            className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => fitView("page")}
+            disabled={!state.fileBytes}
+            className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+            aria-label="Fit page"
+            title="Fit page (Ctrl+0)"
+          >
+            <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="3.5" width="8" height="9" rx="1" />
+              <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => fitView("width")}
+            disabled={!state.fileBytes}
+            className="flex w-8 items-center justify-center border-l border-border text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+            aria-label="Fit width"
+            title="Fit width (Ctrl+2)"
+          >
+            <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1.5 3v10M14.5 3v10M4 8h8M6 6 4 8l2 2M10 6l2 2-2 2" />
+            </svg>
+          </button>
+        </div>
 
-        {state.tool === "select" && state.selectedIds.length === 0 && (
-          <span className="text-text-muted">
-            Drag to select · Ctrl+click to toggle · click a label to edit dimensions
-          </span>
-        )}
-
-        {state.tool === "select" && state.selectedIds.length >= 2 && state.aligning && (
-          <span className="text-text-muted">
-            Click a dot to line up · click an item to hold it still · Esc to finish
-          </span>
-        )}
+          <div className="flex h-7 overflow-hidden rounded-md border border-border bg-surface">
+            <button
+              type="button"
+              onClick={rotateCcw}
+              disabled={!state.fileBytes}
+              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              aria-label="Rotate counter-clockwise"
+              title="Rotate view left"
+            >
+              ↺
+            </button>
+            <span className="min-w-10 self-center text-center font-mono text-xs text-text-secondary">
+              {state.rotation}°
+            </span>
+            <button
+              type="button"
+              onClick={rotateCw}
+              disabled={!state.fileBytes}
+              className="w-8 text-text-secondary transition hover:bg-surface-muted disabled:opacity-40"
+              aria-label="Rotate clockwise"
+              title="Rotate view right"
+            >
+              ↻
+            </button>
+          </div>
       </div>
     </footer>
   );
@@ -981,76 +669,3 @@ function HistoryArrow({ direction }: { direction: "back" | "forward" }) {
   );
 }
 
-/**
- * Line thickness slider beside the colours: sets the selected strokes, or with none
- * selected the Draw tool's width for new strokes. A whole drag is one undo step.
- */
-function EraserIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M9.5 2.5l4 4-6.5 6.5H4l-1.5-1.5a1.4 1.4 0 010-2z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path d="M6 6l4 4M7 13h6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function DrawWidthSlider({ drawings, eraser }: { drawings: ShapeAnnotation[]; eraser: boolean }) {
-  const state = useAppState();
-  const dispatch = useAppDispatch();
-  const undoRecorded = useRef(false);
-  // Highlights keep their own, wider width.
-  const highlight = drawings[0] ? Boolean(drawings[0].highlight) : state.tool === "highlight";
-  const value = eraser
-    ? (state.settings.eraserSize ?? ERASER_DEFAULT_SIZE)
-    : drawings[0]
-      ? drawWidth(drawings[0])
-      : highlight
-        ? (state.settings.highlightWidth ?? HIGHLIGHT_DEFAULT_WIDTH)
-        : (state.settings.drawWidth ?? DRAW_DEFAULT_WIDTH);
-
-  const setWidth = (width: number) => {
-    // With the eraser on, the slider sizes the eraser instead of the line.
-    if (eraser) {
-      dispatch({ type: "UPDATE_SETTINGS", patch: { eraserSize: width } });
-      return;
-    }
-    if (drawings.length > 0) {
-      if (!undoRecorded.current) {
-        dispatch({ type: "RECORD_UNDO" });
-        undoRecorded.current = true;
-      }
-      for (const shape of drawings) {
-        dispatch({ type: "UPDATE_SHAPE", id: shape.id, updates: { strokeWidth: width } });
-      }
-    }
-    dispatch({ type: "UPDATE_SETTINGS", patch: highlight ? { highlightWidth: width } : { drawWidth: width } });
-  };
-  const endChange = () => {
-    undoRecorded.current = false;
-  };
-
-  return (
-    <label className="flex items-center gap-2 text-text-muted" title={eraser ? "Eraser size" : "Line thickness"}>
-      {eraser ? "Size" : "Width"}
-      <input
-        type="range"
-        min={eraser ? ERASER_MIN_SIZE : DRAW_MIN_WIDTH}
-        max={eraser ? ERASER_MAX_SIZE : highlight ? HIGHLIGHT_MAX_WIDTH : DRAW_MAX_WIDTH}
-        step={1}
-        value={value}
-        aria-label={eraser ? "Eraser size in pixels" : "Line thickness in pixels"}
-        onChange={(event) => setWidth(Number(event.currentTarget.value))}
-        onPointerUp={endChange}
-        onKeyUp={endChange}
-        onBlur={endChange}
-        className="width-slider w-24"
-      />
-      <span className="w-10 font-mono text-xs text-text-primary">{value} px</span>
-    </label>
-  );
-}

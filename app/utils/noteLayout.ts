@@ -153,8 +153,8 @@ export function noteCardSize(text: string, cardWidth?: number): { width: number;
   const ctx = measureContext;
   const measure = (line: string) => {
     if (!ctx) return line.length * 7;
-    // The card's own font: it inherits the page's, so handles and arrows land on its real edge.
-    ctx.font = `${NOTE_CARD.fontSize}px ${getComputedStyle(document.body).fontFamily}`;
+    // The card's own font (pinned to the export font), so handles and arrows land on its real edge.
+    ctx.font = `${NOTE_CARD.fontSize}px ${TEXT_FONT_FAMILY}`;
     return ctx.measureText(line).width;
   };
   const lines = wrapNoteText(text || "Note", measure, noteTextWidth(cardWidth));

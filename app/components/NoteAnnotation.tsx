@@ -157,7 +157,7 @@ export function NoteAnnotation({
             autoFocus
             defaultValue={note.text}
             rows={1}
-            className="block resize-none rounded-md font-sans outline-none"
+            className="block resize-none rounded-md font-[Helvetica,Arial,sans-serif] outline-none"
             style={
               {
                 ...cardStyle,
@@ -191,7 +191,7 @@ export function NoteAnnotation({
           />
         ) : (
           <div
-            className="rounded-md font-sans whitespace-pre-wrap break-words"
+            className="rounded-md font-[Helvetica,Arial,sans-serif] whitespace-pre-wrap break-words"
             style={{
               ...cardStyle,
               width: note.width ?? "fit-content",

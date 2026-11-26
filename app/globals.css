@@ -4,16 +4,17 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --background: #f5f5f5;
-  --surface: #ffffff;
-  --surface-muted: #f2f2f2;
-  --border: #e5e5e5;
-  --text-primary: #1a1a1a;
-  --text-secondary: #666666;
-  --text-muted: #999999;
+  --background: #f3f3ef;
+  --surface: #fbfbf8;
+  --surface-muted: #ebebe6;
+  --border: #cbcbc4;
+  --text-primary: #141414;
+  --text-secondary: #575954;
+  --text-muted: #8a8c85;
   --accent: #ff5c00;
   --accent-hover: #e65200;
-  --canvas-bg: #e8e8e8;
+  --canvas-bg: #e4e4df;
+  --grid-line: rgb(20 20 20 / 0.07);
   --save: #059669;
   --save-hover: #047857;
   --foreground: var(--text-primary);
@@ -21,15 +22,16 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #141414;
-  --surface: #1f1f1f;
-  --surface-muted: #2c2c2c;
-  --border: #3d3d3d;
-  --text-primary: #f2f2f2;
-  --text-secondary: #bdbdbd;
-  --text-muted: #8f8f8f;
+  --background: #0e0e0e;
+  --surface: #151515;
+  --surface-muted: #222221;
+  --border: #3f3f3c;
+  --text-primary: #ebf0e4;
+  --text-secondary: #a3a69f;
+  --text-muted: #74776f;
   --accent-hover: #ff7a2e;
-  --canvas-bg: #0f0f0f;
+  --canvas-bg: #0a0a0a;
+  --grid-line: rgb(235 240 228 / 0.06);
 }
 
 @theme inline {
@@ -42,8 +44,13 @@
   --color-text-muted: var(--text-muted);
   --color-accent: var(--accent);
   --color-canvas-bg: var(--canvas-bg);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-geist-mono);
+  /* Square-ish corners; rounded-full stays round. */
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  --radius-2xl: 6px;
 }
 
 body {
@@ -56,7 +63,7 @@ body {
 }
 
 .btn-primary {
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   background: var(--accent);
   padding: 0.375rem 0.75rem;
   font-size: 0.875rem;
@@ -74,7 +81,7 @@ body {
 }
 
 .btn-secondary {
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
   padding: 0.375rem 0.75rem;
@@ -98,7 +105,7 @@ body {
 }
 
 .input-field {
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-primary);
@@ -110,7 +117,7 @@ body {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-/* Draw width slider: grey track in the label grey, white thumb. */
+/* Range sliders: thin track, hollow ring thumb that turns accent on hover and focus. */
 .width-slider {
   appearance: none;
   height: 1rem;
@@ -119,41 +126,67 @@ body {
 }
 
 .width-slider::-webkit-slider-runnable-track {
-  height: 4px;
+  height: 2px;
   border-radius: 9999px;
   background: var(--text-muted);
 }
 
 .width-slider::-moz-range-track {
-  height: 4px;
+  height: 2px;
   border-radius: 9999px;
   background: var(--text-muted);
 }
 
-.width-slider::-webkit-slider-thumb {
+input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 14px;
   height: 14px;
-  margin-top: -5px;
   border-radius: 9999px;
-  border: 1px solid var(--text-muted);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  border: 2px solid var(--text-primary);
+  background: var(--surface);
+  transition: border-color 150ms;
 }
 
-.width-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 9999px;
-  border: 1px solid var(--text-muted);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+.width-slider::-webkit-slider-thumb {
+  margin-top: -6px;
 }
 
-.width-slider:focus-visible {
+input[type="range"]::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  border: 2px solid var(--text-primary);
+  background: var(--surface);
+  transition: border-color 150ms;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb,
+input[type="range"]:active::-webkit-slider-thumb {
+  border-color: var(--accent);
+}
+
+input[type="range"]:hover::-moz-range-thumb,
+input[type="range"]:focus-visible::-moz-range-thumb,
+input[type="range"]:active::-moz-range-thumb {
+  border-color: var(--accent);
+}
+
+input[type="range"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 9999px;
+}
+
+/* Blueprint grid behind the drawing; "local" makes it pan with the page. */
+.canvas-grid {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  background-attachment: local;
 }
 
 /* Calibrate button pulses a few times when someone tries to measure without a scale. */
